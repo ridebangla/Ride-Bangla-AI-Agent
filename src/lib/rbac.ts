@@ -57,6 +57,7 @@ export const PERMISSIONS = {
   "webhooks:create": ["admin"],
   "webhooks:update": ["admin"],
   "webhooks:delete": ["admin"],
+  "webhooks:test": ["supervisor", "admin"],
 
   // Settings
   "settings:read": ["admin"],

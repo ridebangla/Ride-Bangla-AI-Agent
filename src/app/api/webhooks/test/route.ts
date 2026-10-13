@@ -1,7 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAuth, isAuthenticated } from "@/lib/route-auth";
+import { validateOutboundUrl } from "@/lib/ssrf";
+import { logger } from "@/lib/logger";
+
+// C-08: this endpoint was unauthenticated and fetched an admin-stored URL
+// with no SSRF protection — an unauthenticated SSRF proxy with a response
+// preview. Now: auth + webhooks:test permission + SSRF validation +
+// bounded response read + timeout.
+const TEST_TIMEOUT_MS = 10_000;
+const MAX_PREVIEW_CHARS = 1000;
+const MAX_READ_BYTES = 64 * 1024;
+
+async function readCappedText(res: Response): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        total += value.length;
+        if (total > MAX_READ_BYTES) break;
+        chunks.push(value);
+      }
+    }
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      // Reader already closed.
+    }
+  }
+  const merged = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return new TextDecoder().decode(merged);
+}
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAuth(request, "webhooks:test");
+  if (!isAuthenticated(auth)) return auth;
+
   try {
     const body = await request.json();
     const { webhookId } = body;
@@ -24,6 +69,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // SSRF: validate scheme/host + every resolved address before fetching.
+    const check = await validateOutboundUrl(webhook.url);
+    if (!check.ok) {
+      logger.warn("[Webhooks] Test blocked by SSRF validation", {
+        webhookId: webhook.id,
+        reason: check.error,
+      });
+      return NextResponse.json(
+        { error: `Webhook URL is not allowed: ${check.error}` },
+        { status: 400 }
+      );
+    }
+
     const testPayload = {
       event: webhook.triggerOn,
       test: true,
@@ -43,29 +101,36 @@ export async function POST(request: NextRequest) {
         ? (webhook.headers as Record<string, string>)
         : {}),
     };
+    // Never let a stored header override the request Host.
+    delete headers.host;
+    delete headers.Host;
 
-    const fetchOptions: RequestInit = {
-      method: webhook.method,
-      headers,
-    };
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
 
-    if (webhook.method !== "GET") {
-      fetchOptions.body = JSON.stringify(testPayload);
+    let response: Response;
+    try {
+      response = await fetch(webhook.url, {
+        method: webhook.method,
+        headers,
+        body: webhook.method !== "GET" ? JSON.stringify(testPayload) : undefined,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const response = await fetch(webhook.url, fetchOptions);
 
     let responseBody: string;
     try {
-      responseBody = await response.text();
+      responseBody = await readCappedText(response);
     } catch {
       responseBody = "(unable to read response body)";
     }
 
-    // Limit preview length
+    // Cap the preview returned to the caller.
     const bodyPreview =
-      responseBody.length > 1000
-        ? responseBody.slice(0, 1000) + "..."
+      responseBody.length > MAX_PREVIEW_CHARS
+        ? responseBody.slice(0, MAX_PREVIEW_CHARS) + "..."
         : responseBody;
 
     return NextResponse.json({

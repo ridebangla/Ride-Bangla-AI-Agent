@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { validateOutboundUrl } from "@/lib/ssrf";
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS = [5000, 30000, 300000]; // 5s, 30s, 5min
@@ -57,6 +58,29 @@ async function attemptDelivery(
   deliveryId: string,
   attempt = 1
 ): Promise<boolean> {
+  // C-08: SSRF blocklist applies to real deliveries too, not just the test
+  // endpoint. A blocked URL fails terminally (no retry — retrying a
+  // blocked target only re-probes the internal network).
+  const urlCheck = await validateOutboundUrl(webhook.url);
+  if (!urlCheck.ok) {
+    const blockedMessage = `Webhook URL blocked by SSRF validation: ${urlCheck.error}`;
+    await prisma.webhookDelivery.update({
+      where: { id: deliveryId },
+      data: {
+        status: "failed",
+        attempts: attempt,
+        lastError: blockedMessage,
+        statusCode: null,
+      },
+    });
+    logger.error("Webhook delivery blocked by SSRF validation", null, {
+      deliveryId,
+      webhookId: webhook.id,
+      event: "delivery_blocked_ssrf",
+    });
+    return false;
+  }
+
   const webhookSecret = process.env.WEBHOOK_SECRET || "";
   const signature = webhookSecret ? generateSignature(payload, webhookSecret) : "";
 
@@ -69,6 +93,9 @@ async function attemptDelivery(
       "User-Agent": "Owly-Webhook/1.0",
       ...webhook.headers,
     };
+    // Never let a stored header override the request Host.
+    delete headers.host;
+    delete headers.Host;
 
     if (signature) {
       headers["X-Owly-Signature"] = signature;
