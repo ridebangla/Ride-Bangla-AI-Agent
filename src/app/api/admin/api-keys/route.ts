@@ -4,11 +4,13 @@ import crypto from "crypto";
 import { logger } from "@/lib/logger";
 import { parsePagination, paginatedResponse } from "@/lib/pagination";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
-
-function maskKey(key: string): string {
-  if (key.length <= 8) return key;
-  return "*".repeat(key.length - 8) + key.slice(-8);
-}
+import {
+  DEFAULT_API_KEY_SCOPES,
+  hashApiKey,
+  keySuffixOf,
+  publicApiKey,
+  validateScopes,
+} from "@/lib/api-keys";
 
 function generateApiKey(): string {
   return "owly_" + crypto.randomBytes(32).toString("hex");
@@ -31,10 +33,8 @@ export async function GET(request: NextRequest) {
       prisma.apiKey.count(),
     ]);
 
-    const masked = keys.map((k) => ({
-      ...k,
-      key: maskKey(k.key),
-    }));
+    // Never return the stored hash; the `key` field is the masked display form.
+    const masked = keys.map((k) => publicApiKey(k));
 
     return NextResponse.json(paginatedResponse(masked, total, page, limit));
   } catch (error) {
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { name } = body;
+    const { name, scopes } = body;
 
     if (!name || typeof name !== "string" || name.trim().length === 0) {
       return NextResponse.json(
@@ -61,19 +61,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Per-key scopes (H-15). Omitted scopes default to the agent-role set —
+    // never full admin. Explicit scopes must be known permission strings.
+    let resolvedScopes: string[] = DEFAULT_API_KEY_SCOPES;
+    if (scopes !== undefined) {
+      const scopeError = validateScopes(scopes);
+      if (scopeError) {
+        return NextResponse.json({ error: scopeError }, { status: 400 });
+      }
+      resolvedScopes = scopes as string[];
+    }
+
     const fullKey = generateApiKey();
 
     const apiKey = await prisma.apiKey.create({
       data: {
         name: name.trim(),
-        key: fullKey,
+        // H-15: store ONLY the SHA-256 hash, never the full key.
+        keyHash: hashApiKey(fullKey),
+        keySuffix: keySuffixOf(fullKey),
+        scopes: resolvedScopes,
       },
     });
 
-    // Return full key only on creation
+    // Return the full key only on creation — it can never be retrieved again.
+    // The stored hash is never returned.
+    const { keyHash: _dropped, ...rest } = apiKey;
+    void _dropped;
     return NextResponse.json(
       {
-        ...apiKey,
+        ...rest,
         key: fullKey,
       },
       { status: 201 }

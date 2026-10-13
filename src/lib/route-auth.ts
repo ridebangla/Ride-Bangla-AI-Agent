@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
+import { hashApiKey } from "@/lib/api-keys";
 import { prisma } from "@/lib/prisma";
 
 interface AuthContext {
@@ -9,14 +10,18 @@ interface AuthContext {
   username: string;
   name: string;
   authMethod: "cookie" | "api_key";
+  /** API-key scope list. Empty for cookie auth (role permissions apply). */
+  scopes: string[];
 }
 
 /**
  * Authenticate via API key (X-API-Key header).
+ * Only the SHA-256 hash of the key is stored; the presented key is hashed
+ * and compared by hash. The key may only use permissions in its scope list.
  */
 async function authenticateApiKey(apiKey: string): Promise<AuthContext | null> {
   const key = await prisma.apiKey.findUnique({
-    where: { key: apiKey },
+    where: { keyHash: hashApiKey(apiKey) },
   });
 
   if (!key || !key.isActive) return null;
@@ -27,13 +32,14 @@ async function authenticateApiKey(apiKey: string): Promise<AuthContext | null> {
     data: { lastUsed: new Date() },
   }).catch(() => { /* fire and forget */ });
 
-  // API keys get admin-level access
   return {
     userId: "api-key:" + key.id,
-    role: "admin",
+    // API keys are NOT admins. Their authority is exactly their scope list.
+    role: "api_key",
     username: key.name,
     name: key.name,
     authMethod: "api_key",
+    scopes: key.scopes ?? [],
   };
 }
 
@@ -57,7 +63,7 @@ export async function requireAuth(
       );
     }
 
-    if (permission && !hasPermission(context.role, permission)) {
+    if (permission && !context.scopes.includes(permission)) {
       return NextResponse.json(
         { error: { code: "FORBIDDEN", message: "Insufficient permissions" } },
         { status: 403 }
@@ -110,6 +116,7 @@ export async function requireAuth(
     username: admin.username,
     name: admin.name,
     authMethod: "cookie",
+    scopes: [],
   };
 }
 

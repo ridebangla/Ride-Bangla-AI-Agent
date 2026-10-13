@@ -396,13 +396,18 @@ model BusinessHours {
 model ApiKey {
   id        String   @id @default(uuid())
   name      String
-  key       String   @unique
+  // H-15: ONLY the SHA-256 hash of the key is stored — never the full key.
+  // Existing plaintext keys are invalidated by the migration (see
+  // 20261013210000_api_key_hash_scopes) and must be re-created (rotation).
+  keyHash   String   @unique
+  // Last 8 chars of the key, for masked display only.
+  keySuffix String   @default("")
+  // Per-key permission scopes. A key may only use these permissions.
+  scopes    String[] @default([])
   isActive  Boolean  @default(true)
   lastUsed  DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([key])
 }
 
 // ==================== INTERNAL NOTES ====================
