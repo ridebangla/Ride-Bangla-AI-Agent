@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyToken } from "@/lib/auth";
+import { verifySessionToken } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
 import { hashApiKey } from "@/lib/api-keys";
 import { prisma } from "@/lib/prisma";
@@ -83,7 +83,7 @@ export async function requireAuth(
     );
   }
 
-  const payload = verifyToken(token);
+  const payload = await verifySessionToken(token);
   if (!payload) {
     return NextResponse.json(
       { error: { code: "INVALID_TOKEN", message: "Invalid or expired token" } },

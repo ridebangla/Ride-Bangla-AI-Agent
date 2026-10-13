@@ -109,7 +109,8 @@ describe("Auth Module", () => {
       expect(cookie.value).toBe("test-token-value");
       expect(cookie.httpOnly).toBe(true);
       expect(cookie.sameSite).toBe("lax");
-      expect(cookie.maxAge).toBe(60 * 60 * 24 * 7);
+      // M-53: access-token cookie is 1 hour (was 7 days).
+      expect(cookie.maxAge).toBe(60 * 60);
       expect(cookie.path).toBe("/");
     });
   });

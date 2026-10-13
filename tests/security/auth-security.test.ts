@@ -108,8 +108,8 @@ describe("Auth Security", () => {
     it("should set reasonable max age", async () => {
       const { setAuthCookie } = await import("@/lib/auth");
       const cookie = setAuthCookie("token-value");
-      // Max age should be 7 days = 604800 seconds
-      expect(cookie.maxAge).toBe(604800);
+      // M-53: access-token cookie is 1 hour = 3600 seconds (was 7 days).
+      expect(cookie.maxAge).toBe(3600);
     });
   });
 });

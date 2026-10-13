@@ -54,8 +54,23 @@ model Admin {
   password  String
   name      String   @default("Admin")
   role      String   @default("admin")
+  // M-53: persistent per-account login lockout (survives tab/IP changes).
+  failedLoginAttempts Int      @default(0)
+  lockedUntil         DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// M-53: JWT revocation list. Logout / refresh rotation insert the token's
+// `jti` here; verifySessionToken / verifyRefreshToken reject listed jtis.
+// Rows are only useful until the token's expiry — purge expired rows with
+// a periodic cleanup job (expiresAt index).
+model RevokedToken {
+  jti       String   @id
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
 }
 
 // ==================== KNOWLEDGE BASE ====================
