@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import { verifyJwtEdge } from "@/lib/edge-auth";
 
 const API_VERSION = "2026-04-07";
 
@@ -58,7 +59,7 @@ function getClientIp(request: NextRequest): string {
   );
 }
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const requestId = request.headers.get("x-request-id") || generateRequestId();
 
@@ -161,9 +162,16 @@ export function middleware(request: NextRequest) {
     return addHeaders(NextResponse.next(), requestId, apiRateInfo);
   }
 
-  // Verify JWT structure
-  const parts = (token || "").split(".");
-  if (parts.length !== 3) {
+  // Verify the JWT signature (C-07). Previously middleware only checked that
+  // the cookie had 3 dot-separated parts, so a forged `a.b.c` token passed.
+  // Signature verification here is an optimistic pre-filter; route handlers
+  // still enforce auth + permissions via requireAuth (incl. revocation),
+  // because middleware cannot query the database.
+  const payload = await verifyJwtEdge(
+    token || "",
+    process.env.JWT_SECRET || ""
+  );
+  if (!payload) {
     if (pathname.startsWith("/api/")) {
       return addHeaders(
         NextResponse.json(

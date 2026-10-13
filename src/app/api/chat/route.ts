@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chat, createNewConversation } from "@/lib/ai/engine";
 import { logger } from "@/lib/logger";
+import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 
 export async function POST(request: NextRequest) {
+  // C-07: /api/chat previously had no auth — anyone could burn LLM tokens
+  // and create conversations. Require an authenticated caller that may
+  // create messages.
+  const auth = await requireAuth(request, "messages:create");
+  if (!isAuthenticated(auth)) return auth;
+
   try {
     const body = await request.json();
     const { message, conversationId, channel, customerName, customerContact } = body;

@@ -33,7 +33,7 @@ describe("Middleware", () => {
     it("should allow /login without token", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/login");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.status).not.toBe(401);
       expect(response.headers.get("Location")).toBeNull();
@@ -42,7 +42,7 @@ describe("Middleware", () => {
     it("should allow /setup without token", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/setup");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.status).not.toBe(401);
     });
@@ -50,7 +50,7 @@ describe("Middleware", () => {
     it("should allow /api/auth without token", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/api/auth");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.status).not.toBe(401);
     });
@@ -58,7 +58,7 @@ describe("Middleware", () => {
     it("should allow /api/health without token", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/api/health");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.status).not.toBe(401);
     });
@@ -66,7 +66,7 @@ describe("Middleware", () => {
     it("should allow Twilio webhook paths without token", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/api/channels/phone/incoming");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.status).not.toBe(401);
     });
@@ -76,7 +76,7 @@ describe("Middleware", () => {
     it("should return 401 for API routes without token", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/api/conversations");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.status).toBe(401);
     });
@@ -84,22 +84,55 @@ describe("Middleware", () => {
     it("should redirect pages to /login without token", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/conversations");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.status).toBe(307);
       expect(response.headers.get("Location")).toContain("/login");
     });
 
-    it("should allow access with valid JWT format token", async () => {
+    it("should allow access with a correctly signed JWT", async () => {
+      const jwt = await import("jsonwebtoken");
       const { middleware } = await import("@/middleware");
-      // A proper 3-part JWT structure
+      // Signed with the real test secret from tests/setup.ts.
+      const realToken = jwt.sign(
+        { userId: "user-1", role: "admin" },
+        process.env.JWT_SECRET as string,
+        { expiresIn: "1h" }
+      );
+      const request = createMiddlewareRequest("/api/conversations", {
+        cookies: { "owly-token": realToken },
+      });
+      const response = await middleware(request);
+
+      expect(response.status).not.toBe(401);
+    });
+
+    it("should reject a forged JWT with valid shape but bad signature (C-07)", async () => {
+      const { middleware } = await import("@/middleware");
+      // Proper 3-part JWT structure, but the signature is fake.
       const fakeToken = "eyJhbGciOiJIUzI1NiJ9.eyJ0ZXN0IjoxfQ.signature";
       const request = createMiddlewareRequest("/api/conversations", {
         cookies: { "owly-token": fakeToken },
       });
-      const response = middleware(request);
+      const response = await middleware(request);
 
-      expect(response.status).not.toBe(401);
+      expect(response.status).toBe(401);
+    });
+
+    it("should reject a JWT signed with the wrong secret", async () => {
+      const jwt = await import("jsonwebtoken");
+      const { middleware } = await import("@/middleware");
+      const forged = jwt.sign(
+        { userId: "hacker", role: "admin" },
+        "wrong-secret",
+        { expiresIn: "1h" }
+      );
+      const request = createMiddlewareRequest("/api/conversations", {
+        cookies: { "owly-token": forged },
+      });
+      const response = await middleware(request);
+
+      expect(response.status).toBe(401);
     });
 
     it("should reject malformed token (not 3 parts)", async () => {
@@ -107,7 +140,7 @@ describe("Middleware", () => {
       const request = createMiddlewareRequest("/api/conversations", {
         cookies: { "owly-token": "not-a-jwt" },
       });
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.status).toBe(401);
     });
@@ -117,7 +150,7 @@ describe("Middleware", () => {
     it("should include X-Content-Type-Options header", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/api/health");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     });
@@ -125,7 +158,7 @@ describe("Middleware", () => {
     it("should include X-Frame-Options header", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/api/health");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.headers.get("X-Frame-Options")).toBe("DENY");
     });
@@ -133,7 +166,7 @@ describe("Middleware", () => {
     it("should include X-XSS-Protection header", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/api/health");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.headers.get("X-XSS-Protection")).toBe("1; mode=block");
     });
@@ -141,7 +174,7 @@ describe("Middleware", () => {
     it("should include Referrer-Policy header", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/api/health");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.headers.get("Referrer-Policy")).toBe(
         "strict-origin-when-cross-origin"
@@ -151,7 +184,7 @@ describe("Middleware", () => {
     it("should include Permissions-Policy header", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/api/health");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.headers.get("Permissions-Policy")).toContain("camera=()");
     });
@@ -165,7 +198,7 @@ describe("Middleware", () => {
         const request = createMiddlewareRequest("/api/auth", {
           headers: { "x-forwarded-for": "1.2.3.4" },
         });
-        const response = middleware(request);
+        const response = await middleware(request);
         expect(response.status).not.toBe(429);
       }
     });
@@ -178,14 +211,14 @@ describe("Middleware", () => {
         const request = createMiddlewareRequest("/api/auth", {
           headers: { "x-forwarded-for": "10.0.0.1" },
         });
-        middleware(request);
+        await middleware(request);
       }
 
       // 6th request should be blocked
       const request = createMiddlewareRequest("/api/auth", {
         headers: { "x-forwarded-for": "10.0.0.1" },
       });
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.status).toBe(429);
       expect(response.headers.get("Retry-After")).toBeDefined();
@@ -199,14 +232,14 @@ describe("Middleware", () => {
         const request = createMiddlewareRequest("/api/auth", {
           headers: { "x-forwarded-for": "192.168.1.1" },
         });
-        middleware(request);
+        await middleware(request);
       }
 
       // IP B should still be allowed
       const request = createMiddlewareRequest("/api/auth", {
         headers: { "x-forwarded-for": "192.168.1.2" },
       });
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.status).not.toBe(429);
     });
@@ -216,7 +249,7 @@ describe("Middleware", () => {
     it("should pass through _next paths", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/_next/static/chunk.js");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.status).toBe(200);
     });
@@ -224,7 +257,7 @@ describe("Middleware", () => {
     it("should pass through .png files", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/logo.png");
-      const response = middleware(request);
+      const response = await middleware(request);
 
       expect(response.status).toBe(200);
     });

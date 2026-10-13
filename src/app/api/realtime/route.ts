@@ -1,9 +1,15 @@
 import { NextRequest } from "next/server";
 import { subscribe } from "@/lib/realtime";
+import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  // C-07: the SSE feed previously let anyone subscribe to any channel
+  // (including `global`), disclosing live events. Require auth.
+  const auth = await requireAuth(request, "conversations:read");
+  if (!isAuthenticated(auth)) return auth;
+
   const channel = request.nextUrl.searchParams.get("channel") || "global";
 
   const stream = new ReadableStream({
