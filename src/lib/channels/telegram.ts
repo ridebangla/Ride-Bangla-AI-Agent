@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { chat, createNewConversation } from "@/lib/ai/engine";
 import { resolveCustomer } from "@/lib/customer-resolver";
@@ -27,6 +28,35 @@ async function getTelegramToken(): Promise<string> {
     select: { telegramBotToken: true },
   });
   return settings?.telegramBotToken || "";
+}
+
+async function getTelegramWebhookSecret(): Promise<string> {
+  const settings = await prisma.settings.findFirst({
+    select: { telegramWebhookSecret: true },
+  });
+  return settings?.telegramWebhookSecret || "";
+}
+
+/**
+ * Verify the `X-Telegram-Bot-Api-Secret-Token` header Telegram sends with
+ * every webhook update (H-16). Fail-closed: if no secret is configured in
+ * Settings, or the header is missing/mismatched, the update is rejected.
+ * The comparison is timing-safe.
+ *
+ * Operator setup (user action, once): generate a long random secret, store
+ * it in Settings as `telegramWebhookSecret` (Settings API), then register
+ * the webhook with the same secret — e.g. via `setupTelegramWebhook()` below
+ * or Telegram's setWebhook API with `secret_token`.
+ */
+export async function verifyTelegramSecretToken(
+  provided: string | null
+): Promise<boolean> {
+  const expected = await getTelegramWebhookSecret();
+  if (!expected || !provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 /**
@@ -101,10 +131,18 @@ async function sendTelegramMessage(
 
 /**
  * Set up Telegram webhook URL.
+ *
+ * When `secret` is provided it is sent as Telegram's `secret_token`, so
+ * Telegram includes it in the `X-Telegram-Bot-Api-Secret-Token` header of
+ * every update and the route can verify the update really came from
+ * Telegram. Pass the same secret stored in Settings as
+ * `telegramWebhookSecret`. Registering a webhook WITHOUT a secret leaves
+ * the inbound endpoint rejecting all updates (fail-closed).
  */
 export async function setupTelegramWebhook(
   botToken: string,
-  webhookUrl: string
+  webhookUrl: string,
+  secret?: string
 ): Promise<boolean> {
   try {
     const response = await fetch(
@@ -112,7 +150,10 @@ export async function setupTelegramWebhook(
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: webhookUrl }),
+        body: JSON.stringify({
+          url: webhookUrl,
+          ...(secret ? { secret_token: secret } : {}),
+        }),
       }
     );
 

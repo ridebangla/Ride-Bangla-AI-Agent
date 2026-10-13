@@ -39,6 +39,9 @@ model Settings {
   whatsappApiKey      String   @default("")
   whatsappPhone       String   @default("")
   telegramBotToken    String   @default("")
+  // H-16: secret Telegram sends as `secret_token` / `X-Telegram-Bot-Api-Secret-Token`.
+  // Inbound updates are rejected unless the header matches this value.
+  telegramWebhookSecret String @default("")
   createdAt           DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

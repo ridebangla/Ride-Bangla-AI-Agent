@@ -171,6 +171,11 @@ export const updateSettingsSchema = z.object({
   whatsappMode: z.string().max(50).optional(),
   whatsappApiKey: z.string().max(500).optional(),
   whatsappPhone: z.string().max(50).optional(),
+  // H-16: Telegram settings were missing from the update schema, so the
+  // bot token / webhook secret could never be set via the Settings API
+  // (strict mode rejected them). Both are secrets (masked on GET).
+  telegramBotToken: z.string().max(500).optional(),
+  telegramWebhookSecret: z.string().max(500).optional(),
 }).strict();
 
 // Canned Responses
