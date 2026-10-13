@@ -63,6 +63,14 @@ describe("Middleware", () => {
       expect(response.status).not.toBe(401);
     });
 
+    it("should require auth for /api/openapi.json (M-59)", async () => {
+      const { middleware } = await import("@/middleware");
+      const request = createMiddlewareRequest("/api/openapi.json");
+      const response = await middleware(request);
+
+      expect(response.status).toBe(401);
+    });
+
     it("should allow Twilio webhook paths without token", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/api/channels/phone/incoming");

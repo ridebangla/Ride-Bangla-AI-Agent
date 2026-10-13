@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
 
 const startTime = Date.now();
 
@@ -36,6 +37,20 @@ export async function GET() {
     checks.openai = "unreachable";
   }
 
+  const allHealthy = Object.values(checks).every(
+    (v) => v === "connected" || v === "reachable" || v === "not_configured"
+  );
+  const status = allHealthy ? "ok" : "degraded";
+
+  // M-59: /api/health was public AND leaked environment, version, memory,
+  // and DB/OpenAI status. Unauthenticated callers (and non-admin roles) now
+  // get only `{ status }` — enough for load balancers / uptime monitors,
+  // nothing useful to an attacker. Full details require an admin session.
+  const user = await getCurrentUser().catch(() => null);
+  if (user?.role !== "admin") {
+    return NextResponse.json({ status });
+  }
+
   // Uptime
   const uptimeMs = Date.now() - startTime;
   const uptimeSeconds = Math.floor(uptimeMs / 1000);
@@ -46,12 +61,8 @@ export async function GET() {
   // Memory
   const mem = process.memoryUsage();
 
-  const allHealthy = Object.values(checks).every(
-    (v) => v === "connected" || v === "reachable" || v === "not_configured"
-  );
-
   return NextResponse.json({
-    status: allHealthy ? "ok" : "degraded",
+    status,
     version: process.env.npm_package_version || "0.1.1",
     environment: process.env.NODE_ENV || "development",
     uptime: `${hours}h ${minutes}m ${seconds}s`,

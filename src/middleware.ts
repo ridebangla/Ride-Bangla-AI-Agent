@@ -79,8 +79,10 @@ export async function middleware(request: NextRequest) {
     return addHeaders(new NextResponse(null, { status: 204 }), requestId);
   }
 
-  // Public paths that don't require auth
-  const publicPaths = ["/login", "/setup", "/api/auth", "/api/health", "/api/openapi.json"];
+  // Public paths that don't require auth. NOTE: /api/openapi.json is NOT
+  // public (M-59 — admin-gated in its route); /api/health stays public but
+  // returns only `{ status }` to non-admins (M-59).
+  const publicPaths = ["/login", "/setup", "/api/auth", "/api/health"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   // Channel webhook endpoints (authenticated via provider signatures, not JWT)

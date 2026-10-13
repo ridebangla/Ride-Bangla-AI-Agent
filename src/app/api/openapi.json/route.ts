@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 
 const spec = {
   openapi: "3.0.3",
@@ -127,7 +128,7 @@ const spec = {
     "/stats": { get: { tags: ["Analytics"], summary: "Get summary statistics", responses: { "200": { description: "Stats overview" } } } },
     "/analytics": { get: { tags: ["Analytics"], summary: "Get detailed analytics", parameters: [{ name: "period", in: "query", schema: { type: "string", enum: ["7d", "30d", "90d"] } }], responses: { "200": { description: "Analytics data" } } } },
     "/export": { get: { tags: ["Analytics"], summary: "Export data (CSV/JSON)", parameters: [{ name: "type", in: "query", schema: { type: "string", enum: ["conversations", "tickets", "customers", "knowledge"] } }, { name: "format", in: "query", schema: { type: "string", enum: ["json", "csv"] } }, { name: "limit", in: "query", schema: { type: "integer", maximum: 50000 } }], responses: { "200": { description: "Exported data" } } } },
-    "/health": { get: { tags: ["System"], summary: "Health check with service status", security: [], responses: { "200": { description: "Service health including database, OpenAI, memory, uptime" } } } },
+    "/health": { get: { tags: ["System"], summary: "Health check (public: status only; admins get service details)", security: [], responses: { "200": { description: "Service health status; full details (database, OpenAI, memory, uptime) for admins only" } } } },
     "/openapi.json": { get: { tags: ["System"], summary: "OpenAPI specification", security: [], responses: { "200": { description: "This document" } } } },
   },
   components: {
@@ -169,11 +170,15 @@ const spec = {
   security: [{ cookieAuth: [] }],
 };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // M-59: the full API schema was public. Gate it to admins, and drop the
+  // `Access-Control-Allow-Origin: *` header (the spec is no longer public).
+  const auth = await requireAuth(request, "admin:read");
+  if (!isAuthenticated(auth)) return auth;
+
   return NextResponse.json(spec, {
     headers: {
-      "Cache-Control": "public, max-age=3600",
-      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "private, max-age=3600",
     },
   });
 }
