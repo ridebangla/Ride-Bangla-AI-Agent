@@ -95,6 +95,8 @@ describe("Security Utilities", () => {
         twilioToken: "twilio-token",
         elevenLabsKey: "el-key",
         whatsappApiKey: "wa-key",
+        telegramBotToken: "tg-bot-token",
+        telegramWebhookSecret: "tg-webhook-secret",
       };
 
       const masked = maskSettingsSecrets(settings);
