@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
+import { validateOutboundUrl } from "@/lib/ssrf";
 
 export async function GET(
   request: NextRequest,
@@ -54,6 +55,21 @@ export async function PUT(
 
     if (url && typeof url === "string" && !url.startsWith("http")) {
       return NextResponse.json({ error: "URL must start with http:// or https://" }, { status: 400 });
+    }
+
+    // M-54: SSRF validation on webhook URL update (same as create).
+    if (url && typeof url === "string") {
+      const urlCheck = await validateOutboundUrl(url);
+      if (!urlCheck.ok) {
+        logger.warn("[Webhooks] Update blocked by SSRF validation", {
+          webhookId: id,
+          reason: urlCheck.error,
+        });
+        return NextResponse.json(
+          { error: `Webhook URL is not allowed: ${urlCheck.error}` },
+          { status: 400 }
+        );
+      }
     }
 
     const webhook = await prisma.webhook.update({

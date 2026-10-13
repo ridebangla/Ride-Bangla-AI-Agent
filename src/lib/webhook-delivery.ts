@@ -82,7 +82,33 @@ async function attemptDelivery(
   }
 
   const webhookSecret = process.env.WEBHOOK_SECRET || "";
-  const signature = webhookSecret ? generateSignature(payload, webhookSecret) : "";
+
+  // M-54: fail closed when WEBHOOK_SECRET is unset — never deliver an
+  // unsigned webhook. Previously deliveries went out with NO X-Owly-Signature
+  // at all, so receivers could not tell a real Owly delivery from a forgery.
+  // Fails terminally (no retry): retrying cannot help until the operator
+  // sets WEBHOOK_SECRET; the delivery can be retried manually afterwards.
+  if (!webhookSecret) {
+    const missingSecretMessage =
+      "WEBHOOK_SECRET is not configured — delivery refused (fail-closed). Set WEBHOOK_SECRET, then retry the delivery.";
+    await prisma.webhookDelivery.update({
+      where: { id: deliveryId },
+      data: {
+        status: "failed",
+        attempts: attempt,
+        lastError: missingSecretMessage,
+        statusCode: null,
+      },
+    });
+    logger.error("Webhook delivery refused: WEBHOOK_SECRET is not configured", null, {
+      deliveryId,
+      webhookId: webhook.id,
+      event: "delivery_blocked_no_secret",
+    });
+    return false;
+  }
+
+  const signature = generateSignature(payload, webhookSecret);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT);
@@ -97,9 +123,8 @@ async function attemptDelivery(
     delete headers.host;
     delete headers.Host;
 
-    if (signature) {
-      headers["X-Owly-Signature"] = signature;
-    }
+    // WEBHOOK_SECRET is required (fail-closed above), so every delivery is signed.
+    headers["X-Owly-Signature"] = signature;
 
     const response = await fetch(webhook.url, {
       method: webhook.method,
