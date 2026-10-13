@@ -45,7 +45,7 @@
     "lucide-react": "^1.7.0",
     "mailparser": "^3.9.6",
     "next": "16.3.6",
-    "nodemailer": "^8.0.4",
+    "nodemailer": "^9.1.1",
     "openai": "^6.33.0",
     "pg": "^8.20.0",
     "prisma": "^7.6.0",
