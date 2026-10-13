@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleSpeechInput } from "@/lib/channels/phone";
-import { validateTwilioSignature, getTwilioAuthToken } from "@/lib/twilio-verify";
+import { verifyTwilioRequest } from "@/lib/twilio-verify";
 import { logger } from "@/lib/logger";
 
 export async function POST(request: NextRequest) {
@@ -11,16 +11,10 @@ export async function POST(request: NextRequest) {
       params[key] = String(value);
     });
 
-    // Validate Twilio signature
-    const authToken = await getTwilioAuthToken();
-    if (authToken) {
-      const signature = request.headers.get("x-twilio-signature") || "";
-      const url = request.url;
-      if (!validateTwilioSignature(authToken, signature, url, params)) {
-        logger.warn("[Phone] Invalid Twilio signature on gather");
-        return new NextResponse("Forbidden", { status: 403 });
-      }
-    }
+    // M-52: fail-closed Twilio verification — unset token now rejects (403)
+    // instead of silently skipping verification.
+    const verified = await verifyTwilioRequest("phone/gather", request, params);
+    if (!verified.ok) return verified.response as NextResponse;
 
     const speechResult = params.SpeechResult || "";
     const conversationId = request.nextUrl.searchParams.get("conversationId") || "";

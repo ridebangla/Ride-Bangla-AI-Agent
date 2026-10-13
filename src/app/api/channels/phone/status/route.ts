@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleCallEnd } from "@/lib/channels/phone";
-import { validateTwilioSignature, getTwilioAuthToken } from "@/lib/twilio-verify";
+import { verifyTwilioRequest } from "@/lib/twilio-verify";
 import { logger } from "@/lib/logger";
 
 export async function POST(request: NextRequest) {
@@ -11,14 +11,10 @@ export async function POST(request: NextRequest) {
       params[key] = String(value);
     });
 
-    const authToken = await getTwilioAuthToken();
-    if (authToken) {
-      const signature = request.headers.get("x-twilio-signature") || "";
-      if (!validateTwilioSignature(authToken, signature, request.url, params)) {
-        logger.warn("[Phone] Invalid Twilio signature on status callback");
-        return new NextResponse("Forbidden", { status: 403 });
-      }
-    }
+    // M-52: fail-closed Twilio verification — unset token now rejects (403)
+    // instead of silently skipping verification.
+    const verified = await verifyTwilioRequest("phone/status", request, params);
+    if (!verified.ok) return verified.response as NextResponse;
 
     const callSid = params.CallSid || "";
     const callDuration = parseInt(params.CallDuration || "0") || 0;
