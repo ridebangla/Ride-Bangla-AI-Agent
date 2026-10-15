@@ -33,13 +33,13 @@ function buildSystemPrompt(context: ConversationContext): string {
           .join("\n\n---\n\n")
       : "No specific knowledge base entries available. Answer based on general knowledge about the business.";
 
-  return `You are Owly, the AI customer support assistant for ${context.businessName}.
+  return `You are the Ride Bangla AI Agent, the AI customer support assistant for ${context.businessName}.
 
 ${context.businessDesc ? `About the business: ${context.businessDesc}` : ""}
 
 ## Communication Style
 ${toneGuide[context.tone] || toneGuide.friendly}
-${context.language !== "auto" ? `Always respond in: ${context.language}` : "Respond in the same language the customer uses."}
+${context.language !== "auto" ? `Always respond in: ${context.language}` : "Respond in the same language the customer uses. If the customer writes in Bengali (বাংলা), reply in Bengali. If they write in English, reply in English. Never mix languages in one reply unless the customer does."}
 
 ## Your Knowledge Base
 Use the following information to answer customer questions accurately:

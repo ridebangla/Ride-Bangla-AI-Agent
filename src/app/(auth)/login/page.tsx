@@ -73,13 +73,13 @@ export default function LoginPage() {
       <div className="flex flex-col items-center mb-8">
         <Image
           src="/owly.png"
-          alt="Owly"
+          alt="Ride Bangla AI Agent"
           width={56}
           height={56}
           className="mb-4"
         />
         <h1 className="text-2xl font-bold text-owly-text">
-          Welcome to Owly
+          Welcome to Ride Bangla AI Agent
         </h1>
         <p className="text-owly-text-light text-sm mt-1">
           Sign in to your account

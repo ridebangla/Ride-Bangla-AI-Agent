@@ -147,7 +147,7 @@ function buildEmailHtml(text: string, branding?: EmailBranding): string {
             .join("")}
         </td></tr>
         <tr><td style="border-top:1px solid #E2E8F0;padding:16px 24px;text-align:center;">
-          <p style="margin:0;font-size:12px;color:#94A3B8;">${escapeHtml(name)} &middot; Powered by Owly</p>
+          <p style="margin:0;font-size:12px;color:#94A3B8;">${escapeHtml(name)} &middot; Powered by Ride Bangla AI Agent</p>
         </td></tr>
       </table>
     </td></tr>

@@ -158,7 +158,7 @@ export function OnboardingChecklist() {
           <div>
             <h3 className="font-semibold text-owly-text">Getting Started</h3>
             <p className="text-xs text-owly-text-light mt-0.5">
-              Complete these steps to set up Owly
+              Complete these steps to set up Ride Bangla AI Agent
             </p>
           </div>
           <div className="flex items-center gap-3">

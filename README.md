@@ -1,537 +1,115 @@
-<p align="center">
-  <img src="docs/social-preview.png" alt="Owly" width="100%" />
-</p>
+# Ride Bangla AI Agent
 
-<p align="center">
-  <a href="#features">Features</a> &middot;
-  <a href="#screenshots">Screenshots</a> &middot;
-  <a href="#quick-start">Quick Start</a> &middot;
-  <a href="#configuration">Configuration</a> &middot;
-  <a href="#api">API</a> &middot;
-  <a href="#tech-stack">Tech Stack</a> &middot;
-  <a href="docs/wiki/Home.md">Wiki</a> &middot;
-  <a href="#roadmap">Roadmap</a>
-</p>
+**Ride Bangla AI Agent** is a self-hosted AI customer-support agent for Ride Bangla (ridebangla.bd). Connect WhatsApp, Email, and Phone channels, and let the AI handle customer inquiries in **Bengali and English**, 24/7.
 
-<p align="center">
-  <a href="https://github.com/Hesper-Labs/owly/actions/workflows/ci.yml"><img src="https://github.com/Hesper-Labs/owly/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" />
-  <img src="https://img.shields.io/badge/version-0.2.2-brightgreen.svg" alt="Version" />
-  <img src="https://img.shields.io/badge/tests-274%20passed-success.svg" alt="Tests" />
-  <img src="https://img.shields.io/badge/helm-ready-0F1689.svg" alt="Helm" />
-  <img src="https://img.shields.io/badge/node-%3E%3D20-green.svg" alt="Node" />
-  <img src="https://img.shields.io/badge/typescript-5.x-blue.svg" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/next.js-16-black.svg" alt="Next.js" />
-  <img src="https://img.shields.io/badge/PostgreSQL-16+-336791.svg" alt="PostgreSQL" />
-  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" />
-</p>
-
-<p align="center">
-  <img src="docs/demo.gif" alt="Owly Demo" width="700" />
-</p>
+> Small-scale deployment. Forked from [Hesper-Labs/owly](https://github.com/Hesper-Labs/owly) and rebranded for Ride Bangla.
 
 ---
 
-## What is Owly?
+## What it does
 
-Owly is a **self-hosted AI customer support agent** that small businesses and individuals can run on their own machines -- completely free. Connect your WhatsApp, Email, and Phone channels, add your business knowledge, and let the AI handle customer inquiries 24/7. Owly automatically identifies customers across channels -- someone who emails first and later calls gets a unified profile with full conversation history.
+- **Multi-channel inbox** — WhatsApp, Telegram, SMS, Email, and Phone (Twilio) from one dashboard
+- **Bilingual AI replies** — automatically replies in the customer's language (Bengali বাংলা or English)
+- **Ride Bangla knowledge** — pre-loaded with real facts: services, Faridpur coverage, fare table (0–5 km ৳50, 5–7 km ৳70), contact numbers
+- **Customer memory** — unified profile across channels with full conversation history
+- **Human handoff** — creates tickets and escalates to the team when the AI can't help
+- **Guardrails** — sentiment analysis, intent detection, human-approval for sensitive replies
 
-<table>
-  <tr>
-    <td width="25%" align="center">
-      <br/>
-      <strong>Zero Cost</strong><br/>
-      <sub>No monthly fees. You only pay<br/>for AI API usage.</sub>
-      <br/><br/>
-    </td>
-    <td width="25%" align="center">
-      <br/>
-      <strong>Your Data, Your Server</strong><br/>
-      <sub>Everything runs on your machine.<br/>Complete privacy.</sub>
-      <br/><br/>
-    </td>
-    <td width="25%" align="center">
-      <br/>
-      <strong>Multi-Channel</strong><br/>
-      <sub>WhatsApp, Email, and Phone<br/>from a single dashboard.</sub>
-      <br/><br/>
-    </td>
-    <td width="25%" align="center">
-      <br/>
-      <strong>5-Minute Setup</strong><br/>
-      <sub>Docker Compose or npm.<br/>Guided setup wizard.</sub>
-      <br/><br/>
-    </td>
-  </tr>
-</table>
+## What it does NOT do (yet)
+
+- No automatic order booking — the agent answers questions and creates tickets; orders still go through the Ride Bangla app
+- WhatsApp/Facebook/Instagram need their own API credentials (see Configuration)
+- Logo/branding assets are placeholder — final logo comes later
 
 ---
 
-## Features
+## Requirements
 
-### Multi-Channel Support
+| Requirement | Why |
+|---|---|
+| Node.js 20+ | Runtime |
+| PostgreSQL 16+ | Database (conversations, knowledge base, settings) |
+| OpenAI API key | AI replies (`OPENAI_API_KEY`) |
+| (Optional) Twilio account | Phone/SMS channel |
+| (Optional) ElevenLabs API key | Voice replies on phone calls |
 
-Connect all your customer communication channels in one place.
-
-<table>
-  <tr>
-    <td width="33%">
-      <h4 align="center">WhatsApp</h4>
-      <p align="center">Connect via QR code scan or Business API. Handles text, images, voice messages, and documents.</p>
-    </td>
-    <td width="33%">
-      <h4 align="center">Email</h4>
-      <p align="center">IMAP/SMTP with any provider. Branded HTML templates with automatic thread tracking.</p>
-    </td>
-    <td width="33%">
-      <h4 align="center">Phone</h4>
-      <p align="center">Twilio Voice with OpenAI Whisper (STT) and ElevenLabs (TTS) for natural voice conversations.</p>
-    </td>
-  </tr>
-</table>
-
-<p align="center">
-  <img src="docs/screenshots/12-channels.png" alt="Channel Management" width="100%" />
-  <br/>
-  <em>Connect and manage all channels from one screen</em>
-</p>
-
-### AI-Powered Conversations
-
-Owly uses OpenAI GPT (extensible to Claude, Ollama) with your knowledge base to provide accurate, on-brand responses. During conversations, the AI can autonomously:
-
-- **Create tickets** when customers report problems
-- **Route issues** to the right department based on expertise matching
-- **Send internal emails** to notify team members about urgent issues
-- **Look up customer history** for context-aware support
-- **Trigger webhooks** to notify external systems
-- **Schedule follow-ups** for proactive customer care
-
-<p align="center">
-  <img src="docs/screenshots/03-conversations.png" alt="Conversations" width="100%" />
-  <br/>
-  <em>Unified inbox with conversation thread and admin takeover</em>
-</p>
-
-### Customer CRM & Cross-Channel Continuity
-
-Every customer gets a unified profile across all channels -- conversations, notes, tags, and contact history in one place. Owly automatically resolves customer identity when someone switches channels (WhatsApp to Email to Phone), keeping the full context available to both the AI and your team.
-
-<p align="center">
-  <img src="docs/screenshots/04-customers.png" alt="Customer Management" width="100%" />
-  <br/>
-  <em>Customer profiles with notes, tags, and cross-channel history</em>
-</p>
-
-### Knowledge Base
-
-Train your AI with your business information. Organize entries into categories, set priorities, and test responses before going live.
-
-<table>
-  <tr>
-    <td width="50%">
-      <img src="docs/screenshots/05-knowledge-base.png" alt="Knowledge Base Categories" />
-      <br/>
-      <em>Categories with entry counts and color coding</em>
-    </td>
-    <td width="50%">
-      <img src="docs/screenshots/20-knowledge-detail.png" alt="Knowledge Base Entries" />
-      <br/>
-      <em>Entries with priority levels and active toggles</em>
-    </td>
-  </tr>
-</table>
-
-### Automation Engine
-
-Automate repetitive tasks with rule-based automation, business hours, SLA tracking, and canned responses.
-
-<table>
-  <tr>
-    <td width="50%">
-      <img src="docs/screenshots/07-automation.png" alt="Automation Rules" />
-      <br/>
-      <em>Auto-route, auto-tag, auto-reply, keyword alerts</em>
-    </td>
-    <td width="50%">
-      <img src="docs/screenshots/06-canned-responses.png" alt="Canned Responses" />
-      <br/>
-      <em>Quick reply templates with shortcuts</em>
-    </td>
-  </tr>
-</table>
-
-<table>
-  <tr>
-    <td width="50%">
-      <img src="docs/screenshots/08-business-hours.png" alt="Business Hours" />
-      <br/>
-      <em>Weekly schedule with timezone and offline messages</em>
-    </td>
-    <td width="50%">
-      <img src="docs/screenshots/11-sla-rules.png" alt="SLA Rules" />
-      <br/>
-      <em>Response time targets per channel and priority</em>
-    </td>
-  </tr>
-</table>
-
-### Team & Ticket Management
-
-Organize your team into departments, track issues with a full ticket system, and monitor performance.
-
-<table>
-  <tr>
-    <td width="50%">
-      <img src="docs/screenshots/09-team.png" alt="Team Management" />
-      <br/>
-      <em>Departments, members, expertise, and availability</em>
-    </td>
-    <td width="50%">
-      <img src="docs/screenshots/10-tickets.png" alt="Ticket System" />
-      <br/>
-      <em>Priority levels, assignments, and status tracking</em>
-    </td>
-  </tr>
-</table>
-
-### Analytics & Insights
-
-Monitor your support performance with charts, metrics, and team performance tracking.
-
-<p align="center">
-  <img src="docs/screenshots/14-analytics.png" alt="Analytics Dashboard" width="100%" />
-  <br/>
-  <em>Conversation trends, channel breakdown, ticket distribution, and satisfaction scores</em>
-</p>
-
-### Administration & API
-
-Manage users, API keys, webhooks, and explore the full REST API with interactive documentation.
-
-<table>
-  <tr>
-    <td width="50%">
-      <img src="docs/screenshots/16-admin.png" alt="Administration" />
-      <br/>
-      <em>Multi-admin with roles and API key management</em>
-    </td>
-    <td width="50%">
-      <img src="docs/screenshots/17-api-docs.png" alt="API Documentation" />
-      <br/>
-      <em>Interactive API docs with live request testing</em>
-    </td>
-  </tr>
-</table>
-
-### Dark Mode
-
-Full dark theme with persistent preference, applied across all 19 pages.
-
-<p align="center">
-  <img src="docs/screenshots/19-dark-mode.png" alt="Dark Mode" width="100%" />
-  <br/>
-  <em>Dark mode dashboard with consistent styling across all components</em>
-</p>
-
-### More Features
-
-<table>
-  <tr>
-    <td width="50%">
-      <img src="docs/screenshots/18-settings.png" alt="Settings" />
-      <br/>
-      <em>6-tab settings: General, AI, Voice, Phone, Email, WhatsApp</em>
-    </td>
-    <td width="50%">
-      <img src="docs/screenshots/13-webhooks.png" alt="Webhooks" />
-      <br/>
-      <em>Webhook management with payload preview and testing</em>
-    </td>
-  </tr>
-</table>
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- **Node.js** 20+
-- **PostgreSQL** 16+
-
-### Option 1: npm
+## Quick start
 
 ```bash
-# Clone the repository
-git clone https://github.com/hsperus/owly.git
-cd owly
+# 1. Clone
+git clone https://github.com/ridebangla/Ride-Bangla-AI-Agent.git
+cd Ride-Bangla-AI-Agent
 
-# Install dependencies
+# 2. Install
 npm install
 
-# Set up environment
+# 3. Configure
 cp .env.example .env
-# Edit .env with your database URL and API keys
+# Edit .env — at minimum set:
+#   DATABASE_URL="postgresql://user:password@localhost:5432/ridebangla_ai"
+#   JWT_SECRET="a-random-32-character-string"
+#   OPENAI_API_KEY="sk-..."
 
-# Run database migrations
-npx prisma migrate dev
+# 4. Set up the database
+npx prisma migrate dev        # creates tables
+npx prisma generate           # generates the client
+npm run db:seed               # loads Ride Bangla knowledge base + default admin
 
-# (Optional) Load sample data with a default admin account
-npm run db:seed
-# Default login: username=admin, password=admin123
-
-# Start the development server
-npm run dev
+# 5. Run
+npm run dev                   # http://localhost:3000
 ```
 
-### Option 2: Docker Compose
+Default admin login: username `admin`, password `admin123` — **change this immediately** in production.
+
+## Production
 
 ```bash
-git clone https://github.com/hsperus/owly.git
-cd owly
-
-cp .env.example .env
-# Edit .env with your API keys
-
-docker compose up -d
+npm run build
+npm start
 ```
 
-Open [http://localhost:3000](http://localhost:3000) -- the setup wizard will guide you through the initial configuration.
+Or with Docker:
 
-<p align="center">
-  <img src="docs/screenshots/01-login.png" alt="Login Page" width="500" />
-  <br/>
-  <em>Clean login page with Owly branding</em>
-</p>
-
----
+```bash
+docker compose up --build
+```
 
 ## Configuration
 
-All configuration is done through the admin dashboard -- no config files to edit after initial setup:
+All settings live in `.env` (see `.env.example`). The essentials:
 
-| Setting | Location | Description |
-|---------|----------|-------------|
-| Business profile | Settings > General | Name, description, welcome message, tone |
-| AI provider | Settings > AI Configuration | OpenAI / Claude / Ollama, model, API key |
-| Voice | Settings > Voice | ElevenLabs API key and voice selection |
-| Phone | Settings > Phone | Twilio Account SID, auth token, phone number |
-| Email | Settings > Email | SMTP and IMAP server configuration |
-| WhatsApp | Channels > WhatsApp | QR code scan or Business API |
-| Team | Team | Departments, members, expertise areas |
-| SLA | SLA Rules | Response and resolution time targets |
-| Schedule | Business Hours | Weekly availability and offline messages |
-| Automation | Automation | Auto-route, auto-tag, auto-reply rules |
-| Templates | Canned Responses | Pre-written reply templates |
-| Integrations | Webhooks | External service connections |
+| Variable | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `JWT_SECRET` | Yes | Session signing (32+ random chars) |
+| `OPENAI_API_KEY` | Yes | AI-powered replies |
+| `NEXT_PUBLIC_APP_URL` | Yes | Public URL (webhooks/callbacks) |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` | No | Phone + SMS channel |
+| `ELEVENLABS_API_KEY` | No | Voice synthesis for calls |
+| `WEBHOOK_SECRET` | Recommended | HMAC signing for outbound webhooks |
 
----
+Business knowledge (services, fares, coverage) is managed in the dashboard under **Knowledge Base**, and seeded from `prisma/seed.ts`.
 
-## API
-
-Owly provides a full REST API with **OpenAPI 3.0 spec** at `/api/openapi.json`. Interactive documentation with live testing is available at `/api-docs` in the dashboard. All list endpoints are paginated (max 100/page) with standardized response format.
-
-```bash
-# Send a message and get AI response
-curl -X POST http://localhost:3000/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "What are your business hours?", "channel": "api"}'
-
-# Response:
-# {"conversationId": "...", "response": "We are open Monday to Friday, 9 AM to 6 PM..."}
-```
-
-```bash
-# Health check (database, OpenAI, memory, uptime)
-curl http://localhost:3000/api/health
-# {"status": "ok", "version": "0.2.1", "services": {"database": "connected", "openai": "reachable"}, ...}
-```
-
-Every API response includes enterprise headers: `X-Request-Id`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-API-Version`.
-
-<details>
-<summary><strong>View all endpoints</strong></summary>
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/chat` | Send message, get AI response |
-| `GET` `POST` | `/api/conversations` | List or create conversations |
-| `GET` `PUT` `DELETE` | `/api/conversations/:id` | Manage a conversation |
-| `POST` | `/api/conversations/:id/messages` | Add message (admin takeover) |
-| `POST` | `/api/conversations/:id/satisfaction` | Rate conversation (1-5) |
-| `POST` | `/api/conversations/:id/notes` | Add internal note |
-| `GET` `POST` | `/api/customers` | List or create customers |
-| `GET` `PUT` `DELETE` | `/api/customers/:id` | Manage a customer |
-| `GET` | `/api/customers/:id/conversations` | Cross-channel conversation timeline |
-| `GET` `POST` | `/api/tickets` | List or create tickets |
-| `GET` `PUT` `DELETE` | `/api/tickets/:id` | Manage a ticket |
-| `GET` `POST` | `/api/knowledge/categories` | Knowledge categories |
-| `GET` `POST` | `/api/knowledge/entries` | Knowledge entries |
-| `POST` | `/api/knowledge/test` | Test AI with a question |
-| `GET` `PUT` | `/api/settings` | Application settings |
-| `GET` | `/api/analytics?period=7d` | Analytics data |
-| `GET` | `/api/export?type=conversations&format=csv` | Export (CSV/JSON) |
-| `GET` `POST` | `/api/automation` | Automation rules |
-| `GET` `PUT` | `/api/business-hours` | Business hours config |
-| `GET` `POST` | `/api/sla` | SLA rules |
-| `GET` `POST` | `/api/canned-responses` | Canned responses |
-| `GET` `POST` | `/api/webhooks` | Webhook management |
-| `POST` | `/api/webhooks/test` | Test a webhook |
-| `GET` `POST` | `/api/webhooks/:id/deliveries` | Delivery log and retry |
-| `GET` `POST` | `/api/admin/users` | Admin user management |
-| `GET` `POST` | `/api/admin/api-keys` | API key management |
-| `GET` | `/api/activity` | Activity audit log |
-| `GET` | `/api/health` | Health check |
-| `GET` | `/api/openapi.json` | OpenAPI 3.0 specification |
-
-</details>
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Framework** | Next.js 16 (App Router) |
-| **Language** | TypeScript 5 |
-| **Database** | PostgreSQL 16 + Prisma 7 |
-| **UI** | Tailwind CSS 4 + Radix UI |
-| **AI** | OpenAI GPT (extensible to Claude, Ollama) |
-| **Voice TTS** | ElevenLabs |
-| **Voice STT** | OpenAI Whisper |
-| **Phone** | Twilio Voice API |
-| **WhatsApp** | whatsapp-web.js |
-| **Auth** | JWT + bcrypt (12 rounds) |
-| **Validation** | Zod schemas on all endpoints |
-| **Testing** | Vitest (274 tests) |
-| **Charts** | Pure CSS/SVG (zero dependencies) |
-| **Deployment** | Docker Compose / Kubernetes (Helm) |
-
----
-
-## Project Structure
+## Project structure
 
 ```
-owly/
-├── prisma/                  # Database schema, migrations, seed
-├── public/                  # Static assets (logo)
-├── docs/
-│   ├── screenshots/         # UI screenshots (20 images)
-│   └── wiki/                # Full documentation (25 pages)
-├── helm/owly/               # Kubernetes Helm chart
-│   ├── Chart.yaml
-│   ├── values.yaml
-│   └── templates/           # K8s manifests (deployment, service, ingress, hpa, etc.)
-├── src/
-│   ├── app/
-│   │   ├── (auth)/          # Login, setup wizard
-│   │   ├── (dashboard)/     # 19 dashboard pages
-│   │   └── api/             # 60+ REST API endpoints
-│   ├── components/
-│   │   ├── layout/          # Sidebar, header
-│   │   └── ui/              # 12 reusable components
-│   └── lib/
-│       ├── ai/              # AI engine, tools, types
-│       ├── channels/        # WhatsApp, email, phone
-│       ├── customer-resolver.ts  # Cross-channel identity resolution
-│       ├── errors.ts        # Standardized error responses
-│       ├── logger.ts        # Structured logging
-│       ├── pagination.ts    # Shared pagination helper
-│       ├── rate-limit.ts    # Rate limiting
-│       ├── security.ts      # XSS/CRLF protection, secret masking
-│       ├── validations.ts   # Zod input schemas
-│       ├── webhook-delivery.ts   # Retry logic + HMAC signatures
-│       └── hooks/           # Theme hook
-├── tests/                   # 228 tests (unit, API, security)
-├── docker-compose.yml
-├── Dockerfile               # Multi-stage, non-root, healthcheck
-└── .env.example
+src/
+  app/            # Next.js pages + API routes
+  lib/ai/         # AI engine, system prompt, tools, guardrails
+  lib/channels/   # WhatsApp, Telegram, SMS, Email, Phone
+  lib/i18n/       # UI translations
+prisma/
+  schema.prisma   # Database schema
+  seed.ts         # Ride Bangla knowledge base + defaults
+tests/            # 365 automated tests (vitest)
 ```
 
----
+## Verification status
 
-## Documentation
-
-Full documentation is available in the [Wiki](docs/wiki/Home.md):
-
-- [Installation Guide](docs/wiki/Installation-Guide.md)
-- [Setup Wizard](docs/wiki/Setup-Wizard.md)
-- [Quick Start Tutorial](docs/wiki/Quick-Start-Tutorial.md)
-- [API Reference](docs/wiki/API-Reference.md)
-- [AI Tool System](docs/wiki/AI-Tool-System.md)
-- [Architecture](docs/wiki/Architecture.md)
-
----
-
-## Deployment
-
-### Docker Compose (recommended for most users)
-
-```bash
-docker compose up -d
-```
-
-### Kubernetes (Helm)
-
-```bash
-helm install owly helm/owly \
-  --set database.host=your-postgres-host \
-  --set database.password=your-password \
-  --set secrets.jwtSecret=$(openssl rand -hex 32) \
-  --set secrets.openaiApiKey=sk-... \
-  --set ingress.enabled=true \
-  --set ingress.hosts[0].host=support.yourdomain.com
-```
-
-The Helm chart includes startup/liveness/readiness probes, horizontal pod autoscaling, Ingress with TLS, PersistentVolumeClaim for WhatsApp sessions, and init container for database migrations. See [`helm/owly/values.yaml`](helm/owly/values.yaml) for all options.
-
----
-
-## Roadmap
-
-- [x] Cross-channel customer identity resolution
-- [x] Kubernetes Helm chart
-- [x] OpenAPI 3.0 specification
-- [x] Webhook delivery retry with HMAC signatures
-- [x] Pagination on all list endpoints
-- [x] Standardized error responses with request tracing
-- [ ] Embeddable live chat widget for customer websites
-- [ ] WebSocket real-time updates
-- [ ] Vector embeddings for semantic knowledge search
-- [ ] Role-based access control (RBAC)
-- [ ] Telegram, Instagram, SMS channels
-- [ ] Shopify / WooCommerce integration
-- [ ] Mobile admin (PWA)
-- [ ] Multi-tenant / white-label
-
----
-
-## Contributing
-
-Contributions are welcome! See the [Contributing Guide](docs/wiki/Contributing.md) for details.
-
-```bash
-# Fork, clone, and create a branch
-git checkout -b feature/your-feature
-
-# Make changes and commit
-git commit -m 'feat: add your feature'
-
-# Push and open a PR
-git push origin feature/your-feature
-```
-
----
+- TypeScript: clean (`npx tsc --noEmit`)
+- Tests: 365/365 passing (`npm test`)
+- Build: compiles cleanly (`npm run build`); needs a live PostgreSQL for page prerender
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
----
-
-<p align="center">
-  <img src="public/owly.png" alt="Owly" width="48" height="48" /><br/>
-  <strong>Owly</strong> -- AI Customer Support, Enterprise Grade<br/>
-  <sub>Built with Next.js 16, TypeScript, PostgreSQL, and OpenAI</sub>
-</p>
+MIT — see [LICENSE](LICENSE).

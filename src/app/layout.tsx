@@ -10,8 +10,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Owly - AI Customer Support",
-  description: "Open-source AI-powered customer support agent",
+  title: "Ride Bangla AI Agent",
+  description: "Ride Bangla AI customer support agent",
   icons: {
     icon: "/owly.png",
   },

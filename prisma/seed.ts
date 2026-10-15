@@ -26,9 +26,11 @@ async function main() {
     update: {},
     create: {
       id: "default",
-      businessName: "My Business",
-      businessDesc: "We provide excellent products and services.",
-      welcomeMessage: "Hello! Welcome to our support. How can I help you today?",
+      businessName: "Ride Bangla",
+      businessDesc:
+        "Ride Bangla is a Bangladesh multi-service platform offering ride sharing (bike/car), food delivery, courier/parcel delivery, and grocery/marketplace. Currently serving Faridpur district, expanding nationwide.",
+      welcomeMessage:
+        "Hello! Welcome to Ride Bangla support. How can I help you today? / আসসালামু আলাইকুম! Ride Bangla সাপোর্টে স্বাগতম। আমি কীভাবে সাহায্য করতে পারি?",
       tone: "friendly",
       language: "auto",
     },
@@ -100,11 +102,12 @@ async function main() {
     });
   }
 
-  // Create sample knowledge base
+  // Create Ride Bangla knowledge base (real, verified facts only)
   const categories = [
-    { id: "cat-faq", name: "FAQ", description: "Frequently asked questions", icon: "help-circle", color: "#4A7C9B", sortOrder: 0 },
-    { id: "cat-products", name: "Products", description: "Product information and features", icon: "package", color: "#22C55E", sortOrder: 1 },
-    { id: "cat-policies", name: "Policies", description: "Return, refund, and shipping policies", icon: "shield", color: "#F59E0B", sortOrder: 2 },
+    { id: "cat-services", name: "Services", description: "Ride Bangla services", icon: "package", color: "#22C55E", sortOrder: 0 },
+    { id: "cat-coverage", name: "Coverage", description: "Service areas", icon: "map-pin", color: "#3B82F6", sortOrder: 1 },
+    { id: "cat-fares", name: "Fares", description: "Pricing and fare table", icon: "tag", color: "#F59E0B", sortOrder: 2 },
+    { id: "cat-contact", name: "Contact", description: "How to reach the team", icon: "phone", color: "#4A7C9B", sortOrder: 3 },
   ];
 
   for (const c of categories) {
@@ -112,11 +115,46 @@ async function main() {
   }
 
   const entries = [
-    { id: "entry-1", categoryId: "cat-faq", title: "Business Hours", content: "We are open Monday to Friday, 9:00 AM to 6:00 PM. Our AI assistant is available 24/7 for basic inquiries.", priority: 10 },
-    { id: "entry-2", categoryId: "cat-faq", title: "Contact Information", content: "You can reach us via email at support@example.com, phone at +1-555-0123, or WhatsApp. Our AI assistant is always here to help!", priority: 9 },
-    { id: "entry-3", categoryId: "cat-products", title: "Product Overview", content: "We offer a range of products designed to help businesses streamline their operations. Contact our sales team for detailed pricing and custom solutions.", priority: 5 },
-    { id: "entry-4", categoryId: "cat-policies", title: "Return Policy", content: "We offer a 30-day return policy for all unused products in their original packaging. To initiate a return, please contact our support team with your order number.", priority: 8 },
-    { id: "entry-5", categoryId: "cat-policies", title: "Refund Policy", content: "Refunds are processed within 5-10 business days after we receive the returned item. The refund will be credited to the original payment method.", priority: 7 },
+    {
+      id: "entry-services",
+      categoryId: "cat-services",
+      title: "Our Services",
+      content:
+        "Ride Bangla offers: (1) Ride sharing — bike rides and car rentals; (2) Food delivery — order from local restaurants; (3) Courier/parcel delivery — send parcels and documents; (4) Grocery & marketplace — shop groceries and products online. All services are booked through the Ride Bangla customer app.",
+      priority: 10,
+    },
+    {
+      id: "entry-coverage",
+      categoryId: "cat-coverage",
+      title: "Service Coverage",
+      content:
+        "Ride Bangla currently serves Faridpur district (launch area) and is expanding nationwide across Bangladesh, starting with nearby districts. If you are outside Faridpur, ask the team about availability in your area.",
+      priority: 9,
+    },
+    {
+      id: "entry-fares",
+      categoryId: "cat-fares",
+      title: "Courier Fare Table",
+      content:
+        "Courier delivery charges: 0–5 km = ৳50, 5–7 km = ৳70. For distances above 7 km, please contact the team for a quote. Fares are confirmed before payment in the app.",
+      priority: 9,
+    },
+    {
+      id: "entry-contact",
+      categoryId: "cat-contact",
+      title: "Contact Information",
+      content:
+        "Main service number: +880 1309-587749 (call or WhatsApp). IT Team: +880 1825-234644. Website: https://ridebangla.bd. For urgent or safety issues, call the main number first.",
+      priority: 8,
+    },
+    {
+      id: "entry-language",
+      categoryId: "cat-contact",
+      title: "Language Support",
+      content:
+        "We support both Bengali (বাংলা) and English. Ask in whichever language you prefer — the agent will reply in the same language.",
+      priority: 7,
+    },
   ];
 
   for (const e of entries) {
@@ -136,12 +174,12 @@ async function main() {
     await prisma.tag.upsert({ where: { name: t.name }, update: {}, create: t });
   }
 
-  // Create sample canned responses
+  // Create Ride Bangla canned responses
   const cannedResponses = [
-    { id: "cr-1", title: "Greeting", content: "Hello! Thank you for reaching out. How can I help you today?", category: "General", shortcut: "/greeting" },
-    { id: "cr-2", title: "Closing", content: "Thank you for contacting us! Is there anything else I can help you with?", category: "General", shortcut: "/closing" },
-    { id: "cr-3", title: "Refund Process", content: "I understand you'd like a refund. Let me look into this for you. Could you please provide your order number?", category: "Billing", shortcut: "/refund" },
-    { id: "cr-4", title: "Escalation", content: "I'll connect you with a specialist who can better assist you with this matter. Please hold on.", category: "Support", shortcut: "/escalate" },
+    { id: "cr-1", title: "Greeting", content: "Hello! Thank you for contacting Ride Bangla. How can I help you today? / আসসালামু আলাইকুম! Ride Bangla-তে যোগাযোগ করার জন্য ধন্যবাদ। আমি কীভাবে সাহায্য করতে পারি?", category: "General", shortcut: "/greeting" },
+    { id: "cr-2", title: "Closing", content: "Thank you for contacting Ride Bangla! Is there anything else I can help you with? / ধন্যবাদ! আর কিছু জানতে চান?", category: "General", shortcut: "/closing" },
+    { id: "cr-3", title: "Coverage Check", content: "We currently serve Faridpur district and are expanding nationwide. Which area are you in? / আমরা বর্তমানে ফরিদপুর জেলায় সার্ভিস দিচ্ছি এবং সারা দেশে সম্প্রসারণ করছি। আপনি কোন এলাকায়?", category: "Support", shortcut: "/coverage" },
+    { id: "cr-4", title: "Escalation", content: "I'll connect you with our team who can better assist you. For urgent help, call +880 1309-587749. / আমি আপনাকে আমাদের টিমের সাথে যুক্ত করছি। জরুরি সাহায্যের জন্য কল করুন +880 1309-587749।", category: "Support", shortcut: "/escalate" },
   ];
 
   for (const cr of cannedResponses) {

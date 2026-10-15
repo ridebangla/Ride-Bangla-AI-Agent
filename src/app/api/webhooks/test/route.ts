@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString(),
       data: {
         id: "test_123",
-        message: "This is a test payload from Owly",
+        message: "This is a test payload from Ride Bangla AI Agent",
         webhookName: webhook.name,
         triggerEvent: webhook.triggerOn,
       },

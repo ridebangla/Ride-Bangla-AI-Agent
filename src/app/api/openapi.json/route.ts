@@ -4,7 +4,7 @@ import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 const spec = {
   openapi: "3.0.3",
   info: {
-    title: "Owly API",
+    title: "Ride Bangla AI Agent API",
     description: "AI-powered customer support agent API. Multi-channel support for WhatsApp, Email, and Phone with autonomous AI actions.",
     version: "2026-04-07",
     contact: {
