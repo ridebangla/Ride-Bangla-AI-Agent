@@ -175,7 +175,7 @@ export default function SetupPage() {
       {/* Header */}
       <div className="bg-rbai-primary-50 border-b border-rbai-border px-8 pt-6 pb-4">
         <div className="flex items-center gap-3 mb-5">
-          <Image src="/rbai-logo.png" alt="Ride Bangla AI Agent" width={40} height={40} />
+          <Image src="/agent-avatar.png" alt="Ride Bangla AI Agent" width={40} height={40} />
           <div>
             <h1 className="text-lg font-bold text-rbai-text">Set Up Ride Bangla AI Agent</h1>
             <p className="text-xs text-rbai-text-light">

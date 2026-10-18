@@ -96,7 +96,7 @@ export function Sidebar() {
     >
       <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10">
         <Image
-          src="/rbai-logo.png"
+          src="/agent-avatar.png"
           alt="Ride Bangla AI Agent"
           width={32}
           height={32}
