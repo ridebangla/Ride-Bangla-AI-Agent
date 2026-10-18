@@ -70,7 +70,9 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/widget/") ||
     pathname.endsWith(".png") ||
     pathname.endsWith(".svg") ||
-    pathname.endsWith(".ico")
+    pathname.endsWith(".ico") ||
+    pathname.endsWith(".mp4") ||
+    pathname.endsWith(".webm")
   ) {
     return NextResponse.next();
   }
