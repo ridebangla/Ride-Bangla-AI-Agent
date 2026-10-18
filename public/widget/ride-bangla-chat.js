@@ -30,6 +30,10 @@
   };
 
   var avatarUrl = config.server.replace(/\/$/, "") + "/agent-avatar.png";
+  var idleVideoUrl = config.server.replace(/\/$/, "") + "/agent-idle.mp4";
+  var workingVideoUrl = config.server.replace(/\/$/, "") + "/agent-working.mp4";
+  var agentState = "idle";
+  var pendingRequests = 0;
 
   var conversationId = null;
   var isOpen = false;
@@ -40,7 +44,7 @@
       #rbai-widget-container{position:fixed;bottom:20px;" + config.position + ":20px;z-index:999999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}\n\
       #rbai-widget-btn{width:56px;height:56px;border-radius:50%;background:" + config.color + ";border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .2s}\n\
       #rbai-widget-btn:hover{transform:scale(1.05)}\n\
-      #rbai-widget-btn{overflow:hidden;padding:0}\n\#rbai-widget-btn img{width:56px;height:56px;object-fit:cover;display:block}\n\#rbai-widget-headwrap{display:flex;align-items:center}\n\#rbai-widget-header .rbai-avatar{width:36px;height:36px;border-radius:50%;object-fit:cover;margin-right:10px;background:#fff}\n\
+      #rbai-widget-btn{overflow:hidden;padding:0}\n\.rbai-avatarwrap{position:relative;display:block;overflow:hidden;background:#fff}\n\#rbai-widget-btn .rbai-avatarwrap{width:56px;height:56px;border-radius:50%}\n\#rbai-widget-header .rbai-avatarwrap{width:36px;height:36px;border-radius:50%;margin-right:10px;flex:none}\n\.rbai-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;pointer-events:none}\n\.rbai-vid.active{display:block}\n\.rbai-avatar-fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}\n\.rbai-avatarwrap.novid .rbai-avatar-fallback{display:block}\n\.rbai-avatarwrap.novid .rbai-vid{display:none!important}\n\#rbai-widget-headwrap{display:flex;align-items:center}\n\
       #rbai-widget-panel{display:none;width:370px;height:520px;background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.12);margin-bottom:12px;overflow:hidden;flex-direction:column}\n\
       #rbai-widget-panel.open{display:flex}\n\
       #rbai-widget-header{background:" + config.color + ";color:#fff;padding:16px;display:flex;align-items:center;justify-content:space-between}\n\
@@ -65,7 +69,7 @@
     container.innerHTML = '\
       <div id="rbai-widget-panel">\
         <div id="rbai-widget-header">\
-          <div id="rbai-widget-headwrap"><img class="rbai-avatar" src="' + avatarUrl + '" alt=""/><h3>' + config.title + '</h3></div>\
+          <div id="rbai-widget-headwrap"><span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="auto" disablepictureinpicture src="' + workingVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span><h3>' + config.title + '</h3></div>\
           <button id="rbai-widget-close">&times;</button>\
         </div>\
         <div id="rbai-widget-messages"></div>\
@@ -75,10 +79,14 @@
         </div>\
       </div>\
       <button id="rbai-widget-btn" aria-label="Open chat">\
-        <img src="' + avatarUrl + '" alt="Ride Bangla AI Agent"/>\
+        <span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="auto" disablepictureinpicture src="' + workingVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span>\
       </button>\
     ';
     document.body.appendChild(container);
+    wireVideoFallback();
+    // Ensure the visible idle video actually plays (autoplay policies).
+    var iv = container.querySelector(".rbai-vid-idle");
+    if (iv) iv.play().catch(function () {});
 
     document.getElementById("rbai-widget-btn").onclick = toggleWidget;
     document.getElementById("rbai-widget-close").onclick = toggleWidget;
@@ -86,6 +94,40 @@
     document.getElementById("rbai-widget-text").onkeypress = function (e) {
       if (e.key === "Enter") sendMessage();
     };
+  }
+
+  function setAgentState(s) {
+    var showWorking = s === "working";
+    if (agentState === s && !showWorking) return;
+    agentState = s;
+    var idles = document.querySelectorAll(".rbai-vid-idle");
+    var workings = document.querySelectorAll(".rbai-vid-working");
+    for (var i = 0; i < idles.length; i++) {
+      idles[i].classList.toggle("active", !showWorking);
+      if (showWorking) { idles[i].pause(); }
+      else { idles[i].play().catch(function () {}); }
+    }
+    for (var j = 0; j < workings.length; j++) {
+      workings[j].classList.toggle("active", showWorking);
+      if (showWorking) { try { workings[j].currentTime = 0; } catch (e) {} workings[j].play().catch(function () {}); }
+      else { workings[j].pause(); }
+    }
+  }
+
+  function wireVideoFallback() {
+    var vids = document.querySelectorAll(".rbai-vid");
+    for (var i = 0; i < vids.length; i++) {
+      vids[i].addEventListener("error", function () {
+        var wrap = this.closest(".rbai-avatarwrap");
+        if (wrap) wrap.classList.add("novid");
+      });
+      // If autoplay was blocked, retry on first user interaction.
+      vids[i].addEventListener("play", function () {}, false);
+    }
+    document.addEventListener("click", function once() {
+      var act = document.querySelector(".rbai-vid.active");
+      if (act && act.paused) act.play().catch(function () {});
+    }, { once: true });
   }
 
   function toggleWidget() {
@@ -114,6 +156,8 @@
 
     addMessage(text, "user");
     input.value = "";
+    pendingRequests++;
+    setAgentState("working");
 
     var typing = addMessage("Typing...", "bot typing");
 
@@ -130,11 +174,15 @@
       .then(function (res) { return res.json(); })
       .then(function (data) {
         typing.remove();
+        pendingRequests = Math.max(0, pendingRequests - 1);
+        if (pendingRequests === 0) setAgentState("idle");
         conversationId = data.conversationId;
         addMessage(data.response || "Sorry, I could not process your request.", "bot");
       })
       .catch(function () {
         typing.remove();
+        pendingRequests = Math.max(0, pendingRequests - 1);
+        if (pendingRequests === 0) setAgentState("idle");
         addMessage("Connection error. Please try again.", "bot");
       });
   }
