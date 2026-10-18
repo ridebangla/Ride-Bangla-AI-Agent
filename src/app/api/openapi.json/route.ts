@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
+import { runWithBusiness } from "@/lib/prisma";
 
 const spec = {
   openapi: "3.0.3",
@@ -176,9 +177,13 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, "admin:read");
   if (!isAuthenticated(auth)) return auth;
 
-  return NextResponse.json(spec, {
-    headers: {
-      "Cache-Control": "private, max-age=3600",
-    },
+  return runWithBusiness(auth.businessId, async () => {
+
+    return NextResponse.json(spec, {
+      headers: {
+        "Cache-Control": "private, max-age=3600",
+      },
+    });
+
   });
 }

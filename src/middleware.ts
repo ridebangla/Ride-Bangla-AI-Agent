@@ -68,6 +68,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname.startsWith("/widget/") ||
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml" ||
     pathname.endsWith(".png") ||
     pathname.endsWith(".svg") ||
     pathname.endsWith(".ico") ||

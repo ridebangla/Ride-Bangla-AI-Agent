@@ -9,12 +9,69 @@ const inter = Inter({
   subsets: ["latin"],
 });
 
+const SITE_URL = "https://ai.ridebangla.bd";
+
 export const metadata: Metadata = {
-  title: "Ride Bangla AI Agent",
-  description: "Ride Bangla AI customer support agent",
+  metadataBase: new URL(SITE_URL),
+  title: "Ride Bangla AI Agent — AI Customer Support & Social Automation SaaS",
+  description:
+    "AI customer service agent for businesses: instant 24/7 chat support, WhatsApp / Facebook / Instagram / Telegram automation, and a no-code admin dashboard. Built by Ride Bangla.",
+  keywords: [
+    "AI customer support",
+    "AI chatbot SaaS",
+    "customer service AI",
+    "WhatsApp automation",
+    "Facebook auto reply",
+    "Instagram DM automation",
+    "Telegram bot for business",
+    "AI agent platform",
+    "Ride Bangla",
+  ],
+  alternates: {
+    canonical: SITE_URL + "/",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+  openGraph: {
+    title: "Ride Bangla AI Agent — AI Customer Support & Social Automation SaaS",
+    description:
+      "AI customer service agent for businesses: instant 24/7 chat support, WhatsApp / Facebook / Instagram / Telegram automation, and a no-code admin dashboard.",
+    url: SITE_URL + "/",
+    siteName: "Ride Bangla AI Agent",
+    type: "website",
+    images: [
+      {
+        url: SITE_URL + "/agent-avatar.png",
+        width: 1062,
+        height: 1095,
+        alt: "Ride Bangla AI Agent",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Ride Bangla AI Agent — AI Customer Support & Social Automation SaaS",
+    description:
+      "AI customer service agent for businesses: instant 24/7 chat support, WhatsApp / Facebook / Instagram / Telegram automation, and a no-code admin dashboard.",
+    images: [SITE_URL + "/agent-avatar.png"],
+  },
   icons: {
     icon: "/agent-avatar.png",
   },
+};
+
+const ORGANIZATION_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "Ride Bangla",
+  url: "https://ridebangla.bd",
+  logo: SITE_URL + "/agent-avatar.png",
+  sameAs: [
+    "https://www.facebook.com/share/g/1CfmiTzv1D/",
+    "https://youtube.com/@ridebangla-0",
+  ],
 };
 
 export default function RootLayout({
@@ -25,6 +82,12 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="h-full">
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{
+              __html: JSON.stringify(ORGANIZATION_JSON_LD),
+            }}
+          />
           <Providers>
             <ThemeInit />
             {children}

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, runWithBusiness } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 
@@ -10,88 +10,92 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, "export:read");
   if (!isAuthenticated(auth)) return auth;
 
-  try {
-    const format = request.nextUrl.searchParams.get("format") || "json";
-    const type = request.nextUrl.searchParams.get("type") || "conversations";
-    const limit = Math.min(
-      MAX_EXPORT_LIMIT,
-      Math.max(1, parseInt(request.nextUrl.searchParams.get("limit") || String(DEFAULT_EXPORT_LIMIT), 10) || DEFAULT_EXPORT_LIMIT)
-    );
-    const from = request.nextUrl.searchParams.get("from");
-    const to = request.nextUrl.searchParams.get("to");
+  return runWithBusiness(auth.businessId, async () => {
 
-    const dateFilter: Record<string, Date> = {};
-    if (from) dateFilter.gte = new Date(from);
-    if (to) dateFilter.lte = new Date(to);
-    const dateWhere = Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {};
+    try {
+      const format = request.nextUrl.searchParams.get("format") || "json";
+      const type = request.nextUrl.searchParams.get("type") || "conversations";
+      const limit = Math.min(
+        MAX_EXPORT_LIMIT,
+        Math.max(1, parseInt(request.nextUrl.searchParams.get("limit") || String(DEFAULT_EXPORT_LIMIT), 10) || DEFAULT_EXPORT_LIMIT)
+      );
+      const from = request.nextUrl.searchParams.get("from");
+      const to = request.nextUrl.searchParams.get("to");
 
-    if (type === "conversations") {
-      const conversations = await prisma.conversation.findMany({
-        where: dateWhere,
-        include: {
-          messages: true,
-          tickets: true,
-          tags: { include: { tag: true } },
-        },
-        orderBy: { createdAt: "desc" },
-        take: limit,
-      });
+      const dateFilter: Record<string, Date> = {};
+      if (from) dateFilter.gte = new Date(from);
+      if (to) dateFilter.lte = new Date(to);
+      const dateWhere = Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {};
 
-      if (format === "csv") {
-        return csvResponse(conversationsToCSV(conversations), "conversations");
+      if (type === "conversations") {
+        const conversations = await prisma.conversation.findMany({
+          where: dateWhere,
+          include: {
+            messages: true,
+            tickets: true,
+            tags: { include: { tag: true } },
+          },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+        });
+
+        if (format === "csv") {
+          return csvResponse(conversationsToCSV(conversations), "conversations");
+        }
+        return NextResponse.json({ data: conversations, total: conversations.length });
       }
-      return NextResponse.json({ data: conversations, total: conversations.length });
+
+      if (type === "tickets") {
+        const tickets = await prisma.ticket.findMany({
+          where: dateWhere,
+          include: {
+            department: true,
+            assignedTo: true,
+            conversation: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+        });
+
+        if (format === "csv") {
+          return csvResponse(ticketsToCSV(tickets), "tickets");
+        }
+        return NextResponse.json({ data: tickets, total: tickets.length });
+      }
+
+      if (type === "customers") {
+        const customers = await prisma.customer.findMany({
+          where: dateWhere,
+          orderBy: { lastContact: "desc" },
+          take: limit,
+        });
+
+        if (format === "csv") {
+          return csvResponse(customersToCSV(customers), "customers");
+        }
+        return NextResponse.json({ data: customers, total: customers.length });
+      }
+
+      if (type === "knowledge") {
+        const entries = await prisma.knowledgeEntry.findMany({
+          include: { category: { select: { name: true } } },
+          orderBy: { priority: "desc" },
+          take: limit,
+        });
+
+        if (format === "csv") {
+          return csvResponse(knowledgeToCSV(entries), "knowledge");
+        }
+        return NextResponse.json({ data: entries, total: entries.length });
+      }
+
+      return NextResponse.json({ error: "Invalid type. Supported: conversations, tickets, customers, knowledge" }, { status: 400 });
+    } catch (error) {
+      logger.error("Failed to export data:", error);
+      return NextResponse.json({ error: "Failed to export data" }, { status: 500 });
     }
 
-    if (type === "tickets") {
-      const tickets = await prisma.ticket.findMany({
-        where: dateWhere,
-        include: {
-          department: true,
-          assignedTo: true,
-          conversation: true,
-        },
-        orderBy: { createdAt: "desc" },
-        take: limit,
-      });
-
-      if (format === "csv") {
-        return csvResponse(ticketsToCSV(tickets), "tickets");
-      }
-      return NextResponse.json({ data: tickets, total: tickets.length });
-    }
-
-    if (type === "customers") {
-      const customers = await prisma.customer.findMany({
-        where: dateWhere,
-        orderBy: { lastContact: "desc" },
-        take: limit,
-      });
-
-      if (format === "csv") {
-        return csvResponse(customersToCSV(customers), "customers");
-      }
-      return NextResponse.json({ data: customers, total: customers.length });
-    }
-
-    if (type === "knowledge") {
-      const entries = await prisma.knowledgeEntry.findMany({
-        include: { category: { select: { name: true } } },
-        orderBy: { priority: "desc" },
-        take: limit,
-      });
-
-      if (format === "csv") {
-        return csvResponse(knowledgeToCSV(entries), "knowledge");
-      }
-      return NextResponse.json({ data: entries, total: entries.length });
-    }
-
-    return NextResponse.json({ error: "Invalid type. Supported: conversations, tickets, customers, knowledge" }, { status: 400 });
-  } catch (error) {
-    logger.error("Failed to export data:", error);
-    return NextResponse.json({ error: "Failed to export data" }, { status: 500 });
-  }
+  });
 }
 
 function csvResponse(csv: string, name: string): NextResponse {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, runWithBusiness } from "@/lib/prisma";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 
 function getPeriodStart(period: string): Date {
@@ -23,199 +23,203 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, "analytics:read");
   if (!isAuthenticated(auth)) return auth;
 
-  const { searchParams } = new URL(request.url);
-  const period = searchParams.get("period") || "7d";
-  const periodStart = getPeriodStart(period);
+  return runWithBusiness(auth.businessId, async () => {
 
-  const [
-    conversations,
-    allConversations,
-    channelGroups,
-    ticketsByPriority,
-    ticketsByStatus,
-    categories,
-    teamMembers,
-    messages,
-  ] = await Promise.all([
-    // Conversations in period
-    prisma.conversation.findMany({
-      where: { createdAt: { gte: periodStart } },
-      select: { id: true, createdAt: true, satisfaction: true, status: true },
-    }),
+    const { searchParams } = new URL(request.url);
+    const period = searchParams.get("period") || "7d";
+    const periodStart = getPeriodStart(period);
 
-    // All conversations (for resolution rate)
-    prisma.conversation.findMany({
-      select: { status: true },
-    }),
+    const [
+      conversations,
+      allConversations,
+      channelGroups,
+      ticketsByPriority,
+      ticketsByStatus,
+      categories,
+      teamMembers,
+      messages,
+    ] = await Promise.all([
+      // Conversations in period
+      prisma.conversation.findMany({
+        where: { createdAt: { gte: periodStart } },
+        select: { id: true, createdAt: true, satisfaction: true, status: true },
+      }),
 
-    // Channel breakdown in period
-    prisma.conversation.groupBy({
-      by: ["channel"],
-      where: { createdAt: { gte: periodStart } },
-      _count: { id: true },
-    }),
+      // All conversations (for resolution rate)
+      prisma.conversation.findMany({
+        select: { status: true },
+      }),
 
-    // Tickets by priority in period
-    prisma.ticket.groupBy({
-      by: ["priority"],
-      where: { createdAt: { gte: periodStart } },
-      _count: { id: true },
-    }),
+      // Channel breakdown in period
+      prisma.conversation.groupBy({
+        by: ["channel"],
+        where: { createdAt: { gte: periodStart } },
+        _count: { id: true },
+      }),
 
-    // Tickets by status in period
-    prisma.ticket.groupBy({
-      by: ["status"],
-      where: { createdAt: { gte: periodStart } },
-      _count: { id: true },
-    }),
+      // Tickets by priority in period
+      prisma.ticket.groupBy({
+        by: ["priority"],
+        where: { createdAt: { gte: periodStart } },
+        _count: { id: true },
+      }),
 
-    // Top categories by entry count
-    prisma.category.findMany({
-      select: { name: true, _count: { select: { entries: true } } },
-      orderBy: { entries: { _count: "desc" } },
-      take: 8,
-    }),
+      // Tickets by status in period
+      prisma.ticket.groupBy({
+        by: ["status"],
+        where: { createdAt: { gte: periodStart } },
+        _count: { id: true },
+      }),
 
-    // Team members with their resolved tickets in period
-    prisma.teamMember.findMany({
-      select: {
-        name: true,
-        tickets: {
-          where: {
-            createdAt: { gte: periodStart },
+      // Top categories by entry count
+      prisma.category.findMany({
+        select: { name: true, _count: { select: { entries: true } } },
+        orderBy: { entries: { _count: "desc" } },
+        take: 8,
+      }),
+
+      // Team members with their resolved tickets in period
+      prisma.teamMember.findMany({
+        select: {
+          name: true,
+          tickets: {
+            where: {
+              createdAt: { gte: periodStart },
+            },
+            select: { status: true, createdAt: true, updatedAt: true },
           },
-          select: { status: true, createdAt: true, updatedAt: true },
         },
-      },
-    }),
+      }),
 
-    // Messages in period for response time estimation
-    prisma.message.findMany({
-      where: { createdAt: { gte: periodStart } },
-      select: {
-        conversationId: true,
-        role: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: "asc" },
-    }),
-  ]);
+      // Messages in period for response time estimation
+      prisma.message.findMany({
+        where: { createdAt: { gte: periodStart } },
+        select: {
+          conversationId: true,
+          role: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
 
-  // -- Conversations per day --
-  const dayMap: Record<string, number> = {};
-  const dayCount = period === "90d" ? 90 : period === "30d" ? 30 : 7;
-  for (let i = 0; i < dayCount; i++) {
-    const d = new Date(periodStart.getTime() + i * 24 * 60 * 60 * 1000);
-    dayMap[formatDateKey(d)] = 0;
-  }
-  for (const c of conversations) {
-    const key = formatDateKey(new Date(c.createdAt));
-    if (key in dayMap) dayMap[key]++;
-  }
-  const conversationsPerDay = Object.entries(dayMap).map(([date, count]) => ({
-    date,
-    count,
-  }));
-
-  // -- Channel breakdown --
-  const channelBreakdown = channelGroups.map((g) => ({
-    channel: g.channel,
-    count: g._count.id,
-  }));
-
-  // -- Avg response time (estimate from first assistant reply per conversation) --
-  const convFirstResponse: Record<string, number> = {};
-  const convStart: Record<string, Date> = {};
-  for (const m of messages) {
-    if (m.role === "user" && !convStart[m.conversationId]) {
-      convStart[m.conversationId] = new Date(m.createdAt);
+    // -- Conversations per day --
+    const dayMap: Record<string, number> = {};
+    const dayCount = period === "90d" ? 90 : period === "30d" ? 30 : 7;
+    for (let i = 0; i < dayCount; i++) {
+      const d = new Date(periodStart.getTime() + i * 24 * 60 * 60 * 1000);
+      dayMap[formatDateKey(d)] = 0;
     }
-    if (
-      m.role === "assistant" &&
-      convStart[m.conversationId] &&
-      !convFirstResponse[m.conversationId]
-    ) {
-      const diffMs =
-        new Date(m.createdAt).getTime() -
-        convStart[m.conversationId].getTime();
-      convFirstResponse[m.conversationId] = diffMs / 60000; // minutes
+    for (const c of conversations) {
+      const key = formatDateKey(new Date(c.createdAt));
+      if (key in dayMap) dayMap[key]++;
     }
-  }
-  const responseTimes = Object.values(convFirstResponse);
-  const avgResponseTime =
-    responseTimes.length > 0
-      ? Math.round(
-          (responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length) *
-            10
-        ) / 10
-      : 0;
+    const conversationsPerDay = Object.entries(dayMap).map(([date, count]) => ({
+      date,
+      count,
+    }));
 
-  // -- Resolution rate --
-  const resolved = allConversations.filter(
-    (c) => c.status === "resolved" || c.status === "closed"
-  ).length;
-  const resolutionRate =
-    allConversations.length > 0
-      ? Math.round((resolved / allConversations.length) * 100)
-      : 0;
-
-  // -- Satisfaction average --
-  const rated = conversations.filter((c) => c.satisfaction != null);
-  const satisfactionAvg =
-    rated.length > 0
-      ? Math.round(
-          (rated.reduce((sum, c) => sum + (c.satisfaction ?? 0), 0) /
-            rated.length) *
-            10
-        ) / 10
-      : 0;
-
-  // -- Top categories --
-  const topCategories = categories.map((c) => ({
-    category: c.name,
-    hitCount: c._count.entries,
-  }));
-
-  // -- Team performance --
-  const teamPerformance = teamMembers
-    .map((tm) => {
-      const resolvedTickets = tm.tickets.filter(
-        (t) => t.status === "resolved" || t.status === "closed"
-      );
-      const times = resolvedTickets.map(
-        (t) =>
-          (new Date(t.updatedAt).getTime() - new Date(t.createdAt).getTime()) /
-          60000
-      );
-      const avg =
-        times.length > 0
-          ? Math.round((times.reduce((a, b) => a + b, 0) / times.length) * 10) / 10
-          : 0;
-      return {
-        member: tm.name,
-        ticketsResolved: resolvedTickets.length,
-        avgTime: avg,
-      };
-    })
-    .filter((t) => t.ticketsResolved > 0)
-    .sort((a, b) => b.ticketsResolved - a.ticketsResolved);
-
-  return NextResponse.json({
-    conversationsPerDay,
-    channelBreakdown,
-    avgResponseTime,
-    resolutionRate,
-    satisfactionAvg,
-    ticketsByPriority: ticketsByPriority.map((g) => ({
-      priority: g.priority,
+    // -- Channel breakdown --
+    const channelBreakdown = channelGroups.map((g) => ({
+      channel: g.channel,
       count: g._count.id,
-    })),
-    ticketsByStatus: ticketsByStatus.map((g) => ({
-      status: g.status,
-      count: g._count.id,
-    })),
-    topCategories,
-    teamPerformance,
-    totalConversations: conversations.length,
+    }));
+
+    // -- Avg response time (estimate from first assistant reply per conversation) --
+    const convFirstResponse: Record<string, number> = {};
+    const convStart: Record<string, Date> = {};
+    for (const m of messages) {
+      if (m.role === "user" && !convStart[m.conversationId]) {
+        convStart[m.conversationId] = new Date(m.createdAt);
+      }
+      if (
+        m.role === "assistant" &&
+        convStart[m.conversationId] &&
+        !convFirstResponse[m.conversationId]
+      ) {
+        const diffMs =
+          new Date(m.createdAt).getTime() -
+          convStart[m.conversationId].getTime();
+        convFirstResponse[m.conversationId] = diffMs / 60000; // minutes
+      }
+    }
+    const responseTimes = Object.values(convFirstResponse);
+    const avgResponseTime =
+      responseTimes.length > 0
+        ? Math.round(
+            (responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length) *
+              10
+          ) / 10
+        : 0;
+
+    // -- Resolution rate --
+    const resolved = allConversations.filter(
+      (c) => c.status === "resolved" || c.status === "closed"
+    ).length;
+    const resolutionRate =
+      allConversations.length > 0
+        ? Math.round((resolved / allConversations.length) * 100)
+        : 0;
+
+    // -- Satisfaction average --
+    const rated = conversations.filter((c) => c.satisfaction != null);
+    const satisfactionAvg =
+      rated.length > 0
+        ? Math.round(
+            (rated.reduce((sum, c) => sum + (c.satisfaction ?? 0), 0) /
+              rated.length) *
+              10
+          ) / 10
+        : 0;
+
+    // -- Top categories --
+    const topCategories = categories.map((c) => ({
+      category: c.name,
+      hitCount: c._count.entries,
+    }));
+
+    // -- Team performance --
+    const teamPerformance = teamMembers
+      .map((tm) => {
+        const resolvedTickets = tm.tickets.filter(
+          (t) => t.status === "resolved" || t.status === "closed"
+        );
+        const times = resolvedTickets.map(
+          (t) =>
+            (new Date(t.updatedAt).getTime() - new Date(t.createdAt).getTime()) /
+            60000
+        );
+        const avg =
+          times.length > 0
+            ? Math.round((times.reduce((a, b) => a + b, 0) / times.length) * 10) / 10
+            : 0;
+        return {
+          member: tm.name,
+          ticketsResolved: resolvedTickets.length,
+          avgTime: avg,
+        };
+      })
+      .filter((t) => t.ticketsResolved > 0)
+      .sort((a, b) => b.ticketsResolved - a.ticketsResolved);
+
+    return NextResponse.json({
+      conversationsPerDay,
+      channelBreakdown,
+      avgResponseTime,
+      resolutionRate,
+      satisfactionAvg,
+      ticketsByPriority: ticketsByPriority.map((g) => ({
+        priority: g.priority,
+        count: g._count.id,
+      })),
+      ticketsByStatus: ticketsByStatus.map((g) => ({
+        status: g.status,
+        count: g._count.id,
+      })),
+      topCategories,
+      teamPerformance,
+      totalConversations: conversations.length,
+    });
+
   });
 }

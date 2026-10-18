@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getUnscopedPrisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 
 const startTime = Date.now();
 
 export async function GET() {
   const checks: Record<string, string> = {};
+  // Health probes run outside any tenant context: use the unscoped client
+  // (the scoped client would throw TenantContextError here).
+  const db = getUnscopedPrisma();
 
   // Database check
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await db.$queryRaw`SELECT 1`;
     checks.database = "connected";
   } catch {
     checks.database = "error";
@@ -17,7 +20,7 @@ export async function GET() {
 
   // OpenAI reachability check
   try {
-    const settings = await prisma.settings.findFirst({
+    const settings = await db.settings.findFirst({
       select: { aiApiKey: true },
     });
     if (settings?.aiApiKey) {

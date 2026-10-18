@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma, getUnscopedPrisma } from "@/lib/prisma";
+import { getUnscopedPrisma } from "@/lib/prisma";
 import {
   LOGIN_LOCKOUT_MS,
   MAX_LOGIN_ATTEMPTS,
@@ -171,7 +171,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const admin = await prisma.admin.findUnique({
+    // TenantContextError fix: the refresh flow runs outside any tenant
+    // context, so the admin lookup must use the unscoped client.
+    const admin = await getUnscopedPrisma().admin.findUnique({
       where: { id: payload.userId },
       select: { id: true, username: true, name: true, role: true },
     });

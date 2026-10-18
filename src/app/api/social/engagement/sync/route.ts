@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import { cronAuth } from "@/lib/social/cron-auth";
 import { syncEngagement } from "@/lib/social/engagement";
+import { runWithBusiness } from "@/lib/prisma";
 
 /**
  * Cron/sync endpoint: pull new comments and messages from all connected
@@ -12,16 +13,18 @@ import { syncEngagement } from "@/lib/social/engagement";
  */
 export async function POST(request: NextRequest) {
   const auth = await cronAuth(request, "automation:create");
-  if (auth !== true) return auth;
+  if (auth instanceof NextResponse) return auth;
 
-  try {
-    const result = await syncEngagement();
-    return NextResponse.json(result);
-  } catch (error) {
-    logger.error("Engagement sync failed:", error);
-    return NextResponse.json(
-      { error: "Failed to sync engagement" },
-      { status: 500 }
-    );
-  }
+  return runWithBusiness(auth.businessId, async () => {
+    try {
+      const result = await syncEngagement();
+      return NextResponse.json(result);
+    } catch (error) {
+      logger.error("Engagement sync failed:", error);
+      return NextResponse.json(
+        { error: "Failed to sync engagement" },
+        { status: 500 }
+      );
+    }
+  });
 }

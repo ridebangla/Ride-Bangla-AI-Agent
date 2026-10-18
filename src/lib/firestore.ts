@@ -1401,9 +1401,16 @@ export function runWithBusiness<T>(businessId: string | null, fn: () => T): T {
 }
 
 /**
- * Enter a business context for the REMAINDER of the current async execution
- * (used by requireAuth inside API route handlers: everything the handler
- * awaits afterwards inherits the context).
+ * Enter a business context for the REMAINDER of the current async execution.
+ *
+ * WARNING: this uses AsyncLocalStorage.enterWith(), which does NOT propagate
+ * across an `await` boundary back into the CALLER. It only works when called
+ * directly in the same async function that performs the subsequent awaits
+ * (e.g. at the top of a webhook handler or channel event callback). It must
+ * NOT be relied upon inside helpers like requireAuth()/cronAuth() — the
+ * route handler that awaited the helper will NOT see the context and scoped
+ * prisma calls there will throw TenantContextError. Helpers must return the
+ * businessId and the caller must wrap its work in runWithBusiness().
  */
 export function enterBusinessContext(businessId: string | null): void {
   tenantStore.enterWith({ businessId });

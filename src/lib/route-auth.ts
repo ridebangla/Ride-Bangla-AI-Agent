@@ -31,7 +31,10 @@ async function authenticateApiKey(apiKey: string): Promise<(AuthContext & { busi
 
   if (!key || !key.isActive) return null;
 
-  // This caller's tenant context starts here and covers the rest of the request.
+  // NOTE: this enterWith() covers only the remainder of THIS function's
+  // execution — it does not reach the route handler that awaited
+  // authenticateApiKey(). The handler must wrap its work in
+  // runWithBusiness(auth.businessId, ...).
   enterBusinessContext(key.businessId);
 
   // Update lastUsed timestamp
@@ -119,9 +122,14 @@ export async function requireAuth(
     );
   }
 
-  // Resolve the effective business for this request and enter tenant context.
-  // The context covers the rest of the request: every downstream prisma query
-  // on a tenant model is auto-scoped to this business (fail-closed).
+  // Resolve the effective business for this request. The returned
+  // AuthContext.businessId lets the route handler wrap its work in
+  // runWithBusiness(businessId, ...) so every downstream prisma query on a
+  // tenant model is auto-scoped to this business (fail-closed).
+  // NOTE: the enterBusinessContext() call below does NOT propagate to the
+  // route handler (AsyncLocalStorage.enterWith() never crosses the
+  // `await requireAuth(...)` boundary back into the caller) — it is kept
+  // only as a best-effort default, not the mechanism handlers rely on.
   let effectiveBusinessId: string | null = admin.businessId ?? null;
   const requestedSlug = request.nextUrl.searchParams.get("business");
   const db = getUnscopedPrisma();

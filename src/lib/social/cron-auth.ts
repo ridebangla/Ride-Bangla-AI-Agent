@@ -8,19 +8,20 @@
  * 2. A normal admin/API-key caller via requireAuth() with the given
  *    permission.
  *
- * On success the ambient business context is entered (either by the cron
- * branch or by requireAuth itself).
+ * On success returns the resolved business id. The CALLER must wrap its work
+ * in `runWithBusiness(businessId, ...)` — calling enterBusinessContext()
+ * here would not help, because AsyncLocalStorage.enterWith() does not
+ * propagate across the `await cronAuth(...)` boundary back into the caller.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
-import { enterBusinessContext } from "@/lib/tenant";
 import { getUnscopedPrisma } from "@/lib/prisma";
 import type { Permission } from "@/lib/rbac";
 
 export async function cronAuth(
   request: NextRequest,
   permission: Permission
-): Promise<true | NextResponse> {
+): Promise<{ ok: true; businessId: string | null } | NextResponse> {
   const secret = process.env.CRON_SECRET;
   const header = request.headers.get("authorization") || "";
 
@@ -38,11 +39,10 @@ export async function cronAuth(
     if (!biz || !biz.isActive) {
       return NextResponse.json({ error: "Unknown business" }, { status: 400 });
     }
-    enterBusinessContext(biz.id);
-    return true;
+    return { ok: true, businessId: biz.id };
   }
 
   const auth = await requireAuth(request, permission);
   if (!isAuthenticated(auth)) return auth;
-  return true;
+  return { ok: true, businessId: auth.businessId };
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, runWithBusiness } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { cronAuth } from "@/lib/social/cron-auth";
 import {
@@ -19,8 +19,9 @@ import { publishPost } from "@/lib/social/publisher";
  */
 export async function POST(request: NextRequest) {
   const auth = await cronAuth(request, "automation:create");
-  if (auth !== true) return auth;
+  if (auth instanceof NextResponse) return auth;
 
+  return runWithBusiness(auth.businessId, async () => {
   try {
     const due = await prisma.scheduledPost.findMany({
       where: { status: "scheduled", scheduledAt: { lte: new Date() } },
@@ -111,4 +112,5 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+  });
 }

@@ -3,7 +3,7 @@ import { verifySessionToken } from "./auth";
 import { getUnscopedPrisma, enterBusinessContext } from "./prisma";
 
 /**
- * Enter the tenant context for a React Server Component.
+ * Resolve the tenant (business) for a React Server Component and return its id.
  *
  * Server Components run outside API-route auth, so they must resolve the
  * business from the session cookie themselves. Mirrors the resolution logic
@@ -15,6 +15,11 @@ import { getUnscopedPrisma, enterBusinessContext } from "./prisma";
  * Returns the effective business id, or null when no valid session/business
  * could be resolved (the middleware redirects unauthenticated users to
  * login before this ever runs).
+ *
+ * IMPORTANT: the caller must wrap its data reads in
+ * `runWithBusiness(businessId, ...)` — the enterBusinessContext() call below
+ * uses AsyncLocalStorage.enterWith(), which does NOT propagate across the
+ * `await enterServerBusinessContext(...)` boundary back into the caller.
  */
 export async function enterServerBusinessContext(searchParams?: {
   business?: string | string[];

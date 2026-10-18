@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processDueFollowUps } from "@/lib/followups";
 import { logger } from "@/lib/logger";
+import { runWithBusiness } from "@/lib/prisma";
 
 /**
  * POST /api/followups/process — cron endpoint. Delivers due follow-ups
@@ -35,10 +36,12 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, "conversations:read");
   if (!isAuthenticated(auth)) return auth;
 
-  const { prisma } = await import("@/lib/prisma");
-  const items = await prisma.followUp.findMany({
-    orderBy: { dueAt: "desc" },
-    take: 50,
+  const { prisma, runWithBusiness } = await import("@/lib/prisma");
+  return runWithBusiness(auth.businessId, async () => {
+    const items = await prisma.followUp.findMany({
+      orderBy: { dueAt: "desc" },
+      take: 50,
+    });
+    return NextResponse.json(items);
   });
-  return NextResponse.json(items);
 }
