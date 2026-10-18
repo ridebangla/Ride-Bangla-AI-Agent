@@ -29,6 +29,8 @@
     title: script.getAttribute("data-title") || "Ride Bangla AI Agent",
   };
 
+  var avatarUrl = config.server.replace(/\/$/, "") + "/agent-avatar.png";
+
   var conversationId = null;
   var isOpen = false;
 
@@ -38,7 +40,7 @@
       #rbai-widget-container{position:fixed;bottom:20px;" + config.position + ":20px;z-index:999999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}\n\
       #rbai-widget-btn{width:56px;height:56px;border-radius:50%;background:" + config.color + ";border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .2s}\n\
       #rbai-widget-btn:hover{transform:scale(1.05)}\n\
-      #rbai-widget-btn svg{width:24px;height:24px;fill:#fff}\n\
+      #rbai-widget-btn{overflow:hidden;padding:0}\n\#rbai-widget-btn img{width:56px;height:56px;object-fit:cover;display:block}\n\#rbai-widget-headwrap{display:flex;align-items:center}\n\#rbai-widget-header .rbai-avatar{width:36px;height:36px;border-radius:50%;object-fit:cover;margin-right:10px;background:#fff}\n\
       #rbai-widget-panel{display:none;width:370px;height:520px;background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.12);margin-bottom:12px;overflow:hidden;flex-direction:column}\n\
       #rbai-widget-panel.open{display:flex}\n\
       #rbai-widget-header{background:" + config.color + ";color:#fff;padding:16px;display:flex;align-items:center;justify-content:space-between}\n\
@@ -63,7 +65,7 @@
     container.innerHTML = '\
       <div id="rbai-widget-panel">\
         <div id="rbai-widget-header">\
-          <h3>' + config.title + '</h3>\
+          <div id="rbai-widget-headwrap"><img class="rbai-avatar" src="' + avatarUrl + '" alt=""/><h3>' + config.title + '</h3></div>\
           <button id="rbai-widget-close">&times;</button>\
         </div>\
         <div id="rbai-widget-messages"></div>\
@@ -72,8 +74,8 @@
           <button id="rbai-widget-send">Send</button>\
         </div>\
       </div>\
-      <button id="rbai-widget-btn">\
-        <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>\
+      <button id="rbai-widget-btn" aria-label="Open chat">\
+        <img src="' + avatarUrl + '" alt="Ride Bangla AI Agent"/>\
       </button>\
     ';
     document.body.appendChild(container);

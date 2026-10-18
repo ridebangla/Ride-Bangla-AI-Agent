@@ -72,7 +72,7 @@ export default function LoginPage() {
     <div className="bg-rbai-surface rounded-2xl shadow-lg border border-rbai-border p-8">
       <div className="flex flex-col items-center mb-8">
         <Image
-          src="/rbai-logo.png"
+          src="/agent-avatar.png"
           alt="Ride Bangla AI Agent"
           width={56}
           height={56}
