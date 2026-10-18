@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
-import { prisma } from "@/lib/prisma";
+import { getUnscopedPrisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 import { logger } from "@/lib/logger";
 
@@ -115,14 +115,14 @@ export async function verifyRefreshToken(
 
 export async function isTokenRevoked(jti: string): Promise<boolean> {
   if (!jti) return false;
-  const row = await prisma.revokedToken.findUnique({ where: { jti } });
+  const row = await getUnscopedPrisma().revokedToken.findUnique({ where: { jti } });
   return row !== null;
 }
 
 /** Revoke a token by its `jti` (logout / refresh rotation). Idempotent. */
 export async function revokeToken(jti: string, expiresAt: Date): Promise<void> {
   if (!jti) return;
-  await prisma.revokedToken.upsert({
+  await getUnscopedPrisma().revokedToken.upsert({
     where: { jti },
     update: {},
     create: { jti, expiresAt },
@@ -137,7 +137,7 @@ export async function getCurrentUser() {
   const payload = await verifySessionToken(token);
   if (!payload) return null;
 
-  const admin = await prisma.admin.findUnique({
+  const admin = await getUnscopedPrisma().admin.findUnique({
     where: { id: payload.userId },
     select: { id: true, username: true, name: true, role: true },
   });
@@ -146,7 +146,7 @@ export async function getCurrentUser() {
 }
 
 export async function isSetupComplete(): Promise<boolean> {
-  const adminCount = await prisma.admin.count();
+  const adminCount = await getUnscopedPrisma().admin.count();
   return adminCount > 0;
 }
 

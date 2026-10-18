@@ -1,7 +1,7 @@
 import { Header } from "@/components/layout/header";
 import { StatCard } from "@/components/ui/stat-card";
 import { OnboardingChecklist } from "@/components/ui/onboarding-checklist";
-import { prisma } from "@/lib/prisma";
+import { prisma, runWithBusiness } from "@/lib/prisma";
 import {
   MessageSquare,
   Ticket,
@@ -32,6 +32,10 @@ async function getStats() {
       resolutionRate: 0,
     };
   }
+  // TenantContextError fix: enterWith() inside enterServerBusinessContext()
+  // does not propagate across this await boundary, so scope the queries
+  // explicitly with runWithBusiness().
+  return runWithBusiness(businessId, async () => {
   const [
     totalConversations,
     activeConversations,
@@ -73,6 +77,7 @@ async function getStats() {
     resolutionRate,
     recentConversations,
   };
+  });
 }
 
 const channelIcons: Record<string, React.ElementType> = {
