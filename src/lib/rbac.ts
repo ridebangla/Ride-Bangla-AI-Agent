@@ -106,6 +106,10 @@ export type Permission = keyof typeof PERMISSIONS;
  * Check if a role has a specific permission.
  */
 export function hasPermission(role: string, permission: Permission): boolean {
+  // The single Super Admin (role "super_admin", businessId null) is above
+  // the role hierarchy: unrestricted by design (user's standing rule —
+  // exactly ONE Super Admin).
+  if (role === "super_admin") return true;
   const allowed = PERMISSIONS[permission];
   if (!allowed) return false;
   return (allowed as readonly string[]).includes(role);

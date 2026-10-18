@@ -64,7 +64,7 @@ function Skeleton({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "animate-pulse rounded-lg bg-owly-border/50",
+        "animate-pulse rounded-lg bg-rbai-border/50",
         className
       )}
     />
@@ -73,7 +73,7 @@ function Skeleton({ className }: { className?: string }) {
 
 function StatCardSkeleton() {
   return (
-    <div className="bg-owly-surface rounded-xl border border-owly-border p-5">
+    <div className="bg-rbai-surface rounded-xl border border-rbai-border p-5">
       <div className="flex items-start justify-between">
         <div className="space-y-2">
           <Skeleton className="h-4 w-24" />
@@ -87,16 +87,16 @@ function StatCardSkeleton() {
 
 function ChartSkeleton({ height = 280 }: { height?: number }) {
   return (
-    <div className="bg-owly-surface rounded-xl border border-owly-border p-5">
+    <div className="bg-rbai-surface rounded-xl border border-rbai-border p-5">
       <Skeleton className="h-4 w-40 mb-4" />
-      <div className="w-full animate-pulse rounded bg-owly-border/60" style={{ height }} />
+      <div className="w-full animate-pulse rounded bg-rbai-border/60" style={{ height }} />
     </div>
   );
 }
 
 function TableSkeleton() {
   return (
-    <div className="bg-owly-surface rounded-xl border border-owly-border p-5">
+    <div className="bg-rbai-surface rounded-xl border border-rbai-border p-5">
       <Skeleton className="h-4 w-40 mb-4" />
       <div className="space-y-3">
         {Array.from({ length: 4 }).map((_, i) => (
@@ -152,14 +152,14 @@ export default function AnalyticsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-owly-text">Analytics</h1>
-          <p className="text-sm text-owly-text-light mt-1">
+          <h1 className="text-2xl font-bold text-rbai-text">Analytics</h1>
+          <p className="text-sm text-rbai-text-light mt-1">
             Monitor your support performance
           </p>
         </div>
 
         {/* Period selector */}
-        <div className="flex bg-owly-surface border border-owly-border rounded-lg p-1">
+        <div className="flex bg-rbai-surface border border-rbai-border rounded-lg p-1">
           {PERIOD_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -167,8 +167,8 @@ export default function AnalyticsPage() {
               className={cn(
                 "px-4 py-1.5 rounded-md text-sm font-medium transition-colors",
                 period === opt.value
-                  ? "bg-owly-primary text-white"
-                  : "text-owly-text-light hover:text-owly-text"
+                  ? "bg-rbai-primary text-white"
+                  : "text-rbai-text-light hover:text-rbai-text"
               )}
             >
               {opt.label}
@@ -190,7 +190,7 @@ export default function AnalyticsPage() {
             title="Total Conversations"
             value={data.totalConversations.toLocaleString()}
             icon={MessageSquare}
-            iconColor="bg-owly-primary-50 text-owly-primary"
+            iconColor="bg-rbai-primary-50 text-rbai-primary"
           />
           <StatCard
             title="Avg Response Time"
@@ -279,24 +279,24 @@ export default function AnalyticsPage() {
       {loading ? (
         <TableSkeleton />
       ) : data && data.teamPerformance.length > 0 ? (
-        <div className="bg-owly-surface rounded-xl border border-owly-border p-5">
+        <div className="bg-rbai-surface rounded-xl border border-rbai-border p-5">
           <div className="flex items-center gap-2 mb-4">
-            <Users className="h-4 w-4 text-owly-text-light" />
-            <h3 className="text-sm font-semibold text-owly-text">
+            <Users className="h-4 w-4 text-rbai-text-light" />
+            <h3 className="text-sm font-semibold text-rbai-text">
               Team Performance
             </h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-owly-border text-left">
-                  <th className="pb-3 font-medium text-owly-text-light">
+                <tr className="border-b border-rbai-border text-left">
+                  <th className="pb-3 font-medium text-rbai-text-light">
                     Team Member
                   </th>
-                  <th className="pb-3 font-medium text-owly-text-light text-right">
+                  <th className="pb-3 font-medium text-rbai-text-light text-right">
                     Tickets Resolved
                   </th>
-                  <th className="pb-3 font-medium text-owly-text-light text-right">
+                  <th className="pb-3 font-medium text-rbai-text-light text-right">
                     Avg Resolution Time
                   </th>
                 </tr>
@@ -305,17 +305,17 @@ export default function AnalyticsPage() {
                 {data.teamPerformance.map((tp) => (
                   <tr
                     key={tp.member}
-                    className="border-b border-owly-border/50 last:border-0"
+                    className="border-b border-rbai-border/50 last:border-0"
                   >
-                    <td className="py-3 font-medium text-owly-text">
+                    <td className="py-3 font-medium text-rbai-text">
                       {tp.member}
                     </td>
-                    <td className="py-3 text-right text-owly-text">
-                      <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-full bg-owly-primary-50 text-owly-primary text-xs font-semibold">
+                    <td className="py-3 text-right text-rbai-text">
+                      <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-full bg-rbai-primary-50 text-rbai-primary text-xs font-semibold">
                         {tp.ticketsResolved}
                       </span>
                     </td>
-                    <td className="py-3 text-right text-owly-text-light">
+                    <td className="py-3 text-right text-rbai-text-light">
                       {formatMinutes(tp.avgTime)}
                     </td>
                   </tr>

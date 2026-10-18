@@ -2,9 +2,9 @@
 
 ## Overview
 
-The WhatsApp channel allows Owly to receive and respond to customer messages through WhatsApp. When a customer sends a message via WhatsApp, Owly automatically creates or resumes a conversation, passes the message to the AI engine, and sends the AI-generated response back through WhatsApp in real time.
+The WhatsApp channel allows Ride Bangla AI Agent to receive and respond to customer messages through WhatsApp. When a customer sends a message via WhatsApp, Ride Bangla AI Agent automatically creates or resumes a conversation, passes the message to the AI engine, and sends the AI-generated response back through WhatsApp in real time.
 
-Owly supports two connection methods: WhatsApp Web (QR code scanning) and WhatsApp Business API (API key authentication). Both methods enable full bidirectional messaging with AI-powered responses.
+Ride Bangla AI Agent supports two connection methods: WhatsApp Web (QR code scanning) and WhatsApp Business API (API key authentication). Both methods enable full bidirectional messaging with AI-powered responses.
 
 ![Channels](../screenshots/12-channels.png)
 *The Channels page displaying WhatsApp, Email, and Phone channel cards with their connection status and configuration options.*
@@ -16,11 +16,11 @@ Owly supports two connection methods: WhatsApp Web (QR code scanning) and WhatsA
 The WhatsApp integration follows this flow for every incoming message:
 
 1. A customer sends a message to your WhatsApp number.
-2. Owly receives the message through the connected WhatsApp client.
+2. Ride Bangla AI Agent receives the message through the connected WhatsApp client.
 3. The system checks whether an active or escalated conversation already exists for that customer contact. If not, a new conversation is created.
 4. The message content is forwarded to the AI engine via the `chat()` function.
 5. The AI generates a contextual response based on the conversation history and the knowledge base.
-6. Owly sends the response back to the customer as a WhatsApp reply.
+6. Ride Bangla AI Agent sends the response back to the customer as a WhatsApp reply.
 
 Messages from the linked account itself (outgoing messages) are ignored to prevent feedback loops.
 
@@ -73,7 +73,7 @@ If authentication fails (for example, due to a corrupted session), the system em
 
 ## Method 2: WhatsApp Business API
 
-For organizations that need a more robust and scalable connection, Owly supports the WhatsApp Business API.
+For organizations that need a more robust and scalable connection, Ride Bangla AI Agent supports the WhatsApp Business API.
 
 ### Prerequisites
 
@@ -113,7 +113,7 @@ For organizations that need a more robust and scalable connection, Owly supports
 
 ## Media Handling
 
-Owly processes several types of media attachments received through WhatsApp:
+Ride Bangla AI Agent processes several types of media attachments received through WhatsApp:
 
 ### Supported Media Types
 
@@ -156,7 +156,7 @@ The AI engine has access to the knowledge base, conversation history, and any co
 
 ## Sending Outbound Messages
 
-Owly can also send proactive messages to WhatsApp contacts. The `sendWhatsAppMessage(to, message)` function handles outbound messaging:
+Ride Bangla AI Agent can also send proactive messages to WhatsApp contacts. The `sendWhatsAppMessage(to, message)` function handles outbound messaging:
 
 - The `to` parameter accepts either a raw phone number or a WhatsApp chat ID (with `@c.us` suffix).
 - If a raw phone number is provided, the system automatically appends `@c.us` to form the correct chat ID.

@@ -1,8 +1,8 @@
 # Dashboard
 
-The Dashboard is the first page you see after logging into Owly. It provides a real-time overview of your customer support activity, including conversation statistics, recent activity, channel status, and an onboarding checklist for new installations.
+The Dashboard is the first page you see after logging into Ride Bangla AI Agent. It provides a real-time overview of your customer support activity, including conversation statistics, recent activity, channel status, and an onboarding checklist for new installations.
 
-![Owly Dashboard](../screenshots/02-dashboard.png)
+![Ride Bangla AI Agent Dashboard](../screenshots/02-dashboard.png)
 
 ---
 
@@ -41,7 +41,7 @@ The stat cards row shows four key performance indicators at a glance. Each card 
 
 ## Onboarding Checklist
 
-The onboarding checklist appears at the top of the dashboard when your Owly instance is not fully configured. It tracks six setup milestones and provides direct links to the relevant pages.
+The onboarding checklist appears at the top of the dashboard when your Ride Bangla AI Agent instance is not fully configured. It tracks six setup milestones and provides direct links to the relevant pages.
 
 ### Checklist Items
 
@@ -150,7 +150,7 @@ These metrics complement the stat cards by providing additional context. Total M
 
 ## Navigation
 
-From the dashboard, you can access all other Owly features through the sidebar:
+From the dashboard, you can access all other Ride Bangla AI Agent features through the sidebar:
 
 | Section | Pages |
 |---------|-------|
@@ -164,7 +164,7 @@ From the dashboard, you can access all other Owly features through the sidebar:
 
 ## Next Steps
 
-- [Quick Start Tutorial](Quick-Start-Tutorial) -- If you just installed Owly and want to get your first AI conversation running
+- [Quick Start Tutorial](Quick-Start-Tutorial) -- If you just installed Ride Bangla AI Agent and want to get your first AI conversation running
 - [Knowledge Base Guide](Knowledge-Base-Guide) -- Add and organize content for your AI agent
 - [Conversations and Inbox](Conversations-and-Inbox) -- Learn how to manage conversations once they start coming in
 - [Automation Rules](Automation-Rules) -- Set up auto-routing, tagging, and replies to reduce manual work

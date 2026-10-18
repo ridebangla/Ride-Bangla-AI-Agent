@@ -1,0 +1,106 @@
+import { NextRequest, NextResponse } from "next/server";
+import { chat } from "@/lib/ai/engine";
+import { logger } from "@/lib/logger";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { getBusinessBySiteKey, enterBusinessContext } from "@/lib/tenant";
+import { prisma, withBusinessId } from "@/lib/prisma";
+import type { MediaInput } from "@/lib/ai/media";
+
+/**
+ * Public website-widget chat endpoint.
+ *
+ * Auth: the business's public `siteKey` (issued at seed/setup, shown in the
+ * dashboard widget page). The site key identifies the business but grants no
+ * admin powers — it can only chat as a website visitor.
+ *
+ * Strict rate limit: 20 requests/minute per (siteKey + visitor). Body size
+ * is capped by Next.js defaults; base64 images are limited to ~4 MB.
+ */
+const WIDGET_RATE_LIMIT = { maxRequests: 20, windowMs: 60 * 1000 };
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { siteKey, message, visitorId, conversationId, image } = body as {
+      siteKey?: string;
+      message?: string;
+      visitorId?: string;
+      conversationId?: string;
+      image?: { mimeType?: string; base64?: string };
+    };
+
+    if (!siteKey || typeof siteKey !== "string") {
+      return NextResponse.json({ error: "siteKey is required" }, { status: 401 });
+    }
+
+    const business = await getBusinessBySiteKey(siteKey);
+    if (!business) {
+      return NextResponse.json({ error: "Invalid site key" }, { status: 401 });
+    }
+    enterBusinessContext(business.id);
+
+    const visitor = typeof visitorId === "string" && visitorId.trim() ? visitorId.trim().slice(0, 64) : "anonymous";
+    const rl = checkRateLimit(`widget:${siteKey}:${visitor}`, WIDGET_RATE_LIMIT);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Too many messages. Please wait a moment and try again." },
+        { status: 429 }
+      );
+    }
+
+    const text = typeof message === "string" ? message.trim() : "";
+    if (!text && !image?.base64) {
+      return NextResponse.json({ error: "Message or image is required" }, { status: 400 });
+    }
+    if (text.length > 5000) {
+      return NextResponse.json({ error: "Message too long" }, { status: 400 });
+    }
+
+    // Optional photo attachment from the widget.
+    let media: MediaInput | undefined;
+    if (image?.base64) {
+      const mimeType = typeof image.mimeType === "string" ? image.mimeType : "image/jpeg";
+      if (!mimeType.startsWith("image/")) {
+        return NextResponse.json({ error: "Only image attachments are supported" }, { status: 400 });
+      }
+      let bytes: Buffer;
+      try {
+        bytes = Buffer.from(image.base64, "base64");
+      } catch {
+        return NextResponse.json({ error: "Invalid image data" }, { status: 400 });
+      }
+      if (bytes.length > MAX_IMAGE_BYTES) {
+        return NextResponse.json({ error: "Image too large (max 4 MB)" }, { status: 400 });
+      }
+      media = { kind: "image", mimeType, bytes };
+    }
+
+    // Find or create the visitor's conversation.
+    let convId = typeof conversationId === "string" ? conversationId : "";
+    if (convId) {
+      const existing = await prisma.conversation.findUnique({ where: { id: convId } });
+      // Scoped to this business by the tenant proxy; also require the same
+      // visitor so one visitor cannot read another's thread.
+      if (!existing || existing.customerContact !== visitor) convId = "";
+    }
+    if (!convId) {
+      const conv = await prisma.conversation.create({
+        data: withBusinessId({
+          channel: "widget",
+          customerName: "Website Visitor",
+          customerContact: visitor,
+          status: "open",
+        }),
+      });
+      convId = conv.id;
+    }
+
+    const response = await chat(convId, text || "(sent a photo)", { media });
+
+    return NextResponse.json({ conversationId: convId, response });
+  } catch (error) {
+    logger.error("Widget chat failed:", error);
+    return NextResponse.json({ error: "Failed to process message" }, { status: 500 });
+  }
+}

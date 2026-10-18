@@ -1,8 +1,8 @@
 import { ToolDefinition } from "./types";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import nodemailer from "nodemailer";
 
-export const owlyTools: ToolDefinition[] = [
+export const agentTools: ToolDefinition[] = [
   {
     type: "function",
     function: {
@@ -136,6 +136,82 @@ export const owlyTools: ToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "take_order",
+      description:
+        "Record a customer ORDER or BOOKING (ride, food delivery, courier/parcel, grocery, or a product purchase). Call this when the customer has confirmed they want to order/book and you have the essentials. The order becomes a ticket the team can see and fulfill in the dashboard.",
+      parameters: {
+        type: "object",
+        properties: {
+          serviceType: {
+            type: "string",
+            description:
+              "What is being ordered: e.g. 'ride', 'food_delivery', 'courier', 'grocery', or a product name from the catalog.",
+          },
+          pickup: {
+            type: "string",
+            description: "Pickup location/address (for rides, courier). Empty string if not applicable.",
+          },
+          dropoff: {
+            type: "string",
+            description: "Drop-off/delivery location/address. Empty string if not applicable.",
+          },
+          details: {
+            type: "string",
+            description:
+              "All other order details: items, quantity, date/time, special instructions.",
+          },
+          customerName: {
+            type: "string",
+            description: "Customer's name, if known.",
+          },
+          customerPhone: {
+            type: "string",
+            description: "Customer's phone number, if known.",
+          },
+        },
+        required: ["serviceType", "details"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_catalog",
+      description:
+        "Search the business's product/service catalog for available items matching the customer's request. Use before quoting prices or confirming availability.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "What the customer is looking for.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "recommend_alternative",
+      description:
+        "When the customer asks for something NOT available, get graceful alternatives: available products/services closest to their request. Use this to redirect gracefully instead of just saying no.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "What the customer originally asked for.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "trigger_webhook",
       description:
         "Trigger a configured webhook to notify an external system about an event.",
@@ -172,7 +248,13 @@ export async function executeToolCall(
     case "get_customer_history":
       return await getCustomerHistory(args);
     case "schedule_followup":
-      return await scheduleFollowup(args);
+      return await scheduleFollowup(args, conversationId);
+    case "take_order":
+      return await takeOrder(args, conversationId);
+    case "search_catalog":
+      return await searchCatalogTool(args);
+    case "recommend_alternative":
+      return await recommendAlternativeTool(args);
     case "trigger_webhook":
       return await triggerWebhook(args);
     default:
@@ -193,13 +275,13 @@ async function createTicket(
     : null;
 
   const ticket = await prisma.ticket.create({
-    data: {
+    data: withBusinessId({
       title: args.title as string,
       description: args.description as string,
       priority: (args.priority as string) || "medium",
       conversationId: conversationId || null,
       departmentId: department?.id || null,
-    },
+    }),
   });
 
   return JSON.stringify({
@@ -319,17 +401,111 @@ async function getCustomerHistory(
 }
 
 async function scheduleFollowup(
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  conversationId?: string
 ): Promise<string> {
-  // In a production system, this would use a job queue (Bull, Agenda, etc.)
-  // For now, we store it and a background process would pick it up
+  const delayHours = Number(args.delayHours);
+  if (!Number.isFinite(delayHours) || delayHours <= 0 || delayHours > 24 * 30) {
+    return JSON.stringify({
+      success: false,
+      message: "delayHours must be between 0 and 720 (30 days).",
+    });
+  }
+  const message = String(args.message ?? "").trim();
+  if (!message) {
+    return JSON.stringify({ success: false, message: "message is required." });
+  }
+  const convId = (args.conversationId as string) || conversationId;
+  if (!convId) {
+    return JSON.stringify({ success: false, message: "conversationId is required." });
+  }
+
+  const dueAt = new Date(Date.now() + delayHours * 3600_000);
+  const followUp = await prisma.followUp.create({
+    data: withBusinessId({
+      conversationId: convId,
+      message,
+      dueAt,
+      status: "pending",
+    }),
+  });
+
+  // A cron job (POST /api/followups/process) picks due follow-ups up and
+  // delivers them through the conversation's channel.
   return JSON.stringify({
     success: true,
-    message: `Follow-up scheduled in ${args.delayHours} hours: "${args.message}"`,
-    scheduledFor: new Date(
-      Date.now() + (args.delayHours as number) * 3600000
-    ).toISOString(),
+    followUpId: followUp.id,
+    message: `Follow-up scheduled in ${delayHours} hours: "${message}"`,
+    scheduledFor: dueAt.toISOString(),
   });
+}
+
+/**
+ * Order-taking path: the customer confirmed an order/booking. Persisted as a
+ * Ticket (type order) with structured metadata so the dashboard shows it as
+ * an actionable order the team can fulfill — never a fake confirmation.
+ */
+async function takeOrder(
+  args: Record<string, unknown>,
+  conversationId?: string
+): Promise<string> {
+  const serviceType = String(args.serviceType ?? "").trim();
+  const details = String(args.details ?? "").trim();
+  if (!serviceType || !details) {
+    return JSON.stringify({
+      success: false,
+      message: "serviceType and details are required to record an order.",
+    });
+  }
+
+  const ticket = await prisma.ticket.create({
+    data: withBusinessId({
+      title: `Order: ${serviceType}`,
+      description: [
+        `Service: ${serviceType}`,
+        args.pickup ? `Pickup: ${args.pickup}` : null,
+        args.dropoff ? `Drop-off: ${args.dropoff}` : null,
+        `Details: ${details}`,
+        args.customerName ? `Customer: ${args.customerName}` : null,
+        args.customerPhone ? `Phone: ${args.customerPhone}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      priority: "high",
+      status: "open",
+      conversationId: conversationId || null,
+      metadata: {
+        kind: "order",
+        serviceType,
+        pickup: args.pickup ?? "",
+        dropoff: args.dropoff ?? "",
+        details,
+        customerName: args.customerName ?? "",
+        customerPhone: args.customerPhone ?? "",
+        orderedAt: new Date().toISOString(),
+      },
+    }),
+  });
+
+  return JSON.stringify({
+    success: true,
+    orderId: ticket.id,
+    message:
+      `Order recorded (${serviceType}). The team has been notified and will ` +
+      `confirm shortly. Order reference: ${ticket.id.slice(0, 8)}.`,
+  });
+}
+
+async function searchCatalogTool(args: Record<string, unknown>): Promise<string> {
+  const { searchCatalog } = await import("../catalog");
+  const results = await searchCatalog(String(args.query ?? ""), 5);
+  return JSON.stringify({ success: true, results });
+}
+
+async function recommendAlternativeTool(args: Record<string, unknown>): Promise<string> {
+  const { recommendAlternatives } = await import("../catalog");
+  const { alternatives, reason } = await recommendAlternatives(String(args.query ?? ""), 3);
+  return JSON.stringify({ success: true, reason, alternatives });
 }
 
 async function triggerWebhook(args: Record<string, unknown>): Promise<string> {

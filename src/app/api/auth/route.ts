@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, getUnscopedPrisma } from "@/lib/prisma";
 import {
   LOGIN_LOCKOUT_MS,
   MAX_LOGIN_ATTEMPTS,
@@ -58,28 +58,50 @@ export async function POST(request: NextRequest) {
     }
 
     const hashed = await hashPassword(password);
-    const admin = await prisma.admin.create({
+
+    // First-run setup: create the business, its settings/channels, and the
+    // Super Admin account (businessId null => manages every business).
+    // Setup-time code: uses the unscoped client (no tenant context exists yet).
+    const setupDb = getUnscopedPrisma();
+    const { randomUUID } = await import("crypto");
+    const baseSlug = (body.businessName || "my-business")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "business";
+    const slug = `${baseSlug}-${randomUUID().slice(0, 6)}`;
+    const business = await setupDb.business.create({
+      data: {
+        name: body.businessName || "My Business",
+        slug,
+        siteKey: "rbsite-" + randomUUID().replace(/-/g, ""),
+        isActive: true,
+      },
+    });
+
+    const admin = await setupDb.admin.create({
       data: {
         username,
         password: hashed,
         name: name || "Admin",
-        role: "admin",
+        role: "super_admin",
+        businessId: null,
       },
     });
 
     // Ensure default settings exist
-    await prisma.settings.upsert({
-      where: { id: "default" },
+    await setupDb.settings.upsert({
+      where: { businessId: business.id },
       update: {},
-      create: { id: "default" },
+      create: { businessId: business.id },
     });
 
     // Ensure channels exist
     for (const type of ["whatsapp", "email", "phone"]) {
-      await prisma.channel.upsert({
-        where: { type },
+      await setupDb.channel.upsert({
+        where: { businessId_type: { businessId: business.id, type } },
         update: {},
-        create: { type, isActive: false, status: "disconnected" },
+        create: { businessId: business.id, type, isActive: false, status: "disconnected" },
       });
     }
 
@@ -178,7 +200,7 @@ export async function POST(request: NextRequest) {
 
   if (action === "logout") {
     // M-53: revoke both tokens so a stolen token stops working at once.
-    const accessToken = request.cookies.get("owly-token")?.value;
+    const accessToken = request.cookies.get("rbai-token")?.value;
     const refreshTokenValue = request.cookies
       .get(getRefreshCookieName())
       ?.value;

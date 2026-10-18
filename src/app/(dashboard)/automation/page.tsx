@@ -255,7 +255,7 @@ export default function AutomationPage() {
   const renderActionInput = (action: ActionData, index: number) => {
     const commonProps = {
       className:
-        "flex-1 px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-surface text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-theme",
+        "flex-1 px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-surface text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-theme",
       value: action.value,
       onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
         updateAction(index, e.target.value),
@@ -307,7 +307,7 @@ export default function AutomationPage() {
         actions={
           <button
             onClick={openCreateModal}
-            className="flex items-center gap-2 px-4 py-2 bg-owly-primary text-white rounded-lg hover:bg-owly-primary-dark transition-colors text-sm font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-rbai-primary text-white rounded-lg hover:bg-rbai-primary-dark transition-colors text-sm font-medium"
           >
             <Plus className="h-4 w-4" />
             Add Rule
@@ -317,7 +317,7 @@ export default function AutomationPage() {
 
       <div className="flex-1 overflow-y-auto p-6">
         {/* Filter Tabs */}
-        <div className="flex gap-1 mb-6 bg-owly-surface border border-owly-border rounded-lg p-1 w-fit">
+        <div className="flex gap-1 mb-6 bg-rbai-surface border border-rbai-border rounded-lg p-1 w-fit">
           {filterTabs.map((tab) => (
             <button
               key={tab.value}
@@ -325,8 +325,8 @@ export default function AutomationPage() {
               className={cn(
                 "px-4 py-1.5 rounded-md text-sm font-medium transition-colors",
                 typeFilter === tab.value
-                  ? "bg-owly-primary text-white"
-                  : "text-owly-text-light hover:text-owly-text hover:bg-owly-primary-50"
+                  ? "bg-rbai-primary text-white"
+                  : "text-rbai-text-light hover:text-rbai-text hover:bg-rbai-primary-50"
               )}
             >
               {tab.label}
@@ -339,60 +339,60 @@ export default function AutomationPage() {
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="bg-owly-surface border border-owly-border rounded-xl p-5 animate-pulse"
+                className="bg-rbai-surface border border-rbai-border rounded-xl p-5 animate-pulse"
               >
-                <div className="h-5 bg-owly-border rounded w-2/3 mb-3" />
-                <div className="h-4 bg-owly-border rounded w-1/3 mb-4" />
-                <div className="h-4 bg-owly-border rounded w-full mb-2" />
-                <div className="h-4 bg-owly-border rounded w-3/4" />
+                <div className="h-5 bg-rbai-border rounded w-2/3 mb-3" />
+                <div className="h-4 bg-rbai-border rounded w-1/3 mb-4" />
+                <div className="h-4 bg-rbai-border rounded w-full mb-2" />
+                <div className="h-4 bg-rbai-border rounded w-3/4" />
               </div>
             ))}
           </div>
         ) : rules.length === 0 ? (
-          <div className="bg-owly-surface border border-owly-border rounded-xl p-12 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-owly-primary-50 mb-4">
-              <Workflow className="h-8 w-8 text-owly-primary" />
+          <div className="bg-rbai-surface border border-rbai-border rounded-xl p-12 text-center">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-rbai-primary-50 mb-4">
+              <Workflow className="h-8 w-8 text-rbai-primary" />
             </div>
-            <h3 className="text-lg font-semibold text-owly-text mb-2">
+            <h3 className="text-lg font-semibold text-rbai-text mb-2">
               No automation rules yet
             </h3>
-            <p className="text-owly-text-light max-w-lg mx-auto mb-6">
+            <p className="text-rbai-text-light max-w-lg mx-auto mb-6">
               Automation rules help you handle repetitive tasks automatically.
               Create rules to streamline your support workflow.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto text-left">
-              <div className="flex gap-3 p-4 rounded-lg bg-owly-bg border border-owly-border">
+              <div className="flex gap-3 p-4 rounded-lg bg-rbai-bg border border-rbai-border">
                 <Route className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-owly-text">Auto Route</p>
-                  <p className="text-xs text-owly-text-light mt-0.5">
+                  <p className="text-sm font-medium text-rbai-text">Auto Route</p>
+                  <p className="text-xs text-rbai-text-light mt-0.5">
                     Automatically route conversations to the right department based on message content.
                   </p>
                 </div>
               </div>
-              <div className="flex gap-3 p-4 rounded-lg bg-owly-bg border border-owly-border">
+              <div className="flex gap-3 p-4 rounded-lg bg-rbai-bg border border-rbai-border">
                 <Tag className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-owly-text">Auto Tag</p>
-                  <p className="text-xs text-owly-text-light mt-0.5">
+                  <p className="text-sm font-medium text-rbai-text">Auto Tag</p>
+                  <p className="text-xs text-rbai-text-light mt-0.5">
                     Automatically apply tags to conversations based on keywords or conditions.
                   </p>
                 </div>
               </div>
-              <div className="flex gap-3 p-4 rounded-lg bg-owly-bg border border-owly-border">
+              <div className="flex gap-3 p-4 rounded-lg bg-rbai-bg border border-rbai-border">
                 <MessageSquareReply className="h-5 w-5 text-purple-500 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-owly-text">Auto Reply</p>
-                  <p className="text-xs text-owly-text-light mt-0.5">
+                  <p className="text-sm font-medium text-rbai-text">Auto Reply</p>
+                  <p className="text-xs text-rbai-text-light mt-0.5">
                     Send automatic replies when specific conditions are met in incoming messages.
                   </p>
                 </div>
               </div>
-              <div className="flex gap-3 p-4 rounded-lg bg-owly-bg border border-owly-border">
+              <div className="flex gap-3 p-4 rounded-lg bg-rbai-bg border border-rbai-border">
                 <Bell className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-owly-text">Keyword Alert</p>
-                  <p className="text-xs text-owly-text-light mt-0.5">
+                  <p className="text-sm font-medium text-rbai-text">Keyword Alert</p>
+                  <p className="text-xs text-rbai-text-light mt-0.5">
                     Get notified via email when specific keywords appear in conversations.
                   </p>
                 </div>
@@ -400,7 +400,7 @@ export default function AutomationPage() {
             </div>
             <button
               onClick={openCreateModal}
-              className="mt-6 inline-flex items-center gap-2 px-4 py-2 bg-owly-primary text-white rounded-lg hover:bg-owly-primary-dark transition-colors text-sm font-medium"
+              className="mt-6 inline-flex items-center gap-2 px-4 py-2 bg-rbai-primary text-white rounded-lg hover:bg-rbai-primary-dark transition-colors text-sm font-medium"
             >
               <Plus className="h-4 w-4" />
               Create Your First Rule
@@ -416,7 +416,7 @@ export default function AutomationPage() {
                 <div
                   key={rule.id}
                   className={cn(
-                    "bg-owly-surface border border-owly-border rounded-xl p-5 transition-all hover:shadow-md",
+                    "bg-rbai-surface border border-rbai-border rounded-xl p-5 transition-all hover:shadow-md",
                     !rule.isActive && "opacity-60"
                   )}
                 >
@@ -431,7 +431,7 @@ export default function AutomationPage() {
                         <Icon className="h-4 w-4" />
                       </div>
                       <div className="min-w-0">
-                        <h3 className="text-sm font-semibold text-owly-text truncate">
+                        <h3 className="text-sm font-semibold text-rbai-text truncate">
                           {rule.name}
                         </h3>
                         <span
@@ -448,7 +448,7 @@ export default function AutomationPage() {
                       onClick={() => handleToggleActive(rule)}
                       className={cn(
                         "relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0",
-                        rule.isActive ? "bg-owly-primary" : "bg-owly-border"
+                        rule.isActive ? "bg-rbai-primary" : "bg-rbai-border"
                       )}
                     >
                       <span
@@ -461,12 +461,12 @@ export default function AutomationPage() {
                   </div>
 
                   {rule.description && (
-                    <p className="text-xs text-owly-text-light mb-3 line-clamp-2">
+                    <p className="text-xs text-rbai-text-light mb-3 line-clamp-2">
                       {rule.description}
                     </p>
                   )}
 
-                  <div className="flex items-center gap-3 text-xs text-owly-text-light mb-4">
+                  <div className="flex items-center gap-3 text-xs text-rbai-text-light mb-4">
                     <span className="flex items-center gap-1">
                       <Activity className="h-3.5 w-3.5" />
                       {rule.triggerCount} triggers
@@ -474,10 +474,10 @@ export default function AutomationPage() {
                     <span>Priority: {rule.priority}</span>
                   </div>
 
-                  <div className="flex items-center gap-2 pt-3 border-t border-owly-border">
+                  <div className="flex items-center gap-2 pt-3 border-t border-rbai-border">
                     <button
                       onClick={() => openEditModal(rule)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-owly-text-light hover:text-owly-primary hover:bg-owly-primary-50 rounded-lg transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rbai-text-light hover:text-rbai-primary hover:bg-rbai-primary-50 rounded-lg transition-colors"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                       Edit
@@ -486,13 +486,13 @@ export default function AutomationPage() {
                       <div className="flex items-center gap-1.5 ml-auto">
                         <button
                           onClick={() => handleDelete(rule.id)}
-                          className="px-3 py-1.5 text-xs font-medium text-white bg-owly-danger rounded-lg hover:bg-red-600 transition-colors"
+                          className="px-3 py-1.5 text-xs font-medium text-white bg-rbai-danger rounded-lg hover:bg-red-600 transition-colors"
                         >
                           Confirm
                         </button>
                         <button
                           onClick={() => setDeleteConfirm(null)}
-                          className="px-3 py-1.5 text-xs font-medium text-owly-text-light hover:text-owly-text rounded-lg transition-colors"
+                          className="px-3 py-1.5 text-xs font-medium text-rbai-text-light hover:text-rbai-text rounded-lg transition-colors"
                         >
                           Cancel
                         </button>
@@ -500,7 +500,7 @@ export default function AutomationPage() {
                     ) : (
                       <button
                         onClick={() => setDeleteConfirm(rule.id)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-owly-text-light hover:text-owly-danger hover:bg-red-50 rounded-lg transition-colors ml-auto"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rbai-text-light hover:text-rbai-danger hover:bg-red-50 rounded-lg transition-colors ml-auto"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         Delete
@@ -517,14 +517,14 @@ export default function AutomationPage() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-owly-surface border border-owly-border rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-scale-in">
-            <div className="flex items-center justify-between p-5 border-b border-owly-border sticky top-0 bg-owly-surface z-10">
-              <h3 className="text-lg font-semibold text-owly-text">
+          <div className="bg-rbai-surface border border-rbai-border rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-scale-in">
+            <div className="flex items-center justify-between p-5 border-b border-rbai-border sticky top-0 bg-rbai-surface z-10">
+              <h3 className="text-lg font-semibold text-rbai-text">
                 {editingRule ? "Edit Rule" : "Create Automation Rule"}
               </h3>
               <button
                 onClick={() => setShowModal(false)}
-                className="p-1.5 text-owly-text-light hover:text-owly-text hover:bg-owly-primary-50 rounded-lg transition-colors"
+                className="p-1.5 text-rbai-text-light hover:text-rbai-text hover:bg-rbai-primary-50 rounded-lg transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -534,7 +534,7 @@ export default function AutomationPage() {
               {/* Name & Description */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-owly-text mb-1.5">
+                  <label className="block text-sm font-medium text-rbai-text mb-1.5">
                     Rule Name
                   </label>
                   <input
@@ -544,11 +544,11 @@ export default function AutomationPage() {
                       setForm((f) => ({ ...f, name: e.target.value }))
                     }
                     placeholder="e.g. Route billing questions"
-                    className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-surface text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-theme"
+                    className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-surface text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-theme"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-owly-text mb-1.5">
+                  <label className="block text-sm font-medium text-rbai-text mb-1.5">
                     Priority
                   </label>
                   <input
@@ -561,13 +561,13 @@ export default function AutomationPage() {
                       }))
                     }
                     min={0}
-                    className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-surface text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-theme"
+                    className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-surface text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-theme"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-owly-text mb-1.5">
+                <label className="block text-sm font-medium text-rbai-text mb-1.5">
                   Description
                 </label>
                 <input
@@ -577,13 +577,13 @@ export default function AutomationPage() {
                     setForm((f) => ({ ...f, description: e.target.value }))
                   }
                   placeholder="Brief description of what this rule does"
-                  className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-surface text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-theme"
+                  className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-surface text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-theme"
                 />
               </div>
 
               {/* Type Selector */}
               <div>
-                <label className="block text-sm font-medium text-owly-text mb-1.5">
+                <label className="block text-sm font-medium text-rbai-text mb-1.5">
                   Rule Type
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -603,8 +603,8 @@ export default function AutomationPage() {
                       className={cn(
                         "flex flex-col items-center gap-1.5 p-3 rounded-lg border text-xs font-medium transition-all",
                         form.type === rt.value
-                          ? "border-owly-primary bg-owly-primary-50 text-owly-primary"
-                          : "border-owly-border text-owly-text-light hover:border-owly-primary/30"
+                          ? "border-rbai-primary bg-rbai-primary-50 text-rbai-primary"
+                          : "border-rbai-border text-rbai-text-light hover:border-rbai-primary/30"
                       )}
                     >
                       <rt.icon className="h-5 w-5" />
@@ -617,12 +617,12 @@ export default function AutomationPage() {
               {/* Conditions */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-owly-text">
+                  <label className="text-sm font-medium text-rbai-text">
                     Conditions
                   </label>
                   <button
                     onClick={addCondition}
-                    className="text-xs text-owly-primary hover:text-owly-primary-dark font-medium transition-colors"
+                    className="text-xs text-rbai-primary hover:text-rbai-primary-dark font-medium transition-colors"
                   >
                     + Add Condition
                   </button>
@@ -631,14 +631,14 @@ export default function AutomationPage() {
                   {form.conditions.map((condition, index) => (
                     <div
                       key={index}
-                      className="flex items-center gap-2 p-3 bg-owly-bg border border-owly-border rounded-lg"
+                      className="flex items-center gap-2 p-3 bg-rbai-bg border border-rbai-border rounded-lg"
                     >
                       <select
                         value={condition.field}
                         onChange={(e) =>
                           updateCondition(index, "field", e.target.value)
                         }
-                        className="px-2.5 py-1.5 text-sm border border-owly-border rounded-lg bg-owly-surface text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 transition-theme"
+                        className="px-2.5 py-1.5 text-sm border border-rbai-border rounded-lg bg-rbai-surface text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 transition-theme"
                       >
                         {conditionFields.map((f) => (
                           <option key={f.value} value={f.value}>
@@ -651,7 +651,7 @@ export default function AutomationPage() {
                         onChange={(e) =>
                           updateCondition(index, "operator", e.target.value)
                         }
-                        className="px-2.5 py-1.5 text-sm border border-owly-border rounded-lg bg-owly-surface text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 transition-theme"
+                        className="px-2.5 py-1.5 text-sm border border-rbai-border rounded-lg bg-rbai-surface text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 transition-theme"
                       >
                         {conditionOperators.map((o) => (
                           <option key={o.value} value={o.value}>
@@ -666,12 +666,12 @@ export default function AutomationPage() {
                           updateCondition(index, "value", e.target.value)
                         }
                         placeholder="Value..."
-                        className="flex-1 px-2.5 py-1.5 text-sm border border-owly-border rounded-lg bg-owly-surface text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 transition-theme"
+                        className="flex-1 px-2.5 py-1.5 text-sm border border-rbai-border rounded-lg bg-rbai-surface text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 transition-theme"
                       />
                       {form.conditions.length > 1 && (
                         <button
                           onClick={() => removeCondition(index)}
-                          className="p-1 text-owly-text-light hover:text-owly-danger rounded transition-colors"
+                          className="p-1 text-rbai-text-light hover:text-rbai-danger rounded transition-colors"
                         >
                           <X className="h-4 w-4" />
                         </button>
@@ -684,12 +684,12 @@ export default function AutomationPage() {
               {/* Actions */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-owly-text">
+                  <label className="text-sm font-medium text-rbai-text">
                     {getActionLabel(form.type)}
                   </label>
                   <button
                     onClick={addAction}
-                    className="text-xs text-owly-primary hover:text-owly-primary-dark font-medium transition-colors"
+                    className="text-xs text-rbai-primary hover:text-rbai-primary-dark font-medium transition-colors"
                   >
                     + Add Action
                   </button>
@@ -698,13 +698,13 @@ export default function AutomationPage() {
                   {form.actions.map((action, index) => (
                     <div
                       key={index}
-                      className="flex items-start gap-2 p-3 bg-owly-bg border border-owly-border rounded-lg"
+                      className="flex items-start gap-2 p-3 bg-rbai-bg border border-rbai-border rounded-lg"
                     >
                       {renderActionInput(action, index)}
                       {form.actions.length > 1 && (
                         <button
                           onClick={() => removeAction(index)}
-                          className="p-1 mt-1 text-owly-text-light hover:text-owly-danger rounded transition-colors flex-shrink-0"
+                          className="p-1 mt-1 text-rbai-text-light hover:text-rbai-danger rounded transition-colors flex-shrink-0"
                         >
                           <X className="h-4 w-4" />
                         </button>
@@ -715,17 +715,17 @@ export default function AutomationPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 p-5 border-t border-owly-border sticky bottom-0 bg-owly-surface">
+            <div className="flex items-center justify-end gap-3 p-5 border-t border-rbai-border sticky bottom-0 bg-rbai-surface">
               <button
                 onClick={() => setShowModal(false)}
-                className="px-4 py-2 text-sm font-medium text-owly-text-light hover:text-owly-text border border-owly-border rounded-lg hover:bg-owly-bg transition-colors"
+                className="px-4 py-2 text-sm font-medium text-rbai-text-light hover:text-rbai-text border border-rbai-border rounded-lg hover:bg-rbai-bg transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving || !form.name.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-owly-primary rounded-lg hover:bg-owly-primary-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2 text-sm font-medium text-white bg-rbai-primary rounded-lg hover:bg-rbai-primary-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {saving
                   ? "Saving..."

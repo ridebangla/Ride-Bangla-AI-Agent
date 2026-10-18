@@ -16,21 +16,21 @@ export function StatCard({
   change,
   changeType = "neutral",
   icon: Icon,
-  iconColor = "bg-owly-primary-50 text-owly-primary",
+  iconColor = "bg-rbai-primary-50 text-rbai-primary",
 }: StatCardProps) {
   return (
-    <div className="bg-owly-surface rounded-xl border border-owly-border p-5 hover:shadow-md transition-shadow">
+    <div className="bg-rbai-surface rounded-xl border border-rbai-border p-5 hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-owly-text-light">{title}</p>
-          <p className="text-2xl font-bold text-owly-text mt-1">{value}</p>
+          <p className="text-sm text-rbai-text-light">{title}</p>
+          <p className="text-2xl font-bold text-rbai-text mt-1">{value}</p>
           {change && (
             <p
               className={cn(
                 "text-xs mt-1 font-medium",
-                changeType === "positive" && "text-owly-success",
-                changeType === "negative" && "text-owly-danger",
-                changeType === "neutral" && "text-owly-text-light"
+                changeType === "positive" && "text-rbai-success",
+                changeType === "negative" && "text-rbai-danger",
+                changeType === "neutral" && "text-rbai-text-light"
               )}
             >
               {change}

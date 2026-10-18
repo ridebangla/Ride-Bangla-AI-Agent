@@ -165,7 +165,7 @@ export default function SLAPage() {
         actions={
           <button
             onClick={openCreateModal}
-            className="flex items-center gap-2 px-4 py-2 bg-owly-primary text-white rounded-lg hover:bg-owly-primary-dark transition-colors text-sm font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-rbai-primary text-white rounded-lg hover:bg-rbai-primary-dark transition-colors text-sm font-medium"
           >
             <Plus className="h-4 w-4" />
             Add Rule
@@ -175,13 +175,13 @@ export default function SLAPage() {
 
       <div className="flex-1 overflow-auto p-6 space-y-4">
         {/* Info Section */}
-        <div className="bg-owly-primary-50 rounded-xl border border-owly-primary/20 p-4 flex items-start gap-3">
-          <Info className="h-5 w-5 text-owly-primary flex-shrink-0 mt-0.5" />
+        <div className="bg-rbai-primary-50 rounded-xl border border-rbai-primary/20 p-4 flex items-start gap-3">
+          <Info className="h-5 w-5 text-rbai-primary flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-owly-text">
+            <p className="text-sm font-medium text-rbai-text">
               What are SLA Rules?
             </p>
-            <p className="text-sm text-owly-text-light mt-1">
+            <p className="text-sm text-rbai-text-light mt-1">
               Service Level Agreement rules define response time targets for your
               support team. Configure first response and resolution time goals
               based on channel and priority to ensure consistent service quality.
@@ -192,21 +192,21 @@ export default function SLAPage() {
         {/* Rules Grid */}
         {loading ? (
           <div className="flex items-center justify-center h-40">
-            <div className="text-sm text-owly-text-light">Loading...</div>
+            <div className="text-sm text-rbai-text-light">Loading...</div>
           </div>
         ) : rules.length === 0 ? (
-          <div className="bg-owly-surface rounded-xl border border-owly-border">
+          <div className="bg-rbai-surface rounded-xl border border-rbai-border">
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-              <div className="p-4 rounded-full bg-owly-primary-50 mb-4">
-                <Timer className="h-8 w-8 text-owly-primary" />
+              <div className="p-4 rounded-full bg-rbai-primary-50 mb-4">
+                <Timer className="h-8 w-8 text-rbai-primary" />
               </div>
-              <p className="font-medium text-owly-text">No SLA rules yet</p>
-              <p className="text-sm text-owly-text-light mt-1">
+              <p className="font-medium text-rbai-text">No SLA rules yet</p>
+              <p className="text-sm text-rbai-text-light mt-1">
                 Create your first SLA rule to set response time goals
               </p>
               <button
                 onClick={openCreateModal}
-                className="mt-4 flex items-center gap-2 px-4 py-2 bg-owly-primary text-white rounded-lg hover:bg-owly-primary-dark transition-colors text-sm font-medium"
+                className="mt-4 flex items-center gap-2 px-4 py-2 bg-rbai-primary text-white rounded-lg hover:bg-rbai-primary-dark transition-colors text-sm font-medium"
               >
                 <Plus className="h-4 w-4" />
                 Add Rule
@@ -219,17 +219,17 @@ export default function SLAPage() {
               <div
                 key={rule.id}
                 className={cn(
-                  "bg-owly-surface rounded-xl border border-owly-border p-5 transition-colors",
+                  "bg-rbai-surface rounded-xl border border-rbai-border p-5 transition-colors",
                   !rule.isActive && "opacity-60"
                 )}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-semibold text-owly-text truncate">
+                    <h3 className="text-sm font-semibold text-rbai-text truncate">
                       {rule.name}
                     </h3>
                     {rule.description && (
-                      <p className="text-xs text-owly-text-light mt-0.5 line-clamp-2">
+                      <p className="text-xs text-rbai-text-light mt-0.5 line-clamp-2">
                         {rule.description}
                       </p>
                     )}
@@ -237,21 +237,21 @@ export default function SLAPage() {
                   <div className="flex items-center gap-1 ml-2">
                     <button
                       onClick={() => openEditModal(rule)}
-                      className="p-1.5 hover:bg-owly-primary-50 rounded-lg transition-colors"
+                      className="p-1.5 hover:bg-rbai-primary-50 rounded-lg transition-colors"
                     >
-                      <Pencil className="h-3.5 w-3.5 text-owly-text-light" />
+                      <Pencil className="h-3.5 w-3.5 text-rbai-text-light" />
                     </button>
                     <button
                       onClick={() => setDeleteConfirm(rule.id)}
                       className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
                     >
-                      <Trash2 className="h-3.5 w-3.5 text-owly-text-light" />
+                      <Trash2 className="h-3.5 w-3.5 text-rbai-text-light" />
                     </button>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-owly-primary-50 text-owly-primary">
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-rbai-primary-50 text-rbai-primary">
                     {channelOptions.find((c) => c.value === rule.channel)?.label || rule.channel}
                   </span>
                   <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
@@ -261,34 +261,34 @@ export default function SLAPage() {
 
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div className="flex items-center gap-2">
-                    <Clock className="h-3.5 w-3.5 text-owly-text-light" />
+                    <Clock className="h-3.5 w-3.5 text-rbai-text-light" />
                     <div>
-                      <p className="text-xs text-owly-text-light">
+                      <p className="text-xs text-rbai-text-light">
                         First Response
                       </p>
-                      <p className="text-sm font-medium text-owly-text">
+                      <p className="text-sm font-medium text-rbai-text">
                         {formatMinutes(rule.firstResponseMins)}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-owly-text-light" />
+                    <CheckCircle2 className="h-3.5 w-3.5 text-rbai-text-light" />
                     <div>
-                      <p className="text-xs text-owly-text-light">
+                      <p className="text-xs text-rbai-text-light">
                         Resolution
                       </p>
-                      <p className="text-sm font-medium text-owly-text">
+                      <p className="text-sm font-medium text-rbai-text">
                         {formatMinutes(rule.resolutionMins)}
                       </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-3 border-t border-owly-border">
+                <div className="flex items-center justify-between pt-3 border-t border-rbai-border">
                   <span
                     className={cn(
                       "text-xs font-medium",
-                      rule.isActive ? "text-owly-success" : "text-owly-text-light"
+                      rule.isActive ? "text-rbai-success" : "text-rbai-text-light"
                     )}
                   >
                     {rule.isActive ? "Active" : "Inactive"}
@@ -297,7 +297,7 @@ export default function SLAPage() {
                     onClick={() => handleToggleActive(rule)}
                     className={cn(
                       "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-                      rule.isActive ? "bg-owly-success" : "bg-gray-300"
+                      rule.isActive ? "bg-rbai-success" : "bg-gray-300"
                     )}
                   >
                     <span
@@ -321,22 +321,22 @@ export default function SLAPage() {
             className="absolute inset-0 bg-black/30"
             onClick={() => setShowModal(false)}
           />
-          <div className="relative w-full max-w-md mx-4 bg-owly-surface rounded-xl shadow-xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-owly-border">
-              <h3 className="font-semibold text-owly-text text-lg">
+          <div className="relative w-full max-w-md mx-4 bg-rbai-surface rounded-xl shadow-xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-rbai-border">
+              <h3 className="font-semibold text-rbai-text text-lg">
                 {editingRule ? "Edit SLA Rule" : "Create SLA Rule"}
               </h3>
               <button
                 onClick={() => setShowModal(false)}
-                className="p-1.5 hover:bg-owly-primary-50 rounded-lg transition-colors"
+                className="p-1.5 hover:bg-rbai-primary-50 rounded-lg transition-colors"
               >
-                <X className="h-5 w-5 text-owly-text-light" />
+                <X className="h-5 w-5 text-rbai-text-light" />
               </button>
             </div>
 
             <div className="px-5 py-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-owly-text mb-1">
+                <label className="block text-sm font-medium text-rbai-text mb-1">
                   Name
                 </label>
                 <input
@@ -344,12 +344,12 @@ export default function SLAPage() {
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="e.g., Urgent WhatsApp SLA"
-                  className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+                  className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-owly-text mb-1">
+                <label className="block text-sm font-medium text-rbai-text mb-1">
                   Description
                 </label>
                 <input
@@ -359,13 +359,13 @@ export default function SLAPage() {
                     setForm({ ...form, description: e.target.value })
                   }
                   placeholder="Optional description..."
-                  className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+                  className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-owly-text mb-1">
+                  <label className="block text-sm font-medium text-rbai-text mb-1">
                     Channel
                   </label>
                   <select
@@ -373,7 +373,7 @@ export default function SLAPage() {
                     onChange={(e) =>
                       setForm({ ...form, channel: e.target.value })
                     }
-                    className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+                    className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
                   >
                     {channelOptions.map((c) => (
                       <option key={c.value} value={c.value}>
@@ -383,7 +383,7 @@ export default function SLAPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-owly-text mb-1">
+                  <label className="block text-sm font-medium text-rbai-text mb-1">
                     Priority
                   </label>
                   <select
@@ -391,7 +391,7 @@ export default function SLAPage() {
                     onChange={(e) =>
                       setForm({ ...form, priority: e.target.value })
                     }
-                    className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+                    className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
                   >
                     {priorityOptions.map((p) => (
                       <option key={p.value} value={p.value}>
@@ -404,7 +404,7 @@ export default function SLAPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-owly-text mb-1">
+                  <label className="block text-sm font-medium text-rbai-text mb-1">
                     First Response (minutes)
                   </label>
                   <input
@@ -417,11 +417,11 @@ export default function SLAPage() {
                         firstResponseMins: parseInt(e.target.value) || 1,
                       })
                     }
-                    className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+                    className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-owly-text mb-1">
+                  <label className="block text-sm font-medium text-rbai-text mb-1">
                     Resolution (minutes)
                   </label>
                   <input
@@ -434,16 +434,16 @@ export default function SLAPage() {
                         resolutionMins: parseInt(e.target.value) || 1,
                       })
                     }
-                    className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+                    className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
                   />
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-owly-border">
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-rbai-border">
               <button
                 onClick={() => setShowModal(false)}
-                className="px-4 py-2 text-sm font-medium text-owly-text hover:bg-owly-primary-50 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-medium text-rbai-text hover:bg-rbai-primary-50 rounded-lg transition-colors"
               >
                 Cancel
               </button>
@@ -453,8 +453,8 @@ export default function SLAPage() {
                 className={cn(
                   "px-4 py-2 text-sm font-medium rounded-lg transition-colors",
                   form.name.trim() && !saving
-                    ? "bg-owly-primary text-white hover:bg-owly-primary-dark"
-                    : "bg-owly-border text-owly-text-light cursor-not-allowed"
+                    ? "bg-rbai-primary text-white hover:bg-rbai-primary-dark"
+                    : "bg-rbai-border text-rbai-text-light cursor-not-allowed"
                 )}
               >
                 {saving
@@ -475,24 +475,24 @@ export default function SLAPage() {
             className="absolute inset-0 bg-black/30"
             onClick={() => setDeleteConfirm(null)}
           />
-          <div className="relative w-full max-w-sm mx-4 bg-owly-surface rounded-xl shadow-xl p-5">
-            <h3 className="font-semibold text-owly-text text-lg mb-2">
+          <div className="relative w-full max-w-sm mx-4 bg-rbai-surface rounded-xl shadow-xl p-5">
+            <h3 className="font-semibold text-rbai-text text-lg mb-2">
               Delete SLA Rule
             </h3>
-            <p className="text-sm text-owly-text-light mb-4">
+            <p className="text-sm text-rbai-text-light mb-4">
               Are you sure you want to delete this SLA rule? This action cannot
               be undone.
             </p>
             <div className="flex items-center justify-end gap-2">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="px-4 py-2 text-sm font-medium text-owly-text hover:bg-owly-primary-50 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-medium text-rbai-text hover:bg-rbai-primary-50 rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleDelete(deleteConfirm)}
-                className="px-4 py-2 text-sm font-medium bg-owly-danger text-white rounded-lg hover:bg-red-700 transition-colors"
+                className="px-4 py-2 text-sm font-medium bg-rbai-danger text-white rounded-lg hover:bg-red-700 transition-colors"
               >
                 Delete
               </button>

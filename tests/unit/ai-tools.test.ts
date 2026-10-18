@@ -206,7 +206,15 @@ describe("AI Tools", () => {
   });
 
   describe("schedule_followup", () => {
-    it("should return success with scheduled time", async () => {
+    it("should persist the follow-up and return success with scheduled time", async () => {
+      mockPrisma.followUp.create.mockResolvedValue({
+        id: "fu-1",
+        conversationId: "conv-1",
+        message: "How is everything going?",
+        dueAt: new Date(Date.now() + 24 * 3600_000),
+        status: "pending",
+      });
+
       const result = JSON.parse(
         await executeToolCall("schedule_followup", {
           conversationId: "conv-1",
@@ -216,7 +224,12 @@ describe("AI Tools", () => {
       );
 
       expect(result.success).toBe(true);
+      expect(result.followUpId).toBe("fu-1");
       expect(result.scheduledFor).toBeDefined();
+      expect(mockPrisma.followUp.create).toHaveBeenCalledOnce();
+      const data = mockPrisma.followUp.create.mock.calls[0][0].data;
+      expect(data.conversationId).toBe("conv-1");
+      expect(data.status).toBe("pending");
     });
   });
 

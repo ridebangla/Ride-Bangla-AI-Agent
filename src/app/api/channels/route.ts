@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 
@@ -42,6 +42,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await requireAuth(request, "channels:update");
   if (!isAuthenticated(auth)) return auth;
+  if (!auth.businessId) {
+    return NextResponse.json({ error: "No business selected." }, { status: 400 });
+  }
+  const businessId = auth.businessId;
 
   try {
     const body = await request.json();
@@ -55,17 +59,18 @@ export async function POST(request: NextRequest) {
     }
 
     const channel = await prisma.channel.upsert({
-      where: { type },
+      where: { businessId_type: { businessId, type } },
       update: {
         isActive: typeof isActive === "boolean" ? isActive : undefined,
         config: config ?? undefined,
       },
-      create: {
+      create: withBusinessId({
+        businessId,
         type,
         isActive: typeof isActive === "boolean" ? isActive : false,
         config: config ?? {},
         status: "disconnected",
-      },
+      }),
     });
 
     return NextResponse.json(channel, { status: 200 });

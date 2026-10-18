@@ -121,13 +121,13 @@ export default function ActivityPage() {
 
       <div className="flex-1 overflow-auto p-6 space-y-4">
         {/* Filter Bar */}
-        <div className="bg-owly-surface rounded-xl border border-owly-border p-3">
+        <div className="bg-rbai-surface rounded-xl border border-rbai-border p-3">
           <div className="flex items-center gap-3">
-            <Filter className="h-4 w-4 text-owly-text-light" />
+            <Filter className="h-4 w-4 text-rbai-text-light" />
             <select
               value={entityFilter}
               onChange={(e) => setEntityFilter(e.target.value)}
-              className="text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+              className="text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
             >
               {entityTypes.map((t) => (
                 <option key={t.value} value={t.value}>
@@ -135,30 +135,30 @@ export default function ActivityPage() {
                 </option>
               ))}
             </select>
-            <span className="text-sm text-owly-text-light ml-auto">
+            <span className="text-sm text-rbai-text-light ml-auto">
               {total} {total === 1 ? "entry" : "entries"}
             </span>
           </div>
         </div>
 
         {/* Timeline */}
-        <div className="bg-owly-surface rounded-xl border border-owly-border">
+        <div className="bg-rbai-surface rounded-xl border border-rbai-border">
           {loading ? (
             <div className="flex items-center justify-center h-40">
-              <div className="text-sm text-owly-text-light">Loading...</div>
+              <div className="text-sm text-rbai-text-light">Loading...</div>
             </div>
           ) : activities.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-              <div className="p-4 rounded-full bg-owly-primary-50 mb-4">
-                <ScrollText className="h-8 w-8 text-owly-primary" />
+              <div className="p-4 rounded-full bg-rbai-primary-50 mb-4">
+                <ScrollText className="h-8 w-8 text-rbai-primary" />
               </div>
-              <p className="font-medium text-owly-text">No activity found</p>
-              <p className="text-sm text-owly-text-light mt-1">
+              <p className="font-medium text-rbai-text">No activity found</p>
+              <p className="text-sm text-rbai-text-light mt-1">
                 Actions and changes will appear here as they happen
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-owly-border">
+            <div className="divide-y divide-rbai-border">
               {activities.map((activity) => {
                 const config = entityConfig[activity.entity] || {
                   icon: ScrollText,
@@ -170,7 +170,7 @@ export default function ActivityPage() {
                 return (
                   <div
                     key={activity.id}
-                    className="flex items-start gap-4 px-5 py-4 hover:bg-owly-primary-50/30 transition-colors"
+                    className="flex items-start gap-4 px-5 py-4 hover:bg-rbai-primary-50/30 transition-colors"
                   >
                     <div
                       className={cn(
@@ -181,14 +181,14 @@ export default function ActivityPage() {
                       <Icon className={cn("h-4 w-4", config.iconColor)} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-owly-text">
+                      <p className="text-sm text-rbai-text">
                         {activity.description}
                       </p>
                       <div className="flex items-center gap-3 mt-1">
-                        <span className="text-xs text-owly-text-light">
+                        <span className="text-xs text-rbai-text-light">
                           {activity.userName}
                         </span>
-                        <span className="text-xs text-owly-text-light">
+                        <span className="text-xs text-rbai-text-light">
                           {formatRelativeTime(activity.createdAt)}
                         </span>
                         <span
@@ -220,8 +220,8 @@ export default function ActivityPage() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between bg-owly-surface rounded-xl border border-owly-border px-5 py-3">
-            <p className="text-sm text-owly-text-light">
+          <div className="flex items-center justify-between bg-rbai-surface rounded-xl border border-rbai-border px-5 py-3">
+            <p className="text-sm text-rbai-text-light">
               Page {page} of {totalPages}
             </p>
             <div className="flex items-center gap-2">
@@ -231,8 +231,8 @@ export default function ActivityPage() {
                 className={cn(
                   "flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg transition-colors",
                   page <= 1
-                    ? "text-owly-text-light cursor-not-allowed"
-                    : "text-owly-text hover:bg-owly-primary-50"
+                    ? "text-rbai-text-light cursor-not-allowed"
+                    : "text-rbai-text hover:bg-rbai-primary-50"
                 )}
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -244,8 +244,8 @@ export default function ActivityPage() {
                 className={cn(
                   "flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg transition-colors",
                   page >= totalPages
-                    ? "text-owly-text-light cursor-not-allowed"
-                    : "text-owly-text hover:bg-owly-primary-50"
+                    ? "text-rbai-text-light cursor-not-allowed"
+                    : "text-rbai-text hover:bg-rbai-primary-50"
                 )}
               >
                 Next

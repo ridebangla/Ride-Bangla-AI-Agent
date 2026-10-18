@@ -19,7 +19,7 @@
 
 - No automatic order booking — the agent answers questions and creates tickets; orders still go through the Ride Bangla app
 - WhatsApp/Facebook/Instagram need their own API credentials (see Configuration)
-- Logo/branding assets are placeholder — final logo comes later
+- Logo: `public/rbai-logo.png` — the Ride Bangla AI Agent mark (used as app icon and favicon)
 
 ---
 

@@ -1,12 +1,12 @@
 # Installation Guide
 
-This guide covers everything you need to install and run Owly on your machine, whether you prefer Docker Compose (recommended for production) or a manual npm-based setup for development.
+This guide covers everything you need to install and run Ride Bangla AI Agent on your machine, whether you prefer Docker Compose (recommended for production) or a manual npm-based setup for development.
 
 ---
 
 ## Prerequisites
 
-Before installing Owly, make sure you have the following:
+Before installing Ride Bangla AI Agent, make sure you have the following:
 
 | Requirement | Minimum Version | Notes |
 |-------------|----------------|-------|
@@ -25,13 +25,13 @@ Before installing Owly, make sure you have the following:
 
 ## Option 1: Docker Compose (Recommended)
 
-Docker Compose is the simplest way to run Owly. It handles PostgreSQL, the application, and persistent storage automatically.
+Docker Compose is the simplest way to run Ride Bangla AI Agent. It handles PostgreSQL, the application, and persistent storage automatically.
 
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/hsperus/owly.git
-cd owly
+git clone https://github.com/ridebangla/Ride-Bangla-AI-Agent.git
+cd ride-bangla-ai-agent
 ```
 
 ### Step 2: Configure Environment Variables
@@ -62,7 +62,7 @@ docker compose up -d
 This starts two services:
 
 - **db** -- PostgreSQL 16 (Alpine) on port 5432
-- **app** -- Owly application on port 3000
+- **app** -- Ride Bangla AI Agent application on port 3000
 
 ### Step 4: Open the Application
 
@@ -93,8 +93,8 @@ Use this method for development or if you prefer to manage PostgreSQL separately
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/hsperus/owly.git
-cd owly
+git clone https://github.com/ridebangla/Ride-Bangla-AI-Agent.git
+cd ride-bangla-ai-agent
 ```
 
 ### Step 2: Install Dependencies
@@ -112,7 +112,7 @@ cp .env.example .env
 Edit `.env` and set the `DATABASE_URL` to point to your PostgreSQL instance:
 
 ```bash
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/owly?schema=public"
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ride-bangla-ai-agent?schema=public"
 ```
 
 Also set your secret keys:
@@ -127,13 +127,13 @@ NEXTAUTH_SECRET="another-random-secret-string"
 Make sure PostgreSQL is running, then create the database:
 
 ```bash
-createdb owly
+createdb ride-bangla-ai-agent
 ```
 
 Or connect to PostgreSQL and create it manually:
 
 ```sql
-CREATE DATABASE owly;
+CREATE DATABASE ride-bangla-ai-agent;
 ```
 
 ### Step 5: Run Database Migrations
@@ -178,7 +178,7 @@ The following table describes all environment variables in `.env.example`:
 | `DATABASE_URL` | Yes | PostgreSQL connection string. Format: `postgresql://USER:PASSWORD@HOST:PORT/DB?schema=public` |
 | `JWT_SECRET` | Yes | Secret key for signing JWT authentication tokens. Use a random string of at least 32 characters. |
 | `NEXTAUTH_SECRET` | Yes | Secret for NextAuth session encryption. Use a different random string from `JWT_SECRET`. |
-| `NEXT_PUBLIC_APP_URL` | No | Public URL of your Owly instance. Defaults to `http://localhost:3000`. Set this to your domain in production. |
+| `NEXT_PUBLIC_APP_URL` | No | Public URL of your Ride Bangla AI Agent instance. Defaults to `http://localhost:3000`. Set this to your domain in production. |
 | `OPENAI_API_KEY` | No | OpenAI API key. Can also be configured later through the Setup Wizard or Settings page. |
 | `ELEVENLABS_API_KEY` | No | ElevenLabs API key for phone channel voice synthesis (text-to-speech). |
 | `TWILIO_ACCOUNT_SID` | No | Twilio Account SID for the phone channel. |
@@ -195,7 +195,7 @@ The following table describes all environment variables in `.env.example`:
 
 ## Verifying the Installation
 
-After starting Owly, verify that everything is working:
+After starting Ride Bangla AI Agent, verify that everything is working:
 
 1. **Health check endpoint:** Open `http://localhost:3000/api/health` in your browser or run:
 
@@ -229,7 +229,7 @@ For Docker Compose, you can change the port mapping in `docker-compose.yml`:
 
 ```yaml
 ports:
-  - "8080:3000"  # Access Owly at localhost:8080
+  - "8080:3000"  # Access Ride Bangla AI Agent at localhost:8080
 ```
 
 ### Port 5432 Already in Use (PostgreSQL)
@@ -263,12 +263,12 @@ Common causes and solutions:
 
 3. **Database does not exist:** Create it manually:
    ```bash
-   createdb owly
+   createdb ride-bangla-ai-agent
    ```
 
 4. **Docker networking issue:** If running the app outside Docker but the database inside Docker, use `localhost` (not `db`) as the host:
    ```
-   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/owly?schema=public"
+   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ride-bangla-ai-agent?schema=public"
    ```
 
 ### Prisma Migration Errors
@@ -356,9 +356,9 @@ apk add --no-cache \
 
 ## Successful Installation
 
-Once everything is running, you should see the Owly dashboard after completing the setup wizard:
+Once everything is running, you should see the Ride Bangla AI Agent dashboard after completing the setup wizard:
 
-![Owly Dashboard](../screenshots/02-dashboard.png)
+![Ride Bangla AI Agent Dashboard](../screenshots/02-dashboard.png)
 
 From here, proceed to the [Setup Wizard](Setup-Wizard) guide to configure your admin account, business profile, and AI provider.
 

@@ -1,12 +1,12 @@
 # Contributing
 
-Thank you for your interest in contributing to Owly. This guide covers everything you need to get started: setting up the development environment, understanding the code conventions, and submitting your changes.
+Thank you for your interest in contributing to Ride Bangla AI Agent. This guide covers everything you need to get started: setting up the development environment, understanding the code conventions, and submitting your changes.
 
 ---
 
 ## How to Contribute
 
-There are several ways to contribute to Owly:
+There are several ways to contribute to Ride Bangla AI Agent:
 
 - **Report bugs**: Open an issue describing the problem, steps to reproduce, and expected vs. actual behavior.
 - **Suggest features**: Open an issue with a detailed description of the feature, its use case, and how it fits into the existing system.
@@ -31,8 +31,8 @@ There are several ways to contribute to Owly:
 **1. Fork and clone the repository:**
 
 ```bash
-git clone https://github.com/your-username/owly.git
-cd owly
+git clone https://github.com/your-username/ride-bangla-ai-agent.git
+cd ride-bangla-ai-agent
 ```
 
 **2. Install dependencies:**
@@ -50,7 +50,7 @@ cp .env.example .env
 Edit `.env` and set your PostgreSQL connection string:
 
 ```
-DATABASE_URL="postgresql://user:password@localhost:5432/owly"
+DATABASE_URL="postgresql://user:password@localhost:5432/ride-bangla-ai-agent"
 ```
 
 **4. Set up the database:**
@@ -108,7 +108,7 @@ Use the default credentials created by the seed script, or run through the setup
 ### Tailwind CSS
 
 - Use Tailwind utility classes for all styling. Avoid writing custom CSS unless absolutely necessary.
-- Follow the existing color system using `owly-*` custom colors defined in the theme.
+- Follow the existing color system using `rbai-*` custom colors defined in the theme.
 - Use the `cn()` utility from `src/lib/utils.ts` for conditional class names.
 
 ### API Routes
@@ -121,7 +121,7 @@ Use the default credentials created by the seed script, or run through the setup
 
 ### Commit Messages
 
-Owly follows the [Conventional Commits](https://www.conventionalcommits.org/) specification. Every commit message must follow this format:
+Ride Bangla AI Agent follows the [Conventional Commits](https://www.conventionalcommits.org/) specification. Every commit message must follow this format:
 
 ```
 type: description
@@ -200,7 +200,7 @@ refactor: extract common form validation into shared utility
 
 When reporting a bug, include:
 
-1. **Environment**: Owly version, Node.js version, PostgreSQL version, operating system.
+1. **Environment**: Ride Bangla AI Agent version, Node.js version, PostgreSQL version, operating system.
 2. **Steps to reproduce**: A numbered list of steps that reliably trigger the issue.
 3. **Expected behavior**: What you expected to happen.
 4. **Actual behavior**: What actually happened, including any error messages.

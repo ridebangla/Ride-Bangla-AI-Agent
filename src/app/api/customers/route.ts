@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { parsePagination, paginatedResponse } from "@/lib/pagination";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
@@ -71,28 +71,35 @@ export async function POST(request: NextRequest) {
     }
 
     const customer = await prisma.customer.create({
-      data: {
+      data: withBusinessId({
         name: name.trim(),
         email: email?.trim() || "",
         phone: phone?.trim() || "",
         whatsapp: whatsapp?.trim() || "",
         tags: tags?.trim() || "",
         metadata: metadata || {},
-        ...(notes
-          ? {
-              notes: {
-                create: { content: notes.trim(), authorName: "Admin" },
-              },
-            }
-          : {}),
-      },
+      }),
+    });
+
+    if (notes && typeof notes === "string" && notes.trim()) {
+      await prisma.customerNote.create({
+        data: withBusinessId({
+          customerId: customer.id,
+          content: notes.trim(),
+          authorName: "Admin",
+        }),
+      });
+    }
+
+    const result = await prisma.customer.findUnique({
+      where: { id: customer.id },
       include: {
         notes: true,
         _count: { select: { notes: true } },
       },
     });
 
-    return NextResponse.json(customer, { status: 201 });
+    return NextResponse.json(result, { status: 201 });
   } catch (error) {
     logger.error("Failed to create customer:", error);
     return NextResponse.json(

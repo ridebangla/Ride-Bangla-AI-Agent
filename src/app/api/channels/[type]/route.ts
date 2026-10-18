@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 
@@ -10,6 +10,10 @@ type RouteContext = { params: Promise<{ type: string }> };
 export async function GET(request: NextRequest, context: RouteContext) {
   const auth = await requireAuth(request, "channels:read");
   if (!isAuthenticated(auth)) return auth;
+  if (!auth.businessId) {
+    return NextResponse.json({ error: "No business selected." }, { status: 400 });
+  }
+  const businessId = auth.businessId;
 
   try {
     const { type } = await context.params;
@@ -22,7 +26,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
 
     const channel = await prisma.channel.findUnique({
-      where: { type },
+      where: { businessId_type: { businessId, type } },
     });
 
     if (!channel) {
@@ -50,6 +54,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
 export async function PUT(request: NextRequest, context: RouteContext) {
   const auth = await requireAuth(request, "channels:update");
   if (!isAuthenticated(auth)) return auth;
+  if (!auth.businessId) {
+    return NextResponse.json({ error: "No business selected." }, { status: 400 });
+  }
+  const businessId = auth.businessId;
 
   try {
     const { type } = await context.params;
@@ -65,18 +73,18 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const { isActive, config, status } = body;
 
     const channel = await prisma.channel.upsert({
-      where: { type },
+      where: { businessId_type: { businessId, type } },
       update: {
         isActive: typeof isActive === "boolean" ? isActive : undefined,
         config: config ?? undefined,
         status: status ?? undefined,
       },
-      create: {
+      create: withBusinessId({
         type,
         isActive: typeof isActive === "boolean" ? isActive : false,
         config: config ?? {},
         status: status ?? "disconnected",
-      },
+      }),
     });
 
     return NextResponse.json(channel);
@@ -92,6 +100,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 export async function POST(request: NextRequest, context: RouteContext) {
   const auth = await requireAuth(request, "channels:update");
   if (!isAuthenticated(auth)) return auth;
+  if (!auth.businessId) {
+    return NextResponse.json({ error: "No business selected." }, { status: 400 });
+  }
+  const businessId = auth.businessId;
 
   try {
     const { type } = await context.params;
@@ -113,18 +125,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const channel = await prisma.channel.findUnique({ where: { type } });
+    const channel = await prisma.channel.findUnique({
+      where: { businessId_type: { businessId, type } },
+    });
 
     if (action === "disconnect") {
       const updated = await prisma.channel.upsert({
-        where: { type },
+        where: { businessId_type: { businessId, type } },
         update: { status: "disconnected" },
-        create: {
+        create: withBusinessId({
           type,
           isActive: false,
           config: {},
           status: "disconnected",
-        },
+        }),
       });
       return NextResponse.json({
         ...updated,
@@ -141,7 +155,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
 
       const updated = await prisma.channel.update({
-        where: { type },
+        where: { businessId_type: { businessId, type } },
         data: { status: "connected", isActive: true },
       });
 

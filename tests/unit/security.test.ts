@@ -88,7 +88,7 @@ describe("Security Utilities", () => {
     it("should mask all secret fields", () => {
       const settings = {
         id: "default",
-        businessName: "Owly",
+        businessName: "TestCo",
         aiApiKey: "sk-test-key",
         smtpPass: "smtp-pass",
         imapPass: "imap-pass",
@@ -101,7 +101,7 @@ describe("Security Utilities", () => {
 
       const masked = maskSettingsSecrets(settings);
 
-      expect(masked.businessName).toBe("Owly");
+      expect(masked.businessName).toBe("TestCo");
       expect(masked.id).toBe("default");
       for (const field of SECRET_FIELDS) {
         expect(masked[field]).toBe("***");
@@ -111,11 +111,11 @@ describe("Security Utilities", () => {
     it("should handle missing secret fields gracefully", () => {
       const settings = {
         id: "default",
-        businessName: "Owly",
+        businessName: "TestCo",
       };
 
       const masked = maskSettingsSecrets(settings);
-      expect(masked.businessName).toBe("Owly");
+      expect(masked.businessName).toBe("TestCo");
     });
 
     it("should not mutate original object", () => {
@@ -123,5 +123,20 @@ describe("Security Utilities", () => {
       maskSettingsSecrets(settings);
       expect(settings.aiApiKey).toBe("sk-test");
     });
+  });
+});
+
+describe("super_admin RBAC bypass", () => {
+  it("super_admin passes every permission check", async () => {
+    const { hasPermission } = await import("@/lib/rbac");
+    expect(hasPermission("super_admin", "settings:update")).toBe(true);
+    expect(hasPermission("super_admin", "admin:delete")).toBe(true);
+    expect(hasPermission("super_admin", "conversations:read")).toBe(true);
+  });
+
+  it("unknown roles still fail closed", async () => {
+    const { hasPermission } = await import("@/lib/rbac");
+    expect(hasPermission("nobody", "settings:update")).toBe(false);
+    expect(hasPermission("viewer", "settings:update")).toBe(false);
   });
 });

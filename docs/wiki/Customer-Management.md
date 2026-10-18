@@ -1,6 +1,6 @@
 # Customer Management
 
-The Customers page is Owly's built-in CRM (Customer Relationship Management) system. It provides a centralized view of every customer who has contacted your business, with their contact details, conversation history, tags, and internal notes.
+The Customers page is Ride Bangla AI Agent's built-in CRM (Customer Relationship Management) system. It provides a centralized view of every customer who has contacted your business, with their contact details, conversation history, tags, and internal notes.
 
 ![Customers](../screenshots/04-customers.png)
 *The Customer Management page showing customer profiles with contact information, tags, and action buttons.*
@@ -22,7 +22,7 @@ Each customer profile contains the following information:
 | First Contact | Date of the customer's first interaction |
 | Last Contact | Date of the customer's most recent interaction |
 
-A single customer may have contact information across multiple channels. Owly consolidates all of their interactions into one profile.
+A single customer may have contact information across multiple channels. Ride Bangla AI Agent consolidates all of their interactions into one profile.
 
 ---
 
@@ -95,7 +95,7 @@ Each note records the author name and timestamp automatically.
 
 ## Cross-Channel Conversation History
 
-One of the key advantages of Owly's customer management is the ability to see a customer's complete conversation history across all channels.
+One of the key advantages of Ride Bangla AI Agent's customer management is the ability to see a customer's complete conversation history across all channels.
 
 When you open a customer profile, you can view:
 - All conversations the customer has had, regardless of channel

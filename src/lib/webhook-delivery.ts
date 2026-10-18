@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { validateOutboundUrl } from "@/lib/ssrf";
 
@@ -38,13 +38,13 @@ export async function deliverWebhook(
   });
 
   const delivery = await prisma.webhookDelivery.create({
-    data: {
+    data: withBusinessId({
       webhookId: webhook.id,
       event,
       payload: JSON.parse(payload),
       status: "pending",
       attempts: 0,
-    },
+    }),
   });
 
   const result = await attemptDelivery(webhook, payload, delivery.id);
@@ -84,8 +84,8 @@ async function attemptDelivery(
   const webhookSecret = process.env.WEBHOOK_SECRET || "";
 
   // M-54: fail closed when WEBHOOK_SECRET is unset — never deliver an
-  // unsigned webhook. Previously deliveries went out with NO X-Owly-Signature
-  // at all, so receivers could not tell a real Owly delivery from a forgery.
+  // unsigned webhook. Previously deliveries went out with NO X-RBAI-Signature
+  // at all, so receivers could not tell a real delivery from a forgery.
   // Fails terminally (no retry): retrying cannot help until the operator
   // sets WEBHOOK_SECRET; the delivery can be retried manually afterwards.
   if (!webhookSecret) {
@@ -116,7 +116,7 @@ async function attemptDelivery(
   try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "User-Agent": "Owly-Webhook/1.0",
+      "User-Agent": "RBAI-Webhook/1.0",
       ...webhook.headers,
     };
     // Never let a stored header override the request Host.
@@ -124,7 +124,7 @@ async function attemptDelivery(
     delete headers.Host;
 
     // WEBHOOK_SECRET is required (fail-closed above), so every delivery is signed.
-    headers["X-Owly-Signature"] = signature;
+    headers["X-RBAI-Signature"] = signature;
 
     const response = await fetch(webhook.url, {
       method: webhook.method,

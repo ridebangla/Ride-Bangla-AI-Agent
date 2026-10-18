@@ -13,7 +13,7 @@ Rules are evaluated against every incoming message. When a message matches a rul
 
 ## Rule Types
 
-Owly provides four types of automation rules, each designed for a specific workflow pattern.
+Ride Bangla AI Agent provides four types of automation rules, each designed for a specific workflow pattern.
 
 ### Auto Route
 

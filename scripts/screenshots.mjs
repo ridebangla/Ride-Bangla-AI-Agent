@@ -62,7 +62,7 @@ async function run() {
   await new Promise(r => setTimeout(r, 1000));
   await page.evaluate(() => {
     document.documentElement.classList.add('dark');
-    localStorage.setItem('owly-theme', JSON.stringify({ state: { theme: 'dark' }, version: 0 }));
+    localStorage.setItem('rbai-theme', JSON.stringify({ state: { theme: 'dark' }, version: 0 }));
   });
   await new Promise(r => setTimeout(r, 500));
   await page.screenshot({ path: `${DIR}/19-dark-mode.png`, fullPage: false });

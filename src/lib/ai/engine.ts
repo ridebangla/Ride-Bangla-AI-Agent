@@ -1,8 +1,12 @@
 import OpenAI from "openai";
-import { prisma } from "@/lib/prisma";
-import { owlyTools, executeToolCall } from "./tools";
+import { prisma, withBusinessId } from "@/lib/prisma";
+import { agentTools, executeToolCall } from "./tools";
 import { emitNewMessage } from "@/lib/realtime";
 import { analyzeSentiment, detectIntent, estimateConfidence, requiresHumanApproval } from "./guardrails";
+import { classifyIntent, getIntentGuidance, RETENTION_DOCTRINE, UNAVAILABLE_PRODUCT_RULE } from "./intent";
+import { getCatalogBrief } from "../catalog";
+import { perceiveMedia, type MediaInput } from "./media";
+import { logger } from "../logger";
 import type {
   AIMessage,
   AIConfig,
@@ -10,7 +14,10 @@ import type {
   KnowledgeItem,
 } from "./types";
 
-function buildSystemPrompt(context: ConversationContext): string {
+function buildSystemPrompt(
+  context: ConversationContext,
+  extras?: { intentGuidance?: string; catalogBrief?: string }
+): string {
   const toneGuide: Record<string, string> = {
     friendly:
       "Be warm, approachable, and conversational. Use a casual but professional tone.",
@@ -58,7 +65,18 @@ ${knowledgeSection}
 ${context.customerName !== "Unknown" ? `- Customer name: ${context.customerName}` : ""}
 
 ## Customer History
-${context.customerHistory.length > 0 ? context.customerHistory.join("\n") : "This is the customer's first interaction."}`;
+${context.customerHistory.length > 0 ? context.customerHistory.join("\n") : "This is the customer's first interaction."}
+
+${RETENTION_DOCTRINE}
+
+${UNAVAILABLE_PRODUCT_RULE}
+
+${extras?.catalogBrief ? `## ${extras.catalogBrief}\n` : ""}
+${extras?.intentGuidance ? `## How to handle THIS message\n${extras.intentGuidance}\n` : ""}
+## Order Taking
+When the customer confirms an order or booking, use the take_order tool with the collected details (service type, pickup/drop-off, contact). The order is saved for the team to fulfill — always confirm the reference back to the customer.
+## Follow-ups
+If the customer asks to be reminded or contacted later, use the schedule_followup tool — it is persisted and a background job delivers it.}`;
 }
 
 async function getKnowledgeBase(): Promise<KnowledgeItem[]> {
@@ -79,7 +97,7 @@ async function getKnowledgeBase(): Promise<KnowledgeItem[]> {
 async function getAIConfig(): Promise<AIConfig & ConversationContext> {
   let settings = await prisma.settings.findFirst();
   if (!settings) {
-    settings = await prisma.settings.create({ data: { id: "default" } });
+    settings = await prisma.settings.create({ data: withBusinessId({}) });
   }
 
   return {
@@ -102,7 +120,8 @@ async function getAIConfig(): Promise<AIConfig & ConversationContext> {
 
 export async function chat(
   conversationId: string,
-  userMessage: string
+  userMessage: string,
+  opts?: { media?: MediaInput }
 ): Promise<string> {
   const config = await getAIConfig();
 
@@ -121,7 +140,32 @@ export async function chat(
     return "Conversation not found.";
   }
 
+  // ---- Multimodal perception (real path, not a stub) ----
+  // Photo -> vision identifies what it shows (product/category).
+  // Video  -> frame extraction + vision synthesis.
+  // Voice  -> Whisper transcription.
+  let effectiveMessage = userMessage;
+  if (opts?.media) {
+    try {
+      const perception = await perceiveMedia(config.apiKey, config.model, opts.media);
+      effectiveMessage = `${perception.description}\n${userMessage}`.trim();
+      logger.info(`[brain] perceived ${opts.media.kind} for conversation ${conversationId}`);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      logger.warn("[brain] media perception failed", { kind: opts.media.kind, reason });
+      const kindLabel =
+        opts.media.kind === "audio" ? "a voice message" : `a ${opts.media.kind}`;
+      effectiveMessage =
+        `[The customer sent ${kindLabel}, but I could not process it: ${reason}]\n${userMessage}`.trim();
+    }
+  }
+
   const knowledgeBase = await getKnowledgeBase();
+
+  // ---- Intent understanding: shape the answer for THIS question ----
+  const intent = classifyIntent(effectiveMessage);
+  const intentGuidance = getIntentGuidance(intent.intent);
+  const catalogBrief = await getCatalogBrief().catch(() => "");
 
   const context: ConversationContext = {
     ...config,
@@ -133,7 +177,7 @@ export async function chat(
 
   // Build message history
   const messages: AIMessage[] = [
-    { role: "system", content: buildSystemPrompt(context) },
+    { role: "system", content: buildSystemPrompt(context, { intentGuidance, catalogBrief }) },
   ];
 
   for (const msg of conversation.messages) {
@@ -144,13 +188,13 @@ export async function chat(
     }
   }
 
-  messages.push({ role: "user", content: userMessage });
+  messages.push({ role: "user", content: effectiveMessage });
 
   // Guardrails: check if human approval needed
-  const approval = requiresHumanApproval(userMessage);
+  const approval = requiresHumanApproval(effectiveMessage);
   if (approval.required) {
-    const sentiment = analyzeSentiment(userMessage);
-    const intent = detectIntent(userMessage);
+    const sentiment = analyzeSentiment(effectiveMessage);
+    const intent = detectIntent(effectiveMessage);
 
     // Store metadata for dashboard visibility
     await prisma.conversation.update({
@@ -167,11 +211,11 @@ export async function chat(
 
   // Save user message
   await prisma.message.create({
-    data: {
+    data: withBusinessId({
       conversationId,
       role: "customer",
-      content: userMessage,
-    },
+      content: effectiveMessage,
+    }),
   });
 
   // Call AI
@@ -179,11 +223,11 @@ export async function chat(
 
   // Save assistant message
   const savedMessage = await prisma.message.create({
-    data: {
+    data: withBusinessId({
       conversationId,
       role: "assistant",
       content: response,
-    },
+    }),
   });
 
   // Update conversation timestamp
@@ -223,7 +267,7 @@ async function callAI(
     response = await openai.chat.completions.create({
       model: config.model,
       messages: messages as OpenAI.ChatCompletionMessageParam[],
-      tools: owlyTools as OpenAI.ChatCompletionTool[],
+      tools: agentTools as OpenAI.ChatCompletionTool[],
       max_tokens: config.maxTokens,
       temperature: config.temperature,
     });
@@ -286,11 +330,11 @@ export async function createNewConversation(
   customerId?: string
 ) {
   return prisma.conversation.create({
-    data: {
+    data: withBusinessId({
       channel,
       customerName,
       customerContact,
       ...(customerId && { customerId }),
-    },
+    }),
   });
 }

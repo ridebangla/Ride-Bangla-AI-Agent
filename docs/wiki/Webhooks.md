@@ -1,6 +1,6 @@
 # Webhooks
 
-Webhooks allow Owly to notify external systems in real time when specific events occur. Instead of polling the API for changes, your applications receive HTTP requests automatically when events like ticket creation, conversation start, or escalation happen.
+Webhooks allow Ride Bangla AI Agent to notify external systems in real time when specific events occur. Instead of polling the API for changes, your applications receive HTTP requests automatically when events like ticket creation, conversation start, or escalation happen.
 
 ![Webhooks Page](../screenshots/13-webhooks.png)
 
@@ -8,7 +8,7 @@ Webhooks allow Owly to notify external systems in real time when specific events
 
 ## What Are Webhooks
 
-A webhook is an HTTP callback: when a configured event occurs in Owly, it sends an HTTP request to a URL you specify. This enables real-time integrations without writing polling logic. For example, you can:
+A webhook is an HTTP callback: when a configured event occurs in Ride Bangla AI Agent, it sends an HTTP request to a URL you specify. This enables real-time integrations without writing polling logic. For example, you can:
 
 - Post a notification to a Slack channel when a new ticket is created.
 - Send a Discord message when a conversation is escalated to a human agent.
@@ -55,7 +55,7 @@ Each webhook is configured with exactly one trigger event. To listen for multipl
 
 ## Payload Format
 
-When a webhook fires, Owly sends a JSON payload to the configured URL. The payload structure includes metadata about the event and the relevant entity.
+When a webhook fires, Ride Bangla AI Agent sends a JSON payload to the configured URL. The payload structure includes metadata about the event and the relevant entity.
 
 ### Example Payload (ticket_created)
 
@@ -113,29 +113,29 @@ When a webhook fires, Owly sends a JSON payload to the configured URL. The paylo
 
 ## Testing Webhooks
 
-Owly provides a built-in test feature for each webhook:
+Ride Bangla AI Agent provides a built-in test feature for each webhook:
 
 1. Locate the webhook in the list.
 2. Click the "Test" button (send icon) on the webhook's row.
-3. Owly sends a test request to the configured URL with a sample payload.
+3. Ride Bangla AI Agent sends a test request to the configured URL with a sample payload.
 4. The result is displayed inline, showing:
    - **Success**: HTTP status code and a preview of the response body.
    - **Failure**: The error message or HTTP error status.
 
 Use testing to verify that your endpoint is reachable and properly configured before relying on the webhook in production.
 
-> **Tip**: For development and debugging, use a service like [webhook.site](https://webhook.site) or [requestbin.com](https://requestbin.com) as a temporary URL to inspect the payloads Owly sends.
+> **Tip**: For development and debugging, use a service like [webhook.site](https://webhook.site) or [requestbin.com](https://requestbin.com) as a temporary URL to inspect the payloads Ride Bangla AI Agent sends.
 
 ---
 
 ## Retry Behavior
 
-Owly sends webhook requests synchronously when the triggering event occurs. If the request fails (network error, timeout, or non-2xx response), the current implementation does not automatically retry. The webhook fires once per event.
+Ride Bangla AI Agent sends webhook requests synchronously when the triggering event occurs. If the request fails (network error, timeout, or non-2xx response), the current implementation does not automatically retry. The webhook fires once per event.
 
 For critical integrations where delivery guarantees are important, consider:
 
 - Using a middleware service (like Zapier or n8n) that provides its own retry logic.
-- Implementing an acknowledgment pattern where your endpoint confirms receipt and Owly logs the delivery status.
+- Implementing an acknowledgment pattern where your endpoint confirms receipt and Ride Bangla AI Agent logs the delivery status.
 - Monitoring the Activity Log for webhook-related events.
 
 ---
@@ -164,7 +164,7 @@ To send notifications to a Slack channel:
 
 1. Create a Slack Incoming Webhook at [api.slack.com/messaging/webhooks](https://api.slack.com/messaging/webhooks).
 2. Copy the webhook URL (format: `https://hooks.slack.com/services/T.../B.../xxx`).
-3. In Owly, create a webhook with method `POST` and the Slack URL.
+3. In Ride Bangla AI Agent, create a webhook with method `POST` and the Slack URL.
 4. No additional headers are needed; Slack accepts the JSON payload directly.
 
 ### Discord
@@ -173,18 +173,18 @@ To send notifications to a Discord channel:
 
 1. In your Discord server, go to Channel Settings > Integrations > Webhooks.
 2. Create a new webhook and copy the URL.
-3. In Owly, create a webhook with method `POST` and the Discord webhook URL.
+3. In Ride Bangla AI Agent, create a webhook with method `POST` and the Discord webhook URL.
 4. Add a header: `Content-Type: application/json`.
 
-> **Note**: Discord expects a `content` field in the payload. You may need an intermediary service to transform Owly's payload format into Discord's expected format.
+> **Note**: Discord expects a `content` field in the payload. You may need an intermediary service to transform Ride Bangla AI Agent's payload format into Discord's expected format.
 
 ### Zapier
 
-To connect Owly to thousands of applications through Zapier:
+To connect Ride Bangla AI Agent to thousands of applications through Zapier:
 
 1. Create a new Zap in Zapier.
 2. Choose "Webhooks by Zapier" as the trigger and select "Catch Hook".
 3. Copy the webhook URL provided by Zapier.
-4. In Owly, create a webhook with method `POST` and the Zapier URL.
-5. Send a test event from Owly so Zapier can detect the payload structure.
+4. In Ride Bangla AI Agent, create a webhook with method `POST` and the Zapier URL.
+5. Send a test event from Ride Bangla AI Agent so Zapier can detect the payload structure.
 6. Configure the Zapier action to process the data (send email, create record, post message, etc.).

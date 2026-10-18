@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: owly
+      POSTGRES_DB: ride-bangla-ai-agent
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -26,7 +26,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/owly?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/ride-bangla-ai-agent?schema=public
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NODE_ENV: production
     env_file:

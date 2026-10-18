@@ -8,15 +8,21 @@ import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, "settings:read");
   if (!isAuthenticated(auth)) return auth;
+  if (!auth.businessId) {
+    return NextResponse.json(
+      { error: "No business configured — complete setup first." },
+      { status: 400 }
+    );
+  }
 
   try {
     let settings = await prisma.settings.findUnique({
-      where: { id: "default" },
+      where: { businessId: auth.businessId },
     });
 
     if (!settings) {
       settings = await prisma.settings.create({
-        data: { id: "default" },
+        data: { businessId: auth.businessId },
       });
     }
 
@@ -33,12 +39,19 @@ export async function GET(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   const auth = await requireAuth(request, "settings:update");
   if (!isAuthenticated(auth)) return auth;
+  if (!auth.businessId) {
+    return NextResponse.json(
+      { error: "No business configured — complete setup first." },
+      { status: 400 }
+    );
+  }
 
   try {
     const body = await request.json();
 
     // Remove fields that should not be updated directly
     delete body.id;
+    delete body.businessId;
     delete body.createdAt;
     delete body.updatedAt;
 
@@ -48,9 +61,9 @@ export async function PUT(request: NextRequest) {
     }
 
     const settings = await prisma.settings.upsert({
-      where: { id: "default" },
+      where: { businessId: auth.businessId },
       update: validation.data,
-      create: { id: "default", ...validation.data },
+      create: { businessId: auth.businessId, ...validation.data },
     });
 
     return NextResponse.json(maskSettingsSecrets(settings));

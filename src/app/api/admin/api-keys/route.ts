@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import crypto from "crypto";
 import { logger } from "@/lib/logger";
 import { parsePagination, paginatedResponse } from "@/lib/pagination";
@@ -13,7 +13,7 @@ import {
 } from "@/lib/api-keys";
 
 function generateApiKey(): string {
-  return "owly_" + crypto.randomBytes(32).toString("hex");
+  return "rbai_" + crypto.randomBytes(32).toString("hex");
 }
 
 export async function GET(request: NextRequest) {
@@ -75,13 +75,13 @@ export async function POST(request: NextRequest) {
     const fullKey = generateApiKey();
 
     const apiKey = await prisma.apiKey.create({
-      data: {
+      data: withBusinessId({
         name: name.trim(),
         // H-15: store ONLY the SHA-256 hash, never the full key.
         keyHash: hashApiKey(fullKey),
         keySuffix: keySuffixOf(fullKey),
         scopes: resolvedScopes,
-      },
+      }),
     });
 
     // Return the full key only on creation — it can never be retrieved again.

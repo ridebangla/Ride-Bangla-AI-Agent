@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { chat, createNewConversation } from "@/lib/ai/engine";
 import { resolveCustomer } from "@/lib/customer-resolver";
 import { logger } from "@/lib/logger";
+import { enterBusinessContext, resolveChannelBusiness } from "@/lib/tenant";
 
 interface SmsConfig {
   twilioSid: string;
@@ -27,6 +28,7 @@ export async function handleIncomingSms(
   from: string,
   body: string
 ): Promise<string> {
+  enterBusinessContext(await resolveChannelBusiness());
   try {
     if (!body || !body.trim()) {
       return "Please send a message and we'll be happy to help!";

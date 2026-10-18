@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { parsePagination, paginatedResponse } from "@/lib/pagination";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
@@ -73,12 +73,12 @@ export async function POST(request: NextRequest) {
     }
 
     const entry = await prisma.knowledgeEntry.create({
-      data: {
+      data: withBusinessId({
         categoryId,
         title: title.trim(),
         content: content?.trim() || "",
         priority: typeof priority === "number" ? priority : 0,
-      },
+      }),
       include: {
         category: {
           select: { id: true, name: true, color: true, icon: true },

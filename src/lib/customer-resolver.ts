@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 
 /**
@@ -94,14 +94,14 @@ async function createCustomer(
   contact: string
 ): Promise<string> {
   const customer = await prisma.customer.create({
-    data: {
+    data: withBusinessId({
       name: name || "Unknown",
       firstContact: new Date(),
       lastContact: new Date(),
       ...(channel === "email" ? { email: contact } : {}),
       ...(channel === "whatsapp" ? { whatsapp: contact } : {}),
       ...(channel === "phone" ? { phone: contact } : {}),
-    },
+    }),
   });
 
   logger.info("Auto-created customer from channel contact", {

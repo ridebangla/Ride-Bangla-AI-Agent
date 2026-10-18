@@ -177,7 +177,7 @@ describe("Injection Attack Prevention", () => {
   describe("Error Response Safety", () => {
     it("should not leak database details in error responses", async () => {
       mockPrisma.conversation.findMany.mockRejectedValue(
-        new Error("PrismaClientKnownRequestError: Connection refused to database owly_production")
+        new Error("PrismaClientKnownRequestError: Connection refused to database rbai_production")
       );
 
       const { GET } = await import("@/app/api/conversations/route");
@@ -188,7 +188,7 @@ describe("Injection Attack Prevention", () => {
       expect(response.status).toBe(500);
       expect(data.error).toBe("Failed to fetch conversations");
       // Error message should NOT contain database details
-      expect(JSON.stringify(data)).not.toContain("owly_production");
+      expect(JSON.stringify(data)).not.toContain("rbai_production");
       expect(JSON.stringify(data)).not.toContain("PrismaClient");
     });
   });

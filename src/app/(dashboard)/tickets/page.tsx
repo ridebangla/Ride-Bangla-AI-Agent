@@ -224,7 +224,7 @@ export default function TicketsPage() {
         actions={
           <button
             onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-owly-primary text-white rounded-lg hover:bg-owly-primary-dark transition-colors text-sm font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-rbai-primary text-white rounded-lg hover:bg-rbai-primary-dark transition-colors text-sm font-medium"
           >
             <Plus className="h-4 w-4" />
             New Ticket
@@ -235,35 +235,35 @@ export default function TicketsPage() {
       <div className="flex-1 overflow-auto p-6 space-y-4">
         {/* Stats Row */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="bg-owly-surface rounded-xl border border-owly-border px-4 py-3 flex items-center gap-3">
+          <div className="bg-rbai-surface rounded-xl border border-rbai-border px-4 py-3 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-yellow-50">
               <CircleDot className="h-4 w-4 text-yellow-600" />
             </div>
             <div>
-              <p className="text-xs text-owly-text-light">Open</p>
-              <p className="text-lg font-semibold text-owly-text">
+              <p className="text-xs text-rbai-text-light">Open</p>
+              <p className="text-lg font-semibold text-rbai-text">
                 {openCount}
               </p>
             </div>
           </div>
-          <div className="bg-owly-surface rounded-xl border border-owly-border px-4 py-3 flex items-center gap-3">
+          <div className="bg-rbai-surface rounded-xl border border-rbai-border px-4 py-3 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-blue-50">
               <Clock className="h-4 w-4 text-blue-600" />
             </div>
             <div>
-              <p className="text-xs text-owly-text-light">In Progress</p>
-              <p className="text-lg font-semibold text-owly-text">
+              <p className="text-xs text-rbai-text-light">In Progress</p>
+              <p className="text-lg font-semibold text-rbai-text">
                 {inProgressCount}
               </p>
             </div>
           </div>
-          <div className="bg-owly-surface rounded-xl border border-owly-border px-4 py-3 flex items-center gap-3">
+          <div className="bg-rbai-surface rounded-xl border border-rbai-border px-4 py-3 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-green-50">
               <CheckCircle2 className="h-4 w-4 text-green-600" />
             </div>
             <div>
-              <p className="text-xs text-owly-text-light">Resolved</p>
-              <p className="text-lg font-semibold text-owly-text">
+              <p className="text-xs text-rbai-text-light">Resolved</p>
+              <p className="text-lg font-semibold text-rbai-text">
                 {resolvedCount}
               </p>
             </div>
@@ -271,22 +271,22 @@ export default function TicketsPage() {
         </div>
 
         {/* Filters */}
-        <div className="bg-owly-surface rounded-xl border border-owly-border p-3">
+        <div className="bg-rbai-surface rounded-xl border border-rbai-border p-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-owly-text-light" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-rbai-text-light" />
               <input
                 type="text"
                 placeholder="Search tickets..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+                className="w-full pl-9 pr-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
               />
             </div>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+              className="text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
             >
               {ticketStatuses.map((s) => (
                 <option key={s.value} value={s.value}>
@@ -297,7 +297,7 @@ export default function TicketsPage() {
             <select
               value={priorityFilter}
               onChange={(e) => setPriorityFilter(e.target.value)}
-              className="text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+              className="text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
             >
               {ticketPriorities.map((p) => (
                 <option key={p.value} value={p.value}>
@@ -308,7 +308,7 @@ export default function TicketsPage() {
             <select
               value={departmentFilter}
               onChange={(e) => setDepartmentFilter(e.target.value)}
-              className="text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+              className="text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
             >
               <option value="all">All Departments</option>
               {departments.map((d) => (
@@ -321,23 +321,23 @@ export default function TicketsPage() {
         </div>
 
         {/* Tickets Table */}
-        <div className="bg-owly-surface rounded-xl border border-owly-border overflow-hidden">
+        <div className="bg-rbai-surface rounded-xl border border-rbai-border overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center h-40">
-              <div className="text-sm text-owly-text-light">Loading...</div>
+              <div className="text-sm text-rbai-text-light">Loading...</div>
             </div>
           ) : tickets.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-              <div className="p-4 rounded-full bg-owly-primary-50 mb-4">
-                <Ticket className="h-8 w-8 text-owly-primary" />
+              <div className="p-4 rounded-full bg-rbai-primary-50 mb-4">
+                <Ticket className="h-8 w-8 text-rbai-primary" />
               </div>
-              <p className="font-medium text-owly-text">No tickets found</p>
-              <p className="text-sm text-owly-text-light mt-1">
+              <p className="font-medium text-rbai-text">No tickets found</p>
+              <p className="text-sm text-rbai-text-light mt-1">
                 Create a ticket to start tracking customer issues
               </p>
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="mt-4 flex items-center gap-2 px-4 py-2 bg-owly-primary text-white rounded-lg hover:bg-owly-primary-dark transition-colors text-sm font-medium"
+                className="mt-4 flex items-center gap-2 px-4 py-2 bg-rbai-primary text-white rounded-lg hover:bg-rbai-primary-dark transition-colors text-sm font-medium"
               >
                 <Plus className="h-4 w-4" />
                 Create Ticket
@@ -347,28 +347,28 @@ export default function TicketsPage() {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-owly-border bg-owly-bg/50">
-                    <th className="text-left px-4 py-3 text-xs font-medium text-owly-text-light uppercase tracking-wider">
+                  <tr className="border-b border-rbai-border bg-rbai-bg/50">
+                    <th className="text-left px-4 py-3 text-xs font-medium text-rbai-text-light uppercase tracking-wider">
                       Ticket
                     </th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-owly-text-light uppercase tracking-wider">
+                    <th className="text-left px-4 py-3 text-xs font-medium text-rbai-text-light uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-owly-text-light uppercase tracking-wider">
+                    <th className="text-left px-4 py-3 text-xs font-medium text-rbai-text-light uppercase tracking-wider">
                       Priority
                     </th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-owly-text-light uppercase tracking-wider hidden md:table-cell">
+                    <th className="text-left px-4 py-3 text-xs font-medium text-rbai-text-light uppercase tracking-wider hidden md:table-cell">
                       Department
                     </th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-owly-text-light uppercase tracking-wider hidden lg:table-cell">
+                    <th className="text-left px-4 py-3 text-xs font-medium text-rbai-text-light uppercase tracking-wider hidden lg:table-cell">
                       Assigned To
                     </th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-owly-text-light uppercase tracking-wider hidden lg:table-cell">
+                    <th className="text-left px-4 py-3 text-xs font-medium text-rbai-text-light uppercase tracking-wider hidden lg:table-cell">
                       Created
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-owly-border">
+                <tbody className="divide-y divide-rbai-border">
                   {tickets.map((ticket) => {
                     const StatusIcon =
                       statusIcons[ticket.status] || CircleDot;
@@ -377,16 +377,16 @@ export default function TicketsPage() {
                       <tr
                         key={ticket.id}
                         onClick={() => setSelectedTicket(ticket)}
-                        className="hover:bg-owly-primary-50/50 cursor-pointer transition-colors"
+                        className="hover:bg-rbai-primary-50/50 cursor-pointer transition-colors"
                       >
                         <td className="px-4 py-3">
                           <div className="flex items-start gap-3">
                             <div className="min-w-0">
-                              <p className="text-sm font-medium text-owly-text truncate max-w-[280px]">
+                              <p className="text-sm font-medium text-rbai-text truncate max-w-[280px]">
                                 {ticket.title}
                               </p>
                               {ticket.conversation && (
-                                <p className="text-xs text-owly-text-light mt-0.5">
+                                <p className="text-xs text-rbai-text-light mt-0.5">
                                   {ticket.conversation.customerName}
                                 </p>
                               )}
@@ -415,17 +415,17 @@ export default function TicketsPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 hidden md:table-cell">
-                          <span className="text-sm text-owly-text-light">
+                          <span className="text-sm text-rbai-text-light">
                             {ticket.department?.name || "--"}
                           </span>
                         </td>
                         <td className="px-4 py-3 hidden lg:table-cell">
-                          <span className="text-sm text-owly-text-light">
+                          <span className="text-sm text-rbai-text-light">
                             {ticket.assignedTo?.name || "Unassigned"}
                           </span>
                         </td>
                         <td className="px-4 py-3 hidden lg:table-cell">
-                          <span className="text-xs text-owly-text-light">
+                          <span className="text-xs text-rbai-text-light">
                             {formatRelativeTime(ticket.createdAt)}
                           </span>
                         </td>
@@ -446,27 +446,27 @@ export default function TicketsPage() {
             className="absolute inset-0 bg-black/30"
             onClick={() => setSelectedTicket(null)}
           />
-          <div className="relative w-full max-w-lg bg-owly-surface shadow-xl flex flex-col animate-in slide-in-from-right">
+          <div className="relative w-full max-w-lg bg-rbai-surface shadow-xl flex flex-col animate-in slide-in-from-right">
             {/* Detail Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-owly-border">
-              <h3 className="font-semibold text-owly-text text-lg">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-rbai-border">
+              <h3 className="font-semibold text-rbai-text text-lg">
                 Ticket Details
               </h3>
               <button
                 onClick={() => setSelectedTicket(null)}
-                className="p-1.5 hover:bg-owly-primary-50 rounded-lg transition-colors"
+                className="p-1.5 hover:bg-rbai-primary-50 rounded-lg transition-colors"
               >
-                <X className="h-5 w-5 text-owly-text-light" />
+                <X className="h-5 w-5 text-rbai-text-light" />
               </button>
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
               {/* Title */}
               <div>
-                <h4 className="text-lg font-semibold text-owly-text">
+                <h4 className="text-lg font-semibold text-rbai-text">
                   {selectedTicket.title}
                 </h4>
-                <p className="text-xs text-owly-text-light mt-1">
+                <p className="text-xs text-rbai-text-light mt-1">
                   Created {formatDate(selectedTicket.createdAt)}
                 </p>
               </div>
@@ -474,7 +474,7 @@ export default function TicketsPage() {
               {/* Status and Priority Controls */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-owly-text-light mb-1">
+                  <label className="block text-xs font-medium text-rbai-text-light mb-1">
                     Status
                   </label>
                   <select
@@ -484,7 +484,7 @@ export default function TicketsPage() {
                         status: e.target.value,
                       })
                     }
-                    className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+                    className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
                   >
                     {ticketStatuses
                       .filter((s) => s.value !== "all")
@@ -496,7 +496,7 @@ export default function TicketsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-owly-text-light mb-1">
+                  <label className="block text-xs font-medium text-rbai-text-light mb-1">
                     Priority
                   </label>
                   <select
@@ -506,7 +506,7 @@ export default function TicketsPage() {
                         priority: e.target.value,
                       })
                     }
-                    className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+                    className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
                   >
                     {ticketPriorities
                       .filter((p) => p.value !== "all")
@@ -521,7 +521,7 @@ export default function TicketsPage() {
 
               {/* Department */}
               <div>
-                <label className="block text-xs font-medium text-owly-text-light mb-1">
+                <label className="block text-xs font-medium text-rbai-text-light mb-1">
                   Department
                 </label>
                 <select
@@ -531,7 +531,7 @@ export default function TicketsPage() {
                       departmentId: e.target.value || null,
                     })
                   }
-                  className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+                  className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
                 >
                   <option value="">Unassigned</option>
                   {departments.map((d) => (
@@ -544,12 +544,12 @@ export default function TicketsPage() {
 
               {/* Assigned To */}
               <div>
-                <label className="block text-xs font-medium text-owly-text-light mb-1">
+                <label className="block text-xs font-medium text-rbai-text-light mb-1">
                   Assigned To
                 </label>
-                <div className="flex items-center gap-2 px-3 py-2 border border-owly-border rounded-lg bg-owly-bg">
-                  <User className="h-4 w-4 text-owly-text-light" />
-                  <span className="text-sm text-owly-text">
+                <div className="flex items-center gap-2 px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg">
+                  <User className="h-4 w-4 text-rbai-text-light" />
+                  <span className="text-sm text-rbai-text">
                     {selectedTicket.assignedTo?.name || "Unassigned"}
                   </span>
                 </div>
@@ -557,11 +557,11 @@ export default function TicketsPage() {
 
               {/* Description */}
               <div>
-                <label className="block text-xs font-medium text-owly-text-light mb-1">
+                <label className="block text-xs font-medium text-rbai-text-light mb-1">
                   Description
                 </label>
-                <div className="px-3 py-2.5 border border-owly-border rounded-lg bg-owly-bg min-h-[80px]">
-                  <p className="text-sm text-owly-text whitespace-pre-wrap">
+                <div className="px-3 py-2.5 border border-rbai-border rounded-lg bg-rbai-bg min-h-[80px]">
+                  <p className="text-sm text-rbai-text whitespace-pre-wrap">
                     {selectedTicket.description || "No description provided."}
                   </p>
                 </div>
@@ -570,25 +570,25 @@ export default function TicketsPage() {
               {/* Linked Conversation */}
               {selectedTicket.conversation && (
                 <div>
-                  <label className="block text-xs font-medium text-owly-text-light mb-1">
+                  <label className="block text-xs font-medium text-rbai-text-light mb-1">
                     Linked Conversation
                   </label>
-                  <div className="flex items-center gap-3 px-3 py-2.5 border border-owly-border rounded-lg bg-owly-bg">
-                    <MessageSquare className="h-4 w-4 text-owly-primary flex-shrink-0" />
+                  <div className="flex items-center gap-3 px-3 py-2.5 border border-rbai-border rounded-lg bg-rbai-bg">
+                    <MessageSquare className="h-4 w-4 text-rbai-primary flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-owly-text truncate">
+                      <p className="text-sm font-medium text-rbai-text truncate">
                         {selectedTicket.conversation.customerName}
                       </p>
-                      <p className="text-xs text-owly-text-light">
+                      <p className="text-xs text-rbai-text-light">
                         {selectedTicket.conversation.channel} --{" "}
                         {selectedTicket.conversation.status}
                       </p>
                     </div>
                     <a
                       href={`/conversations`}
-                      className="p-1 hover:bg-owly-primary-50 rounded transition-colors"
+                      className="p-1 hover:bg-rbai-primary-50 rounded transition-colors"
                     >
-                      <ExternalLink className="h-3.5 w-3.5 text-owly-primary" />
+                      <ExternalLink className="h-3.5 w-3.5 text-rbai-primary" />
                     </a>
                   </div>
                 </div>
@@ -596,7 +596,7 @@ export default function TicketsPage() {
 
               {/* Resolution */}
               <div>
-                <label className="block text-xs font-medium text-owly-text-light mb-1">
+                <label className="block text-xs font-medium text-rbai-text-light mb-1">
                   Resolution
                 </label>
                 <textarea
@@ -614,22 +614,22 @@ export default function TicketsPage() {
                   }
                   placeholder="Add resolution notes..."
                   rows={3}
-                  className="w-full text-sm px-3 py-2.5 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary resize-none"
+                  className="w-full text-sm px-3 py-2.5 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary resize-none"
                 />
               </div>
             </div>
 
             {/* Detail Footer */}
-            <div className="flex items-center justify-between px-5 py-3 border-t border-owly-border">
+            <div className="flex items-center justify-between px-5 py-3 border-t border-rbai-border">
               <button
                 onClick={() => handleDeleteTicket(selectedTicket.id)}
-                className="text-sm text-owly-danger hover:text-red-700 font-medium transition-colors"
+                className="text-sm text-rbai-danger hover:text-red-700 font-medium transition-colors"
               >
                 Delete Ticket
               </button>
               <button
                 onClick={() => setSelectedTicket(null)}
-                className="px-4 py-2 text-sm font-medium bg-owly-primary text-white rounded-lg hover:bg-owly-primary-dark transition-colors"
+                className="px-4 py-2 text-sm font-medium bg-rbai-primary text-white rounded-lg hover:bg-rbai-primary-dark transition-colors"
               >
                 Done
               </button>
@@ -645,22 +645,22 @@ export default function TicketsPage() {
             className="absolute inset-0 bg-black/30"
             onClick={() => setShowCreateModal(false)}
           />
-          <div className="relative w-full max-w-md mx-4 bg-owly-surface rounded-xl shadow-xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-owly-border">
-              <h3 className="font-semibold text-owly-text text-lg">
+          <div className="relative w-full max-w-md mx-4 bg-rbai-surface rounded-xl shadow-xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-rbai-border">
+              <h3 className="font-semibold text-rbai-text text-lg">
                 Create New Ticket
               </h3>
               <button
                 onClick={() => setShowCreateModal(false)}
-                className="p-1.5 hover:bg-owly-primary-50 rounded-lg transition-colors"
+                className="p-1.5 hover:bg-rbai-primary-50 rounded-lg transition-colors"
               >
-                <X className="h-5 w-5 text-owly-text-light" />
+                <X className="h-5 w-5 text-rbai-text-light" />
               </button>
             </div>
 
             <div className="px-5 py-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-owly-text mb-1">
+                <label className="block text-sm font-medium text-rbai-text mb-1">
                   Title
                 </label>
                 <input
@@ -670,12 +670,12 @@ export default function TicketsPage() {
                     setCreateForm({ ...createForm, title: e.target.value })
                   }
                   placeholder="Enter ticket title..."
-                  className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+                  className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-owly-text mb-1">
+                <label className="block text-sm font-medium text-rbai-text mb-1">
                   Description
                 </label>
                 <textarea
@@ -688,13 +688,13 @@ export default function TicketsPage() {
                   }
                   placeholder="Describe the issue..."
                   rows={3}
-                  className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary resize-none"
+                  className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary resize-none"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-owly-text mb-1">
+                  <label className="block text-sm font-medium text-rbai-text mb-1">
                     Priority
                   </label>
                   <select
@@ -705,7 +705,7 @@ export default function TicketsPage() {
                         priority: e.target.value,
                       })
                     }
-                    className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+                    className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
                   >
                     {ticketPriorities
                       .filter((p) => p.value !== "all")
@@ -717,7 +717,7 @@ export default function TicketsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-owly-text mb-1">
+                  <label className="block text-sm font-medium text-rbai-text mb-1">
                     Department
                   </label>
                   <select
@@ -728,7 +728,7 @@ export default function TicketsPage() {
                         departmentId: e.target.value,
                       })
                     }
-                    className="w-full text-sm px-3 py-2 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+                    className="w-full text-sm px-3 py-2 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
                   >
                     <option value="">None</option>
                     {departments.map((d) => (
@@ -741,10 +741,10 @@ export default function TicketsPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-owly-border">
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-rbai-border">
               <button
                 onClick={() => setShowCreateModal(false)}
-                className="px-4 py-2 text-sm font-medium text-owly-text hover:bg-owly-primary-50 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-medium text-rbai-text hover:bg-rbai-primary-50 rounded-lg transition-colors"
               >
                 Cancel
               </button>
@@ -754,8 +754,8 @@ export default function TicketsPage() {
                 className={cn(
                   "px-4 py-2 text-sm font-medium rounded-lg transition-colors",
                   createForm.title.trim() && !saving
-                    ? "bg-owly-primary text-white hover:bg-owly-primary-dark"
-                    : "bg-owly-border text-owly-text-light cursor-not-allowed"
+                    ? "bg-rbai-primary text-white hover:bg-rbai-primary-dark"
+                    : "bg-rbai-border text-rbai-text-light cursor-not-allowed"
                 )}
               >
                 {saving ? "Creating..." : "Create Ticket"}

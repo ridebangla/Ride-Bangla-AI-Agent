@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { parsePagination, paginatedResponse } from "@/lib/pagination";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     }
 
     const rule = await prisma.sLARule.create({
-      data: {
+      data: withBusinessId({
         name: name.trim(),
         description: description?.trim() || "",
         channel: channel || "all",
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
         firstResponseMins: firstResponseMins ?? 30,
         resolutionMins: resolutionMins ?? 480,
         isActive: isActive ?? true,
-      },
+      }),
     });
 
     return NextResponse.json(rule, { status: 201 });

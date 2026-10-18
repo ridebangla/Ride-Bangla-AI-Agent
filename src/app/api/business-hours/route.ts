@@ -6,15 +6,19 @@ import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, "business-hours:read");
   if (!isAuthenticated(auth)) return auth;
+  if (!auth.businessId) {
+    return NextResponse.json({ error: "No business selected." }, { status: 400 });
+  }
+  const businessId = auth.businessId;
 
   try {
     let config = await prisma.businessHours.findUnique({
-      where: { id: "default" },
+      where: { businessId },
     });
 
     if (!config) {
       config = await prisma.businessHours.create({
-        data: { id: "default" },
+        data: { businessId },
       });
     }
 
@@ -31,6 +35,10 @@ export async function GET(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   const auth = await requireAuth(request, "business-hours:update");
   if (!isAuthenticated(auth)) return auth;
+  if (!auth.businessId) {
+    return NextResponse.json({ error: "No business selected." }, { status: 400 });
+  }
+  const businessId = auth.businessId;
 
   try {
     const body = await request.json();
@@ -60,7 +68,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const config = await prisma.businessHours.upsert({
-      where: { id: "default" },
+      where: { businessId },
       update: {
         ...(enabled !== undefined && { enabled }),
         ...(timezone !== undefined && { timezone }),
@@ -74,7 +82,7 @@ export async function PUT(request: NextRequest) {
         ...(offlineMessage !== undefined && { offlineMessage }),
       },
       create: {
-        id: "default",
+        businessId,
         enabled: enabled ?? false,
         timezone: timezone ?? "UTC",
         monday: monday ?? "09:00-18:00",

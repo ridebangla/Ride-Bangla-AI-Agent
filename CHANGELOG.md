@@ -45,7 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `customerId` foreign key on Conversation model linking conversations to unified Customer profiles
 - Customer resolver module with phone number normalization and cross-field matching
 - Unified customer timeline endpoint: `GET /api/customers/:id/conversations`
-- Kubernetes Helm chart (`helm/owly/`) with deployment, service, ingress, HPA, PVC, secrets
+- Kubernetes Helm chart (`helm/ride-bangla-ai-agent/`) with deployment, service, ingress, HPA, PVC, secrets
 - OpenAPI 3.0 specification served at `GET /api/openapi.json`
 - Webhook delivery system with exponential retry (3 attempts) and HMAC-SHA256 signatures
 - Webhook delivery log and manual retry endpoint: `/api/webhooks/:id/deliveries`

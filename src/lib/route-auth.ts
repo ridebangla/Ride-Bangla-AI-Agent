@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken } from "@/lib/auth";
 import { hasPermission, Permission } from "@/lib/rbac";
 import { hashApiKey } from "@/lib/api-keys";
-import { prisma } from "@/lib/prisma";
+import { prisma, getUnscopedPrisma } from "@/lib/prisma";
+import { enterBusinessContext } from "@/lib/tenant";
 
 interface AuthContext {
   userId: string;
@@ -12,6 +13,8 @@ interface AuthContext {
   authMethod: "cookie" | "api_key";
   /** API-key scope list. Empty for cookie auth (role permissions apply). */
   scopes: string[];
+  /** Business this caller belongs to. null = Super Admin (all businesses). */
+  businessId: string | null;
 }
 
 /**
@@ -19,12 +22,17 @@ interface AuthContext {
  * Only the SHA-256 hash of the key is stored; the presented key is hashed
  * and compared by hash. The key may only use permissions in its scope list.
  */
-async function authenticateApiKey(apiKey: string): Promise<AuthContext | null> {
-  const key = await prisma.apiKey.findUnique({
+async function authenticateApiKey(apiKey: string): Promise<(AuthContext & { businessId: string | null }) | null> {
+  // Unscoped lookup: keyHash is globally unique, and we have no tenant
+  // context yet (this function ESTABLISHES it).
+  const key = await getUnscopedPrisma().apiKey.findUnique({
     where: { keyHash: hashApiKey(apiKey) },
   });
 
   if (!key || !key.isActive) return null;
+
+  // This caller's tenant context starts here and covers the rest of the request.
+  enterBusinessContext(key.businessId);
 
   // Update lastUsed timestamp
   prisma.apiKey.update({
@@ -40,6 +48,7 @@ async function authenticateApiKey(apiKey: string): Promise<AuthContext | null> {
     name: key.name,
     authMethod: "api_key",
     scopes: key.scopes ?? [],
+    businessId: key.businessId,
   };
 }
 
@@ -74,7 +83,7 @@ export async function requireAuth(
   }
 
   // Fall back to cookie auth
-  const token = request.cookies.get("owly-token")?.value;
+  const token = request.cookies.get("rbai-token")?.value;
 
   if (!token) {
     return NextResponse.json(
@@ -98,9 +107,9 @@ export async function requireAuth(
     );
   }
 
-  const admin = await prisma.admin.findUnique({
+  const admin = await getUnscopedPrisma().admin.findUnique({
     where: { id: payload.userId },
-    select: { id: true, username: true, name: true, role: true },
+    select: { id: true, username: true, name: true, role: true, businessId: true },
   });
 
   if (!admin) {
@@ -110,6 +119,52 @@ export async function requireAuth(
     );
   }
 
+  // Resolve the effective business for this request and enter tenant context.
+  // The context covers the rest of the request: every downstream prisma query
+  // on a tenant model is auto-scoped to this business (fail-closed).
+  let effectiveBusinessId: string | null = admin.businessId ?? null;
+  const requestedSlug = request.nextUrl.searchParams.get("business");
+  const db = getUnscopedPrisma();
+  if (requestedSlug) {
+    const biz = await db.business.findUnique({ where: { slug: requestedSlug } });
+    if (!biz || !biz.isActive) {
+      return NextResponse.json(
+        { error: { code: "UNKNOWN_BUSINESS", message: "Unknown business" } },
+        { status: 400 }
+      );
+    }
+    if (effectiveBusinessId && effectiveBusinessId !== biz.id) {
+      return NextResponse.json(
+        { error: { code: "FORBIDDEN", message: "Not a member of this business" } },
+        { status: 403 }
+      );
+    }
+    effectiveBusinessId = biz.id;
+  } else if (!effectiveBusinessId) {
+    // Super Admin without an explicit ?business=: with exactly one active
+    // business, work inside it automatically (first-run friendly). With
+    // several, the caller must choose; with none, stay unscoped (fresh install).
+    const businesses = await db.business.findMany({
+      where: { isActive: true },
+      select: { id: true },
+      take: 2,
+    });
+    if (businesses.length === 1) {
+      effectiveBusinessId = businesses[0].id;
+    } else if (businesses.length > 1) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "BUSINESS_REQUIRED",
+            message: "Multiple businesses exist — pass ?business=<slug> to select one.",
+          },
+        },
+        { status: 400 }
+      );
+    }
+  }
+  enterBusinessContext(effectiveBusinessId);
+
   return {
     userId: admin.id,
     role: admin.role,
@@ -117,6 +172,7 @@ export async function requireAuth(
     name: admin.name,
     authMethod: "cookie",
     scopes: [],
+    businessId: effectiveBusinessId,
   };
 }
 

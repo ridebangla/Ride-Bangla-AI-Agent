@@ -6,6 +6,7 @@ import { chat, createNewConversation } from "@/lib/ai/engine";
 import { escapeHtml, sanitizeEmailSubject } from "@/lib/security";
 import { logger } from "@/lib/logger";
 import { resolveCustomer } from "@/lib/customer-resolver";
+import { enterBusinessContext, resolveChannelBusiness } from "@/lib/tenant";
 
 interface EmailConfig {
   imapHost: string;
@@ -63,6 +64,9 @@ function getSmtpTransporter(config: EmailConfig) {
 }
 
 async function processEmail(parsed: ParsedMail, config: EmailConfig) {
+  // Tenant context: the IMAP listener runs outside HTTP requests, so the
+  // business must be resolved explicitly (fail-closed).
+  enterBusinessContext(await resolveChannelBusiness());
   const fromAddress = parsed.from?.value?.[0]?.address;
   const fromName =
     parsed.from?.value?.[0]?.name || fromAddress || "Unknown";

@@ -11,11 +11,11 @@ interface BadgeProps {
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
-  default: "bg-owly-bg text-owly-text-light border border-owly-border",
+  default: "bg-rbai-bg text-rbai-text-light border border-rbai-border",
   success: "bg-green-50 text-green-700 border border-green-200",
   warning: "bg-amber-50 text-amber-700 border border-amber-200",
   danger: "bg-red-50 text-red-700 border border-red-200",
-  info: "bg-owly-primary-50 text-owly-primary-dark border border-owly-primary-100",
+  info: "bg-rbai-primary-50 text-rbai-primary-dark border border-rbai-primary-100",
 };
 
 const sizeStyles: Record<BadgeSize, string> = {

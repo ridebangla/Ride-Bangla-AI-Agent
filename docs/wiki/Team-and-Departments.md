@@ -67,7 +67,7 @@ The **expertise** field is one of the most important fields for AI-powered routi
 
 1. A customer reports an issue: "I was charged twice for my subscription"
 2. The AI creates a ticket with expertise area: "billing"
-3. Owly searches for available team members whose expertise field contains "billing"
+3. Ride Bangla AI Agent searches for available team members whose expertise field contains "billing"
 4. The ticket is assigned to the best matching available team member
 
 ### Best Practices for Expertise Fields

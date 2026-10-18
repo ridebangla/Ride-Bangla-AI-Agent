@@ -1,6 +1,6 @@
 # Channel Setup
 
-Channels are the communication pathways through which customers contact your business. Owly supports three channels: WhatsApp, Email, and Phone. Each channel can be configured independently from the Channels page.
+Channels are the communication pathways through which customers contact your business. Ride Bangla AI Agent supports three channels: WhatsApp, Email, and Phone. Each channel can be configured independently from the Channels page.
 
 ![Channels](../screenshots/12-channels.png)
 *The Channels page showing WhatsApp, Email, and Phone channel cards with their connection status and configuration options.*
@@ -22,7 +22,7 @@ Each channel displays a status indicator showing its current connection state:
 
 ## WhatsApp Setup
 
-Owly supports two methods for connecting WhatsApp:
+Ride Bangla AI Agent supports two methods for connecting WhatsApp:
 
 ### Method 1: QR Code (WhatsApp Web)
 
@@ -166,7 +166,7 @@ Before configuring phone support, you will need:
 | Field | Description |
 |-------|-------------|
 | ElevenLabs API Key | Your API key from the ElevenLabs dashboard |
-| Voice ID | The ID of the voice you want Owly to use when speaking |
+| Voice ID | The ID of the voice you want Ride Bangla AI Agent to use when speaking |
 
 3. Click **Save**
 
@@ -174,16 +174,16 @@ Before configuring phone support, you will need:
 
 ### Step 3: Configure Twilio Webhook
 
-For incoming calls to reach Owly, configure your Twilio phone number's webhook:
+For incoming calls to reach Ride Bangla AI Agent, configure your Twilio phone number's webhook:
 
 1. Go to your Twilio Console
 2. Navigate to Phone Numbers > Manage > Active Numbers
 3. Click on your phone number
-4. Under "Voice & Fax", set the webhook URL to: `https://your-owly-domain.com/api/channels/phone/incoming`
+4. Under "Voice & Fax", set the webhook URL to: `https://your-rbai-domain.com/api/channels/phone/incoming`
 5. Set the HTTP method to `POST`
 6. Save the configuration
 
-> **Important:** Phone support requires Owly to be accessible from the internet (not just localhost). You will need a public URL or a tunnel service like ngrok for development.
+> **Important:** Phone support requires Ride Bangla AI Agent to be accessible from the internet (not just localhost). You will need a public URL or a tunnel service like ngrok for development.
 
 ---
 

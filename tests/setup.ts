@@ -2,15 +2,34 @@ import { vi } from "vitest";
 
 // Set test environment variables
 process.env.JWT_SECRET = "test-secret-key-for-testing-only";
-process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/owly_test";
+process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/rbai_test";
 process.env.NODE_ENV = "test";
 
 // Mock Prisma globally
-vi.mock("@/lib/prisma", () => ({
-  prisma: createMockPrismaClient(),
-}));
+vi.mock("@/lib/prisma", () => {
+  const mockClient = createMockPrismaClient();
+  const TEST_BUSINESS_ID = "test-business";
+  class TenantContextError extends Error {
+    constructor(model: string, operation: string) {
+      super(`Tenant context missing for ${model}.${operation}`);
+      this.name = "TenantContextError";
+    }
+  }
+  return {
+    prisma: mockClient,
+    getUnscopedPrisma: () => mockClient,
+    runWithBusiness: (_id: string | null, fn: () => unknown) => fn(),
+    enterBusinessContext: () => {},
+    getBusinessId: () => TEST_BUSINESS_ID,
+    withBusinessId: <T extends object>(data: T) => ({ ...data, businessId: TEST_BUSINESS_ID }),
+    withBusinessIdMany: <T extends object>(rows: T[]) =>
+      rows.map((r) => ({ ...r, businessId: TEST_BUSINESS_ID })),
+    TenantContextError,
+  };
+});
 
-// Mock route-auth to always authenticate as admin in tests
+// Mock route-auth to always authenticate as admin in tests (scoped to the
+// test business, mirroring requireAuth's effective-business resolution).
 vi.mock("@/lib/route-auth", () => ({
   requireAuth: vi.fn().mockResolvedValue({
     userId: "test-admin-id",
@@ -18,6 +37,8 @@ vi.mock("@/lib/route-auth", () => ({
     username: "admin",
     name: "Test Admin",
     authMethod: "cookie",
+    scopes: [],
+    businessId: "test-business",
   }),
   isAuthenticated: vi.fn().mockReturnValue(true),
 }));
@@ -58,6 +79,7 @@ function createMockPrismaClient() {
   };
 
   const models = [
+    "business",
     "settings",
     "admin",
     "conversation",
@@ -72,6 +94,7 @@ function createMockPrismaClient() {
     "callLog",
     "channel",
     "schedule",
+    "followUp",
     "webhook",
     "webhookDelivery",
     "activityLog",
@@ -86,6 +109,13 @@ function createMockPrismaClient() {
     "campaign",
     "flow",
     "revokedToken",
+    "socialAccount",
+    "scheduledPost",
+    "socialInteraction",
+    "audienceProfile",
+    "agentCommand",
+    "productCategory",
+    "product",
   ];
 
   const client: Record<string, unknown> = {

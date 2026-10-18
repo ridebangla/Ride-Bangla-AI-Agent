@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   title: "Ride Bangla AI Agent",
   description: "Ride Bangla AI customer support agent",
   icons: {
-    icon: "/owly.png",
+    icon: "/rbai-logo.png",
   },
 };
 

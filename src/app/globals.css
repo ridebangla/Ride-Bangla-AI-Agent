@@ -1,70 +1,70 @@
 @import "tailwindcss";
 
 :root {
-  --owly-primary: #4A7C9B;
-  --owly-primary-dark: #2D5A7B;
-  --owly-primary-light: #A8D0E6;
-  --owly-primary-50: #EDF5FA;
-  --owly-primary-100: #D6E8F2;
-  --owly-accent: #C4956A;
-  --owly-accent-light: #E0C4A8;
-  --owly-bg: #F8FAFC;
-  --owly-surface: #FFFFFF;
-  --owly-text: #1E293B;
-  --owly-text-light: #64748B;
-  --owly-border: #E2E8F0;
-  --owly-sidebar: #1E293B;
-  --owly-sidebar-hover: #334155;
-  --owly-sidebar-active: #4A7C9B;
-  --owly-success: #22C55E;
-  --owly-warning: #F59E0B;
-  --owly-danger: #EF4444;
+  --rbai-primary: #4A7C9B;
+  --rbai-primary-dark: #2D5A7B;
+  --rbai-primary-light: #A8D0E6;
+  --rbai-primary-50: #EDF5FA;
+  --rbai-primary-100: #D6E8F2;
+  --rbai-accent: #C4956A;
+  --rbai-accent-light: #E0C4A8;
+  --rbai-bg: #F8FAFC;
+  --rbai-surface: #FFFFFF;
+  --rbai-text: #1E293B;
+  --rbai-text-light: #64748B;
+  --rbai-border: #E2E8F0;
+  --rbai-sidebar: #1E293B;
+  --rbai-sidebar-hover: #334155;
+  --rbai-sidebar-active: #4A7C9B;
+  --rbai-success: #22C55E;
+  --rbai-warning: #F59E0B;
+  --rbai-danger: #EF4444;
 }
 
 .dark {
-  --owly-primary: #5A9CBB;
-  --owly-primary-dark: #4A8CAB;
-  --owly-primary-light: #3A6C8B;
-  --owly-primary-50: #1A2A3A;
-  --owly-primary-100: #1E3448;
-  --owly-accent: #D4A57A;
-  --owly-accent-light: #4A3A2A;
-  --owly-bg: #0F172A;
-  --owly-surface: #1E293B;
-  --owly-text: #F1F5F9;
-  --owly-text-light: #94A3B8;
-  --owly-border: #334155;
-  --owly-sidebar: #0F172A;
-  --owly-sidebar-hover: #1E293B;
-  --owly-sidebar-active: #4A7C9B;
+  --rbai-primary: #5A9CBB;
+  --rbai-primary-dark: #4A8CAB;
+  --rbai-primary-light: #3A6C8B;
+  --rbai-primary-50: #1A2A3A;
+  --rbai-primary-100: #1E3448;
+  --rbai-accent: #D4A57A;
+  --rbai-accent-light: #4A3A2A;
+  --rbai-bg: #0F172A;
+  --rbai-surface: #1E293B;
+  --rbai-text: #F1F5F9;
+  --rbai-text-light: #94A3B8;
+  --rbai-border: #334155;
+  --rbai-sidebar: #0F172A;
+  --rbai-sidebar-hover: #1E293B;
+  --rbai-sidebar-active: #4A7C9B;
 }
 
 @theme inline {
-  --color-owly-primary: var(--owly-primary);
-  --color-owly-primary-dark: var(--owly-primary-dark);
-  --color-owly-primary-light: var(--owly-primary-light);
-  --color-owly-primary-50: var(--owly-primary-50);
-  --color-owly-primary-100: var(--owly-primary-100);
-  --color-owly-accent: var(--owly-accent);
-  --color-owly-accent-light: var(--owly-accent-light);
-  --color-owly-bg: var(--owly-bg);
-  --color-owly-surface: var(--owly-surface);
-  --color-owly-text: var(--owly-text);
-  --color-owly-text-light: var(--owly-text-light);
-  --color-owly-border: var(--owly-border);
-  --color-owly-sidebar: var(--owly-sidebar);
-  --color-owly-sidebar-hover: var(--owly-sidebar-hover);
-  --color-owly-sidebar-active: var(--owly-sidebar-active);
-  --color-owly-success: var(--owly-success);
-  --color-owly-warning: var(--owly-warning);
-  --color-owly-danger: var(--owly-danger);
+  --color-rbai-primary: var(--rbai-primary);
+  --color-rbai-primary-dark: var(--rbai-primary-dark);
+  --color-rbai-primary-light: var(--rbai-primary-light);
+  --color-rbai-primary-50: var(--rbai-primary-50);
+  --color-rbai-primary-100: var(--rbai-primary-100);
+  --color-rbai-accent: var(--rbai-accent);
+  --color-rbai-accent-light: var(--rbai-accent-light);
+  --color-rbai-bg: var(--rbai-bg);
+  --color-rbai-surface: var(--rbai-surface);
+  --color-rbai-text: var(--rbai-text);
+  --color-rbai-text-light: var(--rbai-text-light);
+  --color-rbai-border: var(--rbai-border);
+  --color-rbai-sidebar: var(--rbai-sidebar);
+  --color-rbai-sidebar-hover: var(--rbai-sidebar-hover);
+  --color-rbai-sidebar-active: var(--rbai-sidebar-active);
+  --color-rbai-success: var(--rbai-success);
+  --color-rbai-warning: var(--rbai-warning);
+  --color-rbai-danger: var(--rbai-danger);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
-  background: var(--owly-bg);
-  color: var(--owly-text);
+  background: var(--rbai-bg);
+  color: var(--rbai-text);
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
@@ -79,12 +79,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--owly-border);
+  background: var(--rbai-border);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--owly-text-light);
+  background: var(--rbai-text-light);
 }
 
 /* Animations */
@@ -158,7 +158,7 @@ body {
 
 /* Focus ring */
 .focus-ring:focus-visible {
-  outline: 2px solid var(--owly-primary);
+  outline: 2px solid var(--rbai-primary);
   outline-offset: 2px;
 }
 

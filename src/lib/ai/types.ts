@@ -55,3 +55,14 @@ export interface KnowledgeItem {
   content: string;
   priority: number;
 }
+
+import type { MediaInput } from "./media";
+
+export interface ChatOptions {
+  /**
+   * Customer media attachment (photo / video / voice message). It is
+   * perceived FIRST by a dedicated model (vision / Whisper) into text, which
+   * the brain then answers — a real multimodal path, not a stub.
+   */
+  media?: MediaInput;
+}

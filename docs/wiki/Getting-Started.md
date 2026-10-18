@@ -1,12 +1,12 @@
 # Getting Started
 
-This guide walks you through installing Owly, running the setup wizard, and verifying that everything is working correctly.
+This guide walks you through installing Ride Bangla AI Agent, running the setup wizard, and verifying that everything is working correctly.
 
 ---
 
 ## Prerequisites
 
-Before installing Owly, make sure you have one of the following setups ready:
+Before installing Ride Bangla AI Agent, make sure you have one of the following setups ready:
 
 ### Option A: Local Installation
 
@@ -34,8 +34,8 @@ Before installing Owly, make sure you have one of the following setups ready:
 **Step 1: Clone the repository**
 
 ```bash
-git clone https://github.com/hsperus/owly.git
-cd owly
+git clone https://github.com/ridebangla/Ride-Bangla-AI-Agent.git
+cd ride-bangla-ai-agent
 ```
 
 **Step 2: Install dependencies**
@@ -54,7 +54,7 @@ Open the `.env` file in your text editor and set the following values:
 
 ```bash
 # Required: Your PostgreSQL connection string
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/owly?schema=public"
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ride-bangla-ai-agent?schema=public"
 
 # Required: A random secret for JWT authentication (change this!)
 JWT_SECRET="your-random-secret-here"
@@ -89,7 +89,7 @@ This creates a sample admin account and populates the database with example data
 npm run dev
 ```
 
-Owly is now running at [http://localhost:3000](http://localhost:3000).
+Ride Bangla AI Agent is now running at [http://localhost:3000](http://localhost:3000).
 
 ---
 
@@ -98,8 +98,8 @@ Owly is now running at [http://localhost:3000](http://localhost:3000).
 **Step 1: Clone the repository**
 
 ```bash
-git clone https://github.com/hsperus/owly.git
-cd owly
+git clone https://github.com/ridebangla/Ride-Bangla-AI-Agent.git
+cd ride-bangla-ai-agent
 ```
 
 **Step 2: Configure environment variables**
@@ -118,7 +118,7 @@ docker compose up -d
 
 This command starts two containers:
 - **db** -- PostgreSQL 16 database with persistent storage
-- **app** -- The Owly application (runs migrations automatically on startup)
+- **app** -- The Ride Bangla AI Agent application (runs migrations automatically on startup)
 
 **Step 4: Verify the containers are running**
 
@@ -128,16 +128,16 @@ docker compose ps
 
 You should see both `db` and `app` containers with a status of "Up".
 
-Owly is now running at [http://localhost:3000](http://localhost:3000).
+Ride Bangla AI Agent is now running at [http://localhost:3000](http://localhost:3000).
 
 ---
 
 ## First-Time Setup Wizard
 
-When you open Owly for the first time, you will be redirected to the setup wizard. This is a 4-step process that configures the essential settings.
+When you open Ride Bangla AI Agent for the first time, you will be redirected to the setup wizard. This is a 4-step process that configures the essential settings.
 
 ![Login Page](../screenshots/01-login.png)
-*The Owly login page. On first launch, you will be redirected to the setup wizard instead.*
+*The Ride Bangla AI Agent login page. On first launch, you will be redirected to the setup wizard instead.*
 
 ### Step 1: Create Admin Account
 
@@ -177,7 +177,7 @@ Set up the AI provider that will power your customer support responses.
 
 ### Step 4: All Set
 
-A confirmation screen summarizing your setup. Click the button to proceed to the dashboard and start using Owly.
+A confirmation screen summarizing your setup. Click the button to proceed to the dashboard and start using Ride Bangla AI Agent.
 
 ---
 
@@ -196,7 +196,7 @@ If you loaded the sample data using `npm run db:seed`, you can log in with:
 
 ## Verifying the Installation
 
-After starting Owly, you can verify that everything is working by hitting the health check endpoint:
+After starting Ride Bangla AI Agent, you can verify that everything is working by hitting the health check endpoint:
 
 ```bash
 curl http://localhost:3000/api/health
@@ -231,7 +231,7 @@ A successful response looks like this:
 **Solutions:**
 1. Verify PostgreSQL is running: `pg_isready -U postgres`
 2. Check that the `DATABASE_URL` in your `.env` file is correct
-3. Ensure the `owly` database exists: `createdb owly`
+3. Ensure the `ride-bangla-ai-agent` database exists: `createdb ride-bangla-ai-agent`
 4. For Docker: check that the `db` container is healthy: `docker compose ps`
 
 ### Port 3000 is already in use
@@ -274,7 +274,7 @@ A successful response looks like this:
 
 ## Next Steps
 
-Once Owly is running, proceed to:
+Once Ride Bangla AI Agent is running, proceed to:
 
 1. [Dashboard Overview](Dashboard-Overview) -- Learn your way around the interface
 2. [Knowledge Base Guide](Knowledge-Base-Guide) -- Add knowledge so the AI can answer questions accurately

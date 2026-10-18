@@ -1,5 +1,6 @@
 import OpenAI from "openai";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
+import { enterBusinessContext, resolveChannelBusiness } from "@/lib/tenant";
 import { chat, createNewConversation } from "@/lib/ai/engine";
 import { resolveCustomer } from "@/lib/customer-resolver";
 
@@ -127,6 +128,7 @@ export async function handleIncomingCall(
   from: string,
   callSid: string
 ): Promise<string> {
+  enterBusinessContext(await resolveChannelBusiness());
   const config = await getPhoneConfig();
   if (!config) {
     return generateTwiMLSay(
@@ -136,12 +138,12 @@ export async function handleIncomingCall(
 
   // Create call log
   await prisma.callLog.create({
-    data: {
+    data: withBusinessId({
       callSid,
       from,
       to: config.twilioPhone,
       status: "in-progress",
-    },
+    }),
   });
 
   // Resolve customer identity across channels
@@ -178,6 +180,7 @@ export async function handleSpeechInput(
   conversationId: string,
   callSid: string
 ): Promise<string> {
+  enterBusinessContext(await resolveChannelBusiness());
   if (!speechResult || speechResult.trim() === "") {
     return generateTwiMLSay("I didn't catch that. Could you please repeat?");
   }
@@ -201,6 +204,7 @@ export async function handleSpeechInput(
 
 // End call handler
 export async function handleCallEnd(callSid: string, duration: number) {
+  enterBusinessContext(await resolveChannelBusiness());
   await prisma.callLog.updateMany({
     where: { callSid },
     data: {

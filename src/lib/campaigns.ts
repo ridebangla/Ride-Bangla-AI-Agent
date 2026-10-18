@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 
 /**
@@ -100,7 +100,7 @@ export async function sendProactiveMessage(
   if (!customer) return null;
 
   const conversation = await prisma.conversation.create({
-    data: {
+    data: withBusinessId({
       channel,
       customerName: customer.name,
       customerContact:
@@ -109,15 +109,15 @@ export async function sendProactiveMessage(
         customer.phone,
       customerId,
       status: "active",
-    },
+    }),
   });
 
   await prisma.message.create({
-    data: {
+    data: withBusinessId({
       conversationId: conversation.id,
       role: "assistant",
       content: message,
-    },
+    }),
   });
 
   logger.info("Proactive message sent", {

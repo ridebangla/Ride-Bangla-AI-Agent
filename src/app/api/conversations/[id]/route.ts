@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId, withBusinessIdMany } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 import { emitConversationUpdate } from "@/lib/realtime";
@@ -119,10 +119,12 @@ export async function PUT(
 
       if (tagIds.length > 0) {
         await prisma.conversationTag.createMany({
-          data: tagIds.map((tagId: string) => ({
-            conversationId: id,
-            tagId,
-          })),
+          data: withBusinessIdMany(
+            tagIds.map((tagId: string) => ({
+              conversationId: id,
+              tagId,
+            }))
+          ),
         });
       }
 

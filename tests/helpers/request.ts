@@ -54,7 +54,7 @@ export function createAuthenticatedRequest(
   return createRequest(path, {
     ...options,
     cookies: {
-      "owly-token": token,
+      "rbai-token": token,
       ...options.cookies,
     },
   });

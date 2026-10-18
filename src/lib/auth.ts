@@ -16,8 +16,8 @@ function getJwtSecret(): string {
 }
 
 const JWT_SECRET = getJwtSecret();
-const TOKEN_NAME = "owly-token";
-const REFRESH_TOKEN_NAME = "owly-refresh";
+const TOKEN_NAME = "rbai-token";
+const REFRESH_TOKEN_NAME = "rbai-refresh";
 // M-53: short-lived access tokens (1h) + refresh tokens (7d), instead of a
 // single 7-day token with no revocation.
 const TOKEN_EXPIRY = "1h";

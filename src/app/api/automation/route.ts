@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { parsePagination, paginatedResponse } from "@/lib/pagination";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     }
 
     const rule = await prisma.automationRule.create({
-      data: {
+      data: withBusinessId({
         name: name.trim(),
         description: description?.trim() || "",
         type,
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
         conditions,
         actions,
         priority: priority ?? 0,
-      },
+      }),
     });
 
     return NextResponse.json(rule, { status: 201 });

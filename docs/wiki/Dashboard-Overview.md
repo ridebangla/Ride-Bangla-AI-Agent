@@ -1,9 +1,9 @@
 # Dashboard Overview
 
-The dashboard is the first page you see after logging in. It provides a real-time overview of your customer support operations and serves as the central hub for navigating all of Owly's features.
+The dashboard is the first page you see after logging in. It provides a real-time overview of your customer support operations and serves as the central hub for navigating all of Ride Bangla AI Agent's features.
 
 ![Dashboard](../screenshots/02-dashboard.png)
-*The Owly dashboard showing the onboarding checklist, stat cards, recent conversations, and channel overview.*
+*The Ride Bangla AI Agent dashboard showing the onboarding checklist, stat cards, recent conversations, and channel overview.*
 
 ---
 
@@ -114,7 +114,7 @@ The sidebar on the left is your primary navigation tool. It is organized into lo
 
 ## Dark Mode
 
-Owly includes a full dark theme that can be toggled with a single click.
+Ride Bangla AI Agent includes a full dark theme that can be toggled with a single click.
 
 ![Dark Mode](../screenshots/19-dark-mode.png)
 *The dashboard in dark mode. All pages, components, and charts adapt to the dark theme.*

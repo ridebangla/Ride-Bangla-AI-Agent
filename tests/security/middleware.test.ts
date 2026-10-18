@@ -108,7 +108,7 @@ describe("Middleware", () => {
         { expiresIn: "1h" }
       );
       const request = createMiddlewareRequest("/api/conversations", {
-        cookies: { "owly-token": realToken },
+        cookies: { "rbai-token": realToken },
       });
       const response = await middleware(request);
 
@@ -120,7 +120,7 @@ describe("Middleware", () => {
       // Proper 3-part JWT structure, but the signature is fake.
       const fakeToken = "eyJhbGciOiJIUzI1NiJ9.eyJ0ZXN0IjoxfQ.signature";
       const request = createMiddlewareRequest("/api/conversations", {
-        cookies: { "owly-token": fakeToken },
+        cookies: { "rbai-token": fakeToken },
       });
       const response = await middleware(request);
 
@@ -136,7 +136,7 @@ describe("Middleware", () => {
         { expiresIn: "1h" }
       );
       const request = createMiddlewareRequest("/api/conversations", {
-        cookies: { "owly-token": forged },
+        cookies: { "rbai-token": forged },
       });
       const response = await middleware(request);
 
@@ -146,7 +146,7 @@ describe("Middleware", () => {
     it("should reject malformed token (not 3 parts)", async () => {
       const { middleware } = await import("@/middleware");
       const request = createMiddlewareRequest("/api/conversations", {
-        cookies: { "owly-token": "not-a-jwt" },
+        cookies: { "rbai-token": "not-a-jwt" },
       });
       const response = await middleware(request);
 

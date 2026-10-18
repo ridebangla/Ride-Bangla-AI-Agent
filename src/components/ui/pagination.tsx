@@ -55,14 +55,14 @@ export function Pagination({
 
   return (
     <div className={cn("flex items-center justify-between", className)}>
-      <p className="text-sm text-owly-text-light">
+      <p className="text-sm text-rbai-text-light">
         Showing {startItem}-{endItem} of {totalItems}
       </p>
       <div className="flex items-center gap-1">
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage <= 1}
-          className="flex items-center justify-center rounded-lg border border-owly-border bg-owly-surface p-1.5 text-owly-text-light hover:bg-owly-bg hover:text-owly-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center justify-center rounded-lg border border-rbai-border bg-rbai-surface p-1.5 text-rbai-text-light hover:bg-rbai-bg hover:text-rbai-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
@@ -70,7 +70,7 @@ export function Pagination({
           page === "..." ? (
             <span
               key={`ellipsis-${idx}`}
-              className="px-2 text-sm text-owly-text-light select-none"
+              className="px-2 text-sm text-rbai-text-light select-none"
             >
               ...
             </span>
@@ -81,8 +81,8 @@ export function Pagination({
               className={cn(
                 "flex items-center justify-center rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
                 page === currentPage
-                  ? "bg-owly-primary text-white"
-                  : "border border-owly-border bg-owly-surface text-owly-text-light hover:bg-owly-bg hover:text-owly-text"
+                  ? "bg-rbai-primary text-white"
+                  : "border border-rbai-border bg-rbai-surface text-rbai-text-light hover:bg-rbai-bg hover:text-rbai-text"
               )}
             >
               {page}
@@ -92,7 +92,7 @@ export function Pagination({
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage >= totalPages}
-          className="flex items-center justify-center rounded-lg border border-owly-border bg-owly-surface p-1.5 text-owly-text-light hover:bg-owly-bg hover:text-owly-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center justify-center rounded-lg border border-rbai-border bg-rbai-surface p-1.5 text-rbai-text-light hover:bg-rbai-bg hover:text-rbai-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ChevronRight className="h-4 w-4" />
         </button>

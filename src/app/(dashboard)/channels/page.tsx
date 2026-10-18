@@ -46,14 +46,14 @@ function StatusBadge({ status }: { status: string }) {
       className={cn(
         "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium",
         isConnected
-          ? "bg-owly-success/10 text-owly-success"
-          : "bg-owly-danger/10 text-owly-danger"
+          ? "bg-rbai-success/10 text-rbai-success"
+          : "bg-rbai-danger/10 text-rbai-danger"
       )}
     >
       <span
         className={cn(
           "w-1.5 h-1.5 rounded-full",
-          isConnected ? "bg-owly-success" : "bg-owly-danger"
+          isConnected ? "bg-rbai-success" : "bg-rbai-danger"
         )}
       />
       {isConnected ? "Connected" : "Disconnected"}
@@ -75,8 +75,8 @@ function Toggle({
       aria-checked={enabled}
       onClick={() => onChange(!enabled)}
       className={cn(
-        "relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:ring-offset-2",
-        enabled ? "bg-owly-primary" : "bg-owly-border"
+        "relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:ring-offset-2",
+        enabled ? "bg-rbai-primary" : "bg-rbai-border"
       )}
     >
       <span
@@ -108,7 +108,7 @@ function FieldInput({
 
   return (
     <div>
-      <label className="block text-xs font-medium text-owly-text-light mb-1">
+      <label className="block text-xs font-medium text-rbai-text-light mb-1">
         {label}
       </label>
       <div className="relative">
@@ -117,13 +117,13 @@ function FieldInput({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text placeholder:text-owly-text-light/50 focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-colors"
+          className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text placeholder:text-rbai-text-light/50 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-colors"
         />
         {isSecret && (
           <button
             type="button"
             onClick={() => setVisible(!visible)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-owly-text-light hover:text-owly-text transition-colors"
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-rbai-text-light hover:text-rbai-text transition-colors"
           >
             {visible ? (
               <EyeOff className="h-3.5 w-3.5" />
@@ -206,17 +206,17 @@ function WhatsAppCard({
   };
 
   return (
-    <div className="bg-owly-surface rounded-xl border border-owly-border overflow-hidden">
+    <div className="bg-rbai-surface rounded-xl border border-rbai-border overflow-hidden">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-owly-border">
+      <div className="px-5 py-4 border-b border-rbai-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-lg bg-green-50 text-green-600">
               <MessageCircle className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-semibold text-owly-text">WhatsApp</h3>
-              <p className="text-xs text-owly-text-light mt-0.5">
+              <h3 className="font-semibold text-rbai-text">WhatsApp</h3>
+              <p className="text-xs text-rbai-text-light mt-0.5">
                 Messaging via WhatsApp Web or API
               </p>
             </div>
@@ -232,7 +232,7 @@ function WhatsAppCard({
       <div className="p-5 space-y-4">
         {/* Mode selector */}
         <div>
-          <label className="block text-xs font-medium text-owly-text-light mb-2">
+          <label className="block text-xs font-medium text-rbai-text-light mb-2">
             Connection Method
           </label>
           <div className="flex gap-2">
@@ -243,7 +243,7 @@ function WhatsAppCard({
                 "flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
                 mode === "web"
                   ? "border-green-300 bg-green-50 text-green-700"
-                  : "border-owly-border bg-owly-bg text-owly-text-light hover:bg-owly-primary-50 hover:text-owly-text"
+                  : "border-rbai-border bg-rbai-bg text-rbai-text-light hover:bg-rbai-primary-50 hover:text-rbai-text"
               )}
             >
               <QrCode className="h-4 w-4" />
@@ -256,7 +256,7 @@ function WhatsAppCard({
                 "flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
                 mode === "api"
                   ? "border-green-300 bg-green-50 text-green-700"
-                  : "border-owly-border bg-owly-bg text-owly-text-light hover:bg-owly-primary-50 hover:text-owly-text"
+                  : "border-rbai-border bg-rbai-bg text-rbai-text-light hover:bg-rbai-primary-50 hover:text-rbai-text"
               )}
             >
               <Key className="h-4 w-4" />
@@ -290,8 +290,8 @@ function WhatsAppCard({
                 </button>
               </div>
             ) : (
-              <div className="rounded-lg border border-owly-border bg-owly-bg p-6 flex flex-col items-center">
-                <div className="w-48 h-48 bg-white border-2 border-dashed border-owly-border rounded-lg flex items-center justify-center mb-3 overflow-hidden">
+              <div className="rounded-lg border border-rbai-border bg-rbai-bg p-6 flex flex-col items-center">
+                <div className="w-48 h-48 bg-white border-2 border-dashed border-rbai-border rounded-lg flex items-center justify-center mb-3 overflow-hidden">
                   {qrCode ? (
                     <img
                       src={qrCode}
@@ -302,14 +302,14 @@ function WhatsAppCard({
                     <Loader2 className="h-8 w-8 animate-spin text-green-600" />
                   ) : (
                     <div className="text-center">
-                      <QrCode className="h-10 w-10 text-owly-text-light/40 mx-auto mb-1" />
-                      <p className="text-xs text-owly-text-light/60">
+                      <QrCode className="h-10 w-10 text-rbai-text-light/40 mx-auto mb-1" />
+                      <p className="text-xs text-rbai-text-light/60">
                         QR Code
                       </p>
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-owly-text-light text-center max-w-[220px]">
+                <p className="text-xs text-rbai-text-light text-center max-w-[220px]">
                   {qrCode
                     ? "Scan this QR code with WhatsApp on your phone to connect"
                     : "Click Connect to generate a QR code"}
@@ -358,7 +358,7 @@ function WhatsAppCard({
       </div>
 
       {/* Footer */}
-      <div className="px-5 py-3 border-t border-owly-border bg-owly-bg/50">
+      <div className="px-5 py-3 border-t border-rbai-border bg-rbai-bg/50">
         <button
           type="button"
           disabled={saving}
@@ -369,7 +369,7 @@ function WhatsAppCard({
               isActive
             )
           }
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-owly-primary rounded-lg hover:bg-owly-primary-dark disabled:opacity-50 transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-rbai-primary rounded-lg hover:bg-rbai-primary-dark disabled:opacity-50 transition-colors"
         >
           {saving ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -422,17 +422,17 @@ function EmailCard({
   };
 
   return (
-    <div className="bg-owly-surface rounded-xl border border-owly-border overflow-hidden">
+    <div className="bg-rbai-surface rounded-xl border border-rbai-border overflow-hidden">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-owly-border">
+      <div className="px-5 py-4 border-b border-rbai-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600">
               <Mail className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-semibold text-owly-text">Email</h3>
-              <p className="text-xs text-owly-text-light mt-0.5">
+              <h3 className="font-semibold text-rbai-text">Email</h3>
+              <p className="text-xs text-rbai-text-light mt-0.5">
                 Send and receive via SMTP / IMAP
               </p>
             </div>
@@ -448,7 +448,7 @@ function EmailCard({
       <div className="p-5 space-y-5">
         {/* SMTP */}
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-owly-text-light mb-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-rbai-text-light mb-3">
             SMTP Settings (Outgoing)
           </h4>
           <div className="grid grid-cols-2 gap-3">
@@ -491,7 +491,7 @@ function EmailCard({
 
         {/* IMAP */}
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-owly-text-light mb-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-rbai-text-light mb-3">
             IMAP Settings (Incoming)
           </h4>
           <div className="grid grid-cols-2 gap-3">
@@ -534,7 +534,7 @@ function EmailCard({
       </div>
 
       {/* Footer */}
-      <div className="px-5 py-3 border-t border-owly-border bg-owly-bg/50 flex items-center gap-2">
+      <div className="px-5 py-3 border-t border-rbai-border bg-rbai-bg/50 flex items-center gap-2">
         <button
           type="button"
           disabled={saving}
@@ -555,7 +555,7 @@ function EmailCard({
               isActive
             )
           }
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-owly-primary rounded-lg hover:bg-owly-primary-dark disabled:opacity-50 transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-rbai-primary rounded-lg hover:bg-rbai-primary-dark disabled:opacity-50 transition-colors"
         >
           {saving ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -623,17 +623,17 @@ function PhoneCard({
   };
 
   return (
-    <div className="bg-owly-surface rounded-xl border border-owly-border overflow-hidden">
+    <div className="bg-rbai-surface rounded-xl border border-rbai-border overflow-hidden">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-owly-border">
+      <div className="px-5 py-4 border-b border-rbai-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-lg bg-purple-50 text-purple-600">
               <Phone className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-semibold text-owly-text">Phone</h3>
-              <p className="text-xs text-owly-text-light mt-0.5">
+              <h3 className="font-semibold text-rbai-text">Phone</h3>
+              <p className="text-xs text-rbai-text-light mt-0.5">
                 Voice calls via Twilio and ElevenLabs
               </p>
             </div>
@@ -649,7 +649,7 @@ function PhoneCard({
       <div className="p-5 space-y-5">
         {/* Twilio */}
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-owly-text-light mb-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-rbai-text-light mb-3">
             Twilio Settings
           </h4>
           <div className="space-y-3">
@@ -677,7 +677,7 @@ function PhoneCard({
 
         {/* ElevenLabs */}
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-owly-text-light mb-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-rbai-text-light mb-3">
             ElevenLabs Voice
           </h4>
           <div className="space-y-3">
@@ -689,13 +689,13 @@ function PhoneCard({
               isSecret
             />
             <div>
-              <label className="block text-xs font-medium text-owly-text-light mb-1">
+              <label className="block text-xs font-medium text-rbai-text-light mb-1">
                 Voice
               </label>
               <select
                 value={elevenLabsVoice}
                 onChange={(e) => setElevenLabsVoice(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-colors"
+                className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-colors"
               >
                 {voiceOptions.map((v) => (
                   <option key={v.id} value={v.id}>
@@ -717,7 +717,7 @@ function PhoneCard({
       </div>
 
       {/* Footer */}
-      <div className="px-5 py-3 border-t border-owly-border bg-owly-bg/50 flex items-center gap-2">
+      <div className="px-5 py-3 border-t border-rbai-border bg-rbai-bg/50 flex items-center gap-2">
         <button
           type="button"
           disabled={saving}
@@ -734,7 +734,7 @@ function PhoneCard({
               isActive
             )
           }
-          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-owly-primary rounded-lg hover:bg-owly-primary-dark disabled:opacity-50 transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-rbai-primary rounded-lg hover:bg-rbai-primary-dark disabled:opacity-50 transition-colors"
         >
           {saving ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -757,6 +757,77 @@ function PhoneCard({
 }
 
 // ---------------------------------------------------------------------------
+// Website widget card — shows the public site key + embed snippet.
+// ---------------------------------------------------------------------------
+
+function WidgetCard({ siteKey }: { siteKey: string | null }) {
+  const [copied, setCopied] = useState(false);
+  const snippet = siteKey
+    ? `<script src="${typeof window !== "undefined" ? window.location.origin : ""}/widget/ride-bangla-chat.js"\n  data-site-key="${siteKey}"\n  data-visitor-id="VISITOR_ID">\n</script>`
+    : "";
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-xl border border-rbai-border p-6 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-lg bg-rbai-primary/10">
+            <MessageCircle className="h-5 w-5 text-rbai-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-rbai-text">Website Widget</h3>
+            <p className="text-xs text-rbai-text-light">Live chat for your website</p>
+          </div>
+        </div>
+        <StatusBadge status={siteKey ? "connected" : "disconnected"} />
+      </div>
+
+      {siteKey ? (
+        <>
+          <label className="block text-xs font-medium text-rbai-text-light mb-1">
+            Site key (public — safe to embed)
+          </label>
+          <code className="block text-xs bg-rbai-bg rounded-lg px-3 py-2 mb-3 break-all text-rbai-text">
+            {siteKey}
+          </code>
+          <label className="block text-xs font-medium text-rbai-text-light mb-1">
+            Embed snippet
+          </label>
+          <pre className="text-xs bg-rbai-bg rounded-lg px-3 py-2 mb-3 overflow-x-auto text-rbai-text whitespace-pre-wrap break-all">
+            {snippet}
+          </pre>
+          <button
+            type="button"
+            onClick={copy}
+            className="px-4 py-2 text-sm font-medium text-white bg-rbai-primary rounded-lg hover:bg-rbai-primary/90 transition-colors"
+          >
+            {copied ? "Copied" : "Copy snippet"}
+          </button>
+          <p className="text-xs text-rbai-text-light mt-3">
+            Replace VISITOR_ID with a unique id per visitor. Visitors chat through
+            a public endpoint (rate-limited); no admin login is exposed.
+          </p>
+        </>
+      ) : (
+        <p className="text-sm text-rbai-text-light">
+          Site key is available to the Super Admin. Sign in as the super admin to
+          view the embed snippet.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -765,6 +836,7 @@ export default function ChannelsPage() {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [siteKey, setSiteKey] = useState<string | null>(null);
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error";
@@ -796,6 +868,17 @@ export default function ChannelsPage() {
   useEffect(() => {
     fetchChannels();
   }, [fetchChannels]);
+
+  // Website widget site key (super admin only; business admins won't see it).
+  useEffect(() => {
+    fetch("/api/businesses")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const first = data?.businesses?.[0];
+        if (first?.siteKey) setSiteKey(first.siteKey);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSave = async (
     type: string,
@@ -867,15 +950,15 @@ export default function ChannelsPage() {
       <div className="flex-1 overflow-auto p-6">
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-owly-primary" />
+            <Loader2 className="h-8 w-8 animate-spin text-rbai-primary" />
           </div>
         ) : fetchError ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <p className="font-medium text-owly-text">Could not load channels</p>
-            <p className="text-sm text-owly-text-light mt-1">{fetchError}</p>
+            <p className="font-medium text-rbai-text">Could not load channels</p>
+            <p className="text-sm text-rbai-text-light mt-1">{fetchError}</p>
             <button
               onClick={() => { setLoading(true); fetchChannels(); }}
-              className="mt-3 px-4 py-2 text-sm font-medium text-white bg-owly-primary rounded-lg hover:bg-owly-primary/90 transition-colors"
+              className="mt-3 px-4 py-2 text-sm font-medium text-white bg-rbai-primary rounded-lg hover:bg-rbai-primary/90 transition-colors"
             >
               Retry
             </button>
@@ -900,6 +983,7 @@ export default function ChannelsPage() {
               onAction={handleAction}
               saving={saving}
             />
+            <WidgetCard siteKey={siteKey} />
           </div>
         )}
       </div>
@@ -910,8 +994,8 @@ export default function ChannelsPage() {
           className={cn(
             "fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all animate-in slide-in-from-bottom-4 duration-300",
             toast.type === "success"
-              ? "bg-owly-success text-white"
-              : "bg-owly-danger text-white"
+              ? "bg-rbai-success text-white"
+              : "bg-rbai-danger text-white"
           )}
         >
           {toast.type === "success" ? (

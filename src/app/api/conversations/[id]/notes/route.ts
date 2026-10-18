@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 
@@ -68,11 +68,11 @@ export async function POST(
     }
 
     const note = await prisma.internalNote.create({
-      data: {
+      data: withBusinessId({
         conversationId: id,
         content: content.trim(),
         authorName: authorName?.trim() || "Admin",
-      },
+      }),
     });
 
     return NextResponse.json(note, { status: 201 });

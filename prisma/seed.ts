@@ -1,13 +1,36 @@
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcryptjs";
+import { randomUUID } from "crypto";
 
-const connectionString = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/owly?schema=public";
+const connectionString =
+  process.env.DATABASE_URL ||
+  "postgresql://postgres:postgres@localhost:5432/ride-bangla-ai-agent?schema=public";
 const adapter = new PrismaPg({ connectionString });
+// NOTE: the seed intentionally uses the RAW client (no tenant scoping) —
+/// it is setup-time code, not request code.
 const prisma = new PrismaClient({ adapter });
 
+function siteKey() {
+  return "rbsite-" + randomUUID().replace(/-/g, "");
+}
+
 async function main() {
-  // Create default admin (password: admin123)
+  // The default business. The user starts with Ride Bangla's own use.
+  const business = await prisma.business.upsert({
+    where: { slug: "ride-bangla" },
+    update: {},
+    create: {
+      name: "Ride Bangla",
+      slug: "ride-bangla",
+      siteKey: siteKey(),
+      isActive: true,
+    },
+  });
+  const bid = business.id;
+
+  // First admin = Super Admin (businessId null => sees every business).
+  // Change the password immediately after first login.
   const hashedPassword = await bcrypt.hash("admin123", 12);
   await prisma.admin.upsert({
     where: { username: "admin" },
@@ -16,16 +39,17 @@ async function main() {
       username: "admin",
       password: hashedPassword,
       name: "Administrator",
-      role: "admin",
+      role: "super_admin",
+      businessId: null,
     },
   });
 
-  // Create default settings
+  // Per-business settings
   await prisma.settings.upsert({
-    where: { id: "default" },
+    where: { businessId: bid },
     update: {},
     create: {
-      id: "default",
+      businessId: bid,
       businessName: "Ride Bangla",
       businessDesc:
         "Ride Bangla is a Bangladesh multi-service platform offering ride sharing (bike/car), food delivery, courier/parcel delivery, and grocery/marketplace. Currently serving Faridpur district, expanding nationwide.",
@@ -36,28 +60,29 @@ async function main() {
     },
   });
 
-  // Create default channels
-  for (const type of ["whatsapp", "email", "phone"]) {
+  // Default channels (business-scoped)
+  for (const type of ["whatsapp", "email", "phone", "telegram"]) {
     await prisma.channel.upsert({
-      where: { type },
+      where: { businessId_type: { businessId: bid, type } },
       update: {},
-      create: { type, isActive: false, status: "disconnected" },
+      create: { businessId: bid, type, isActive: false, status: "disconnected" },
     });
   }
 
-  // Create default business hours
+  // Business hours
   await prisma.businessHours.upsert({
-    where: { id: "default" },
+    where: { businessId: bid },
     update: {},
-    create: { id: "default" },
+    create: { businessId: bid, timezone: "Asia/Dhaka" },
   });
 
-  // Create sample departments
+  // Departments
   const techDept = await prisma.department.upsert({
     where: { id: "dept-tech" },
     update: {},
     create: {
       id: "dept-tech",
+      businessId: bid,
       name: "Technical Support",
       description: "Handles technical issues, bugs, and product troubleshooting",
       email: "tech@example.com",
@@ -70,6 +95,7 @@ async function main() {
     create: {
       id: "dept-sales",
       name: "Sales",
+      businessId: bid,
       description: "Handles pricing, quotes, and purchase inquiries",
       email: "sales@example.com",
     },
@@ -81,12 +107,13 @@ async function main() {
     create: {
       id: "dept-billing",
       name: "Billing",
+      businessId: bid,
       description: "Handles invoices, payments, and refunds",
       email: "billing@example.com",
     },
   });
 
-  // Create sample team members
+  // Team members
   const members = [
     { id: "member-1", name: "John Smith", email: "john@example.com", role: "Lead", expertise: "software, debugging, API issues", departmentId: techDept.id },
     { id: "member-2", name: "Sarah Johnson", email: "sarah@example.com", role: "Member", expertise: "networking, infrastructure, deployment", departmentId: techDept.id },
@@ -98,11 +125,11 @@ async function main() {
     await prisma.teamMember.upsert({
       where: { id: m.id },
       update: {},
-      create: m,
+      create: { ...m, businessId: bid },
     });
   }
 
-  // Create Ride Bangla knowledge base (real, verified facts only)
+  // Knowledge base (real, verified facts only)
   const categories = [
     { id: "cat-services", name: "Services", description: "Ride Bangla services", icon: "package", color: "#22C55E", sortOrder: 0 },
     { id: "cat-coverage", name: "Coverage", description: "Service areas", icon: "map-pin", color: "#3B82F6", sortOrder: 1 },
@@ -111,7 +138,7 @@ async function main() {
   ];
 
   for (const c of categories) {
-    await prisma.category.upsert({ where: { id: c.id }, update: {}, create: c });
+    await prisma.category.upsert({ where: { id: c.id }, update: {}, create: { ...c, businessId: bid } });
   }
 
   const entries = [
@@ -158,10 +185,10 @@ async function main() {
   ];
 
   for (const e of entries) {
-    await prisma.knowledgeEntry.upsert({ where: { id: e.id }, update: {}, create: e });
+    await prisma.knowledgeEntry.upsert({ where: { id: e.id }, update: {}, create: { ...e, businessId: bid } });
   }
 
-  // Create sample tags
+  // Tags
   const tags = [
     { id: "tag-1", name: "Urgent", color: "#EF4444" },
     { id: "tag-2", name: "VIP", color: "#F59E0B" },
@@ -171,10 +198,14 @@ async function main() {
   ];
 
   for (const t of tags) {
-    await prisma.tag.upsert({ where: { name: t.name }, update: {}, create: t });
+    await prisma.tag.upsert({
+      where: { businessId_name: { businessId: bid, name: t.name } },
+      update: {},
+      create: { ...t, businessId: bid },
+    });
   }
 
-  // Create Ride Bangla canned responses
+  // Canned responses
   const cannedResponses = [
     { id: "cr-1", title: "Greeting", content: "Hello! Thank you for contacting Ride Bangla. How can I help you today? / আসসালামু আলাইকুম! Ride Bangla-তে যোগাযোগ করার জন্য ধন্যবাদ। আমি কীভাবে সাহায্য করতে পারি?", category: "General", shortcut: "/greeting" },
     { id: "cr-2", title: "Closing", content: "Thank you for contacting Ride Bangla! Is there anything else I can help you with? / ধন্যবাদ! আর কিছু জানতে চান?", category: "General", shortcut: "/closing" },
@@ -183,21 +214,23 @@ async function main() {
   ];
 
   for (const cr of cannedResponses) {
-    await prisma.cannedResponse.upsert({ where: { id: cr.id }, update: {}, create: cr });
+    await prisma.cannedResponse.upsert({ where: { id: cr.id }, update: {}, create: { ...cr, businessId: bid } });
   }
 
-  // Create sample SLA rules
+  // SLA rules
   const slaRules = [
     { id: "sla-1", name: "Standard Response", description: "Default response time for all channels", firstResponseMins: 30, resolutionMins: 480 },
     { id: "sla-2", name: "Urgent Priority", description: "Fast response for urgent issues", priority: "urgent", firstResponseMins: 5, resolutionMins: 60 },
   ];
 
   for (const sla of slaRules) {
-    await prisma.sLARule.upsert({ where: { id: sla.id }, update: {}, create: sla });
+    await prisma.sLARule.upsert({ where: { id: sla.id }, update: {}, create: { ...sla, businessId: bid } });
   }
 
   console.log("Seed data created successfully!");
-  console.log("Default admin: username=admin, password=admin123");
+  console.log("Business: Ride Bangla (slug: ride-bangla)");
+  console.log("Widget site key:", business.siteKey, "(put in the chat widget's data-site-key)");
+  console.log("Super Admin: username=admin, password=admin123  -- CHANGE IT after first login.");
 }
 
 main()

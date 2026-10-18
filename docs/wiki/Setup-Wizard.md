@@ -1,6 +1,6 @@
 # Setup Wizard
 
-When you launch Owly for the first time, you are automatically redirected to the Setup Wizard at `/setup`. This 4-step wizard walks you through creating your admin account, configuring your business profile, and connecting an AI provider. The wizard only appears once -- after completion, Owly redirects directly to the login page on subsequent visits.
+When you launch Ride Bangla AI Agent for the first time, you are automatically redirected to the Setup Wizard at `/setup`. This 4-step wizard walks you through creating your admin account, configuring your business profile, and connecting an AI provider. The wizard only appears once -- after completion, Ride Bangla AI Agent redirects directly to the login page on subsequent visits.
 
 ---
 
@@ -19,7 +19,7 @@ Each step is saved to the server as you progress, so if you close the browser pa
 
 ## Step 1: Create Admin Account
 
-This step creates the first (and primary) administrator account for your Owly instance.
+This step creates the first (and primary) administrator account for your Ride Bangla AI Agent instance.
 
 ### Fields
 
@@ -50,7 +50,7 @@ If validation fails, an error message appears below the form fields in a red ban
 
 ## Step 2: Business Profile
 
-This step tells Owly about your business so the AI agent can respond to customers with accurate context and appropriate tone.
+This step tells Ride Bangla AI Agent about your business so the AI agent can respond to customers with accurate context and appropriate tone.
 
 ### Fields
 
@@ -83,7 +83,7 @@ The tone selector presents four options in a 2x2 grid:
 
 ## Step 3: AI Configuration
 
-This step configures the AI model that powers your support agent. Owly supports multiple AI providers.
+This step configures the AI model that powers your support agent. Ride Bangla AI Agent supports multiple AI providers.
 
 ### Fields
 
@@ -123,7 +123,7 @@ This step configures the AI model that powers your support agent. Owly supports 
 
 ### Tips
 
-- If you choose Ollama, Owly expects an Ollama server running locally on the default port (11434). No API key is needed.
+- If you choose Ollama, Ride Bangla AI Agent expects an Ollama server running locally on the default port (11434). No API key is needed.
 - You can get an OpenAI API key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys).
 - You can get a Claude API key at [console.anthropic.com](https://console.anthropic.com).
 - Start with `gpt-4o-mini` if you want low cost while testing. Switch to `gpt-4o` or a Claude model for production use where response quality matters more.
@@ -148,7 +148,7 @@ Click **Go to Dashboard** to leave the wizard and enter the main application. Yo
 
 ## After the Wizard
 
-Once you complete the setup wizard and log in, Owly redirects you to the Dashboard. You will see the **Onboarding Checklist** widget with your progress:
+Once you complete the setup wizard and log in, Ride Bangla AI Agent redirects you to the Dashboard. You will see the **Onboarding Checklist** widget with your progress:
 
 ![Login Page](../screenshots/01-login.png)
 

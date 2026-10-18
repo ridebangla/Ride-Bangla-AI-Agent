@@ -13,7 +13,7 @@ SLA rules help ensure consistent service quality by setting clear expectations. 
 
 ## What SLA Means
 
-A Service Level Agreement, in the context of customer support, is a commitment to respond to and resolve customer inquiries within a defined timeframe. SLA rules in Owly translate these commitments into measurable, trackable targets.
+A Service Level Agreement, in the context of customer support, is a commitment to respond to and resolve customer inquiries within a defined timeframe. SLA rules in Ride Bangla AI Agent translate these commitments into measurable, trackable targets.
 
 Each SLA rule defines two key metrics:
 
@@ -218,7 +218,7 @@ Consider how your SLA targets interact with your configured business hours. A 1-
 
 ### Document Your SLA Commitments
 
-If your SLA targets are part of a formal agreement with customers or stakeholders, document the specific targets alongside the Owly rule configuration. This ensures alignment between the technical implementation and the business commitment.
+If your SLA targets are part of a formal agreement with customers or stakeholders, document the specific targets alongside the Ride Bangla AI Agent rule configuration. This ensures alignment between the technical implementation and the business commitment.
 
 ---
 

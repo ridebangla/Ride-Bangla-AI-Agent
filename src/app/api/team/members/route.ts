@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { parsePagination, paginatedResponse } from "@/lib/pagination";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
@@ -70,14 +70,14 @@ export async function POST(request: NextRequest) {
     }
 
     const member = await prisma.teamMember.create({
-      data: {
+      data: withBusinessId({
         name: name.trim(),
         email: email.trim(),
         phone: phone?.trim() || "",
         role: role?.trim() || "member",
         expertise: expertise?.trim() || "",
         departmentId,
-      },
+      }),
       include: {
         department: {
           select: { id: true, name: true },

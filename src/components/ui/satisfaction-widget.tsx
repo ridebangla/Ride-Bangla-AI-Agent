@@ -53,7 +53,7 @@ export function SatisfactionWidget({
               "h-3.5 w-3.5 cursor-pointer transition-colors",
               value <= (hovering || rating)
                 ? "text-yellow-400 fill-yellow-400"
-                : "text-owly-border"
+                : "text-rbai-border"
             )}
             onMouseEnter={() => !submitted && setHovering(value)}
             onMouseLeave={() => setHovering(0)}
@@ -65,10 +65,10 @@ export function SatisfactionWidget({
   }
 
   return (
-    <div className="bg-owly-primary-50 rounded-lg p-4 text-center animate-slide-in-up transition-theme">
+    <div className="bg-rbai-primary-50 rounded-lg p-4 text-center animate-slide-in-up transition-theme">
       {submitted ? (
         <div>
-          <p className="text-sm font-medium text-owly-text">
+          <p className="text-sm font-medium text-rbai-text">
             Thank you for your feedback!
           </p>
           <div className="flex items-center justify-center gap-1 mt-2">
@@ -79,18 +79,18 @@ export function SatisfactionWidget({
                   "h-5 w-5",
                   value <= rating
                     ? "text-yellow-400 fill-yellow-400"
-                    : "text-owly-border"
+                    : "text-rbai-border"
                 )}
               />
             ))}
           </div>
-          <p className="text-xs text-owly-text-light mt-1">
+          <p className="text-xs text-rbai-text-light mt-1">
             {labels[rating]}
           </p>
         </div>
       ) : (
         <div>
-          <p className="text-sm font-medium text-owly-text">
+          <p className="text-sm font-medium text-rbai-text">
             How would you rate this conversation?
           </p>
           <div className="flex items-center justify-center gap-2 mt-3">
@@ -108,14 +108,14 @@ export function SatisfactionWidget({
                     "h-7 w-7 transition-all",
                     value <= (hovering || rating)
                       ? "text-yellow-400 fill-yellow-400 scale-110"
-                      : "text-owly-border group-hover:text-yellow-300"
+                      : "text-rbai-border group-hover:text-yellow-300"
                   )}
                 />
               </button>
             ))}
           </div>
           {hovering > 0 && (
-            <p className="text-xs text-owly-text-light mt-2 animate-fade-in">
+            <p className="text-xs text-rbai-text-light mt-2 animate-fade-in">
               {labels[hovering]}
             </p>
           )}

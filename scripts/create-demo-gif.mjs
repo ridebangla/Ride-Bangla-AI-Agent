@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import { mkdirSync } from 'fs';
 
 const BASE = 'http://localhost:3000';
-const FRAMES_DIR = '/tmp/owly-gif-frames';
+const FRAMES_DIR = '/tmp/rbai-gif-frames';
 const OUTPUT = './docs/demo.gif';
 
 const pages = [

@@ -147,14 +147,14 @@ function WebhookModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-owly-surface border border-owly-border rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-owly-border">
-          <h3 className="text-lg font-semibold text-owly-text">
+      <div className="relative bg-rbai-surface border border-rbai-border rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-rbai-border">
+          <h3 className="text-lg font-semibold text-rbai-text">
             {isEdit ? "Edit Webhook" : "Add Webhook"}
           </h3>
           <button
             onClick={onClose}
-            className="p-1 text-owly-text-light hover:text-owly-text transition-colors"
+            className="p-1 text-rbai-text-light hover:text-rbai-text transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -163,7 +163,7 @@ function WebhookModal({
         <div className="p-6 space-y-4">
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-owly-text mb-1">
+            <label className="block text-sm font-medium text-rbai-text mb-1">
               Name
             </label>
             <input
@@ -171,13 +171,13 @@ function WebhookModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Slack Notification"
-              className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-theme"
+              className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-theme"
             />
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-owly-text mb-1">
+            <label className="block text-sm font-medium text-rbai-text mb-1">
               Description (optional)
             </label>
             <input
@@ -185,13 +185,13 @@ function WebhookModal({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Sends alerts to the support channel"
-              className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-theme"
+              className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-theme"
             />
           </div>
 
           {/* URL */}
           <div>
-            <label className="block text-sm font-medium text-owly-text mb-1">
+            <label className="block text-sm font-medium text-rbai-text mb-1">
               URL
             </label>
             <input
@@ -199,20 +199,20 @@ function WebhookModal({
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://hooks.slack.com/services/..."
-              className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-theme font-mono"
+              className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-theme font-mono"
             />
           </div>
 
           {/* Method + Trigger */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-owly-text mb-1">
+              <label className="block text-sm font-medium text-rbai-text mb-1">
                 Method
               </label>
               <select
                 value={method}
                 onChange={(e) => setMethod(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-theme"
+                className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-theme"
               >
                 {methods.map((m) => (
                   <option key={m} value={m}>
@@ -222,13 +222,13 @@ function WebhookModal({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-owly-text mb-1">
+              <label className="block text-sm font-medium text-rbai-text mb-1">
                 Trigger Event
               </label>
               <select
                 value={triggerOn}
                 onChange={(e) => setTriggerOn(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-theme"
+                className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-theme"
               >
                 {triggerEvents.map((t) => (
                   <option key={t.value} value={t.value}>
@@ -241,7 +241,7 @@ function WebhookModal({
 
           {/* Headers */}
           <div>
-            <label className="block text-sm font-medium text-owly-text mb-2">
+            <label className="block text-sm font-medium text-rbai-text mb-2">
               Custom Headers
             </label>
             <div className="space-y-2">
@@ -252,19 +252,19 @@ function WebhookModal({
                     value={pair.key}
                     onChange={(e) => updateHeaderPair(i, "key", e.target.value)}
                     placeholder="Header name"
-                    className="flex-1 px-3 py-1.5 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-theme"
+                    className="flex-1 px-3 py-1.5 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-theme"
                   />
                   <input
                     type="text"
                     value={pair.value}
                     onChange={(e) => updateHeaderPair(i, "value", e.target.value)}
                     placeholder="Value"
-                    className="flex-1 px-3 py-1.5 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-theme"
+                    className="flex-1 px-3 py-1.5 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-theme"
                   />
                   {headerPairs.length > 1 && (
                     <button
                       onClick={() => removeHeaderPair(i)}
-                      className="p-1.5 text-owly-text-light hover:text-owly-danger transition-colors"
+                      className="p-1.5 text-rbai-text-light hover:text-rbai-danger transition-colors"
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -274,7 +274,7 @@ function WebhookModal({
             </div>
             <button
               onClick={addHeaderPair}
-              className="mt-2 text-sm text-owly-primary hover:text-owly-primary-dark font-medium transition-colors"
+              className="mt-2 text-sm text-rbai-primary hover:text-rbai-primary-dark font-medium transition-colors"
             >
               + Add Header
             </button>
@@ -282,17 +282,17 @@ function WebhookModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-owly-border">
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-rbai-border">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-owly-text-light hover:text-owly-text transition-colors"
+            className="px-4 py-2 text-sm font-medium text-rbai-text-light hover:text-rbai-text transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !name.trim() || !url.trim()}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-owly-primary text-white text-sm font-medium rounded-lg hover:bg-owly-primary-dark transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-rbai-primary text-white text-sm font-medium rounded-lg hover:bg-rbai-primary-dark transition-colors disabled:opacity-50"
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             {isEdit ? "Save Changes" : "Create Webhook"}
@@ -311,12 +311,12 @@ function TestResultPanel({ result, onClose }: { result: TestResult; onClose: () 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-owly-surface border border-owly-border rounded-xl shadow-xl w-full max-w-md mx-4">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-owly-border">
-          <h3 className="text-lg font-semibold text-owly-text">Test Result</h3>
+      <div className="relative bg-rbai-surface border border-rbai-border rounded-xl shadow-xl w-full max-w-md mx-4">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-rbai-border">
+          <h3 className="text-lg font-semibold text-rbai-text">Test Result</h3>
           <button
             onClick={onClose}
-            className="p-1 text-owly-text-light hover:text-owly-text transition-colors"
+            className="p-1 text-rbai-text-light hover:text-rbai-text transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -324,27 +324,27 @@ function TestResultPanel({ result, onClose }: { result: TestResult; onClose: () 
         <div className="p-6 space-y-4">
           <div className="flex items-center gap-3">
             {result.success ? (
-              <CheckCircle className="h-6 w-6 text-owly-success" />
+              <CheckCircle className="h-6 w-6 text-rbai-success" />
             ) : (
-              <XCircle className="h-6 w-6 text-owly-danger" />
+              <XCircle className="h-6 w-6 text-rbai-danger" />
             )}
             <div>
-              <p className="font-semibold text-owly-text">
+              <p className="font-semibold text-rbai-text">
                 {result.success ? "Webhook delivered successfully" : "Webhook delivery failed"}
               </p>
               {result.status && (
-                <p className="text-sm text-owly-text-light">
+                <p className="text-sm text-rbai-text-light">
                   Status: {result.status} {result.statusText}
                 </p>
               )}
               {result.error && (
-                <p className="text-sm text-owly-danger">{result.error}</p>
+                <p className="text-sm text-rbai-danger">{result.error}</p>
               )}
             </div>
           </div>
           {result.bodyPreview && (
             <div>
-              <p className="text-xs font-semibold text-owly-text-light uppercase tracking-wider mb-1">
+              <p className="text-xs font-semibold text-rbai-text-light uppercase tracking-wider mb-1">
                 Response Preview
               </p>
               <pre className="bg-gray-900 text-gray-100 text-xs p-3 rounded-lg border border-gray-700 overflow-x-auto max-h-48">
@@ -353,10 +353,10 @@ function TestResultPanel({ result, onClose }: { result: TestResult; onClose: () 
             </div>
           )}
         </div>
-        <div className="flex justify-end px-6 py-4 border-t border-owly-border">
+        <div className="flex justify-end px-6 py-4 border-t border-rbai-border">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-owly-text-light hover:text-owly-text transition-colors"
+            className="px-4 py-2 text-sm font-medium text-rbai-text-light hover:text-rbai-text transition-colors"
           >
             Close
           </button>
@@ -382,27 +382,27 @@ function DeleteConfirm({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
-      <div className="relative bg-owly-surface border border-owly-border rounded-xl shadow-xl w-full max-w-sm mx-4">
+      <div className="relative bg-rbai-surface border border-rbai-border rounded-xl shadow-xl w-full max-w-sm mx-4">
         <div className="p-6 space-y-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-red-50 dark:bg-red-900/20 rounded-lg">
-              <AlertCircle className="h-5 w-5 text-owly-danger" />
+              <AlertCircle className="h-5 w-5 text-rbai-danger" />
             </div>
-            <h3 className="text-lg font-semibold text-owly-text">Delete Webhook</h3>
+            <h3 className="text-lg font-semibold text-rbai-text">Delete Webhook</h3>
           </div>
-          <p className="text-sm text-owly-text-light">
-            Are you sure you want to delete <span className="font-medium text-owly-text">{webhookName}</span>? This action cannot be undone.
+          <p className="text-sm text-rbai-text-light">
+            Are you sure you want to delete <span className="font-medium text-rbai-text">{webhookName}</span>? This action cannot be undone.
           </p>
           <div className="flex justify-end gap-3">
             <button
               onClick={onCancel}
-              className="px-4 py-2 text-sm font-medium text-owly-text-light hover:text-owly-text transition-colors"
+              className="px-4 py-2 text-sm font-medium text-rbai-text-light hover:text-rbai-text transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={onConfirm}
-              className="px-4 py-2 bg-owly-danger text-white text-sm font-medium rounded-lg hover:opacity-90 transition-colors"
+              className="px-4 py-2 bg-rbai-danger text-white text-sm font-medium rounded-lg hover:opacity-90 transition-colors"
             >
               Delete
             </button>
@@ -482,7 +482,7 @@ export default function WebhooksPage() {
         actions={
           <button
             onClick={() => setModalWebhook("new")}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-owly-primary text-white text-sm font-medium rounded-lg hover:bg-owly-primary-dark transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-rbai-primary text-white text-sm font-medium rounded-lg hover:bg-rbai-primary-dark transition-colors"
           >
             <Plus className="h-4 w-4" />
             Add Webhook
@@ -493,13 +493,13 @@ export default function WebhooksPage() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-5xl mx-auto space-y-6">
           {/* Info section */}
-          <div className="border border-owly-border rounded-xl bg-owly-surface p-5 transition-theme">
+          <div className="border border-rbai-border rounded-xl bg-rbai-surface p-5 transition-theme">
             <div className="flex items-start gap-3">
-              <div className="p-2 bg-owly-primary-50 rounded-lg flex-shrink-0">
-                <Info className="h-4 w-4 text-owly-primary" />
+              <div className="p-2 bg-rbai-primary-50 rounded-lg flex-shrink-0">
+                <Info className="h-4 w-4 text-rbai-primary" />
               </div>
-              <div className="text-sm text-owly-text-light leading-relaxed space-y-2">
-                <p className="font-medium text-owly-text">Webhook Payload Format</p>
+              <div className="text-sm text-rbai-text-light leading-relaxed space-y-2">
+                <p className="font-medium text-rbai-text">Webhook Payload Format</p>
                 <p>
                   When a trigger event occurs, the agent sends a JSON payload to your configured URL containing the event type, a timestamp, and the relevant data object. The payload structure is:
                 </p>
@@ -514,7 +514,7 @@ export default function WebhooksPage() {
 }`}
                 </pre>
                 <p>
-                  The <code className="px-1 py-0.5 bg-owly-bg rounded text-owly-text font-mono text-xs">data</code> object varies depending on the trigger event. Ticket events include ticket details, conversation events include conversation and customer info, and satisfaction events include the rating and feedback.
+                  The <code className="px-1 py-0.5 bg-rbai-bg rounded text-rbai-text font-mono text-xs">data</code> object varies depending on the trigger event. Ticket events include ticket details, conversation events include conversation and customer info, and satisfaction events include the rating and feedback.
                 </p>
               </div>
             </div>
@@ -523,25 +523,25 @@ export default function WebhooksPage() {
           {/* Loading state */}
           {loading && (
             <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-owly-primary" />
+              <Loader2 className="h-6 w-6 animate-spin text-rbai-primary" />
             </div>
           )}
 
           {/* Empty state */}
           {!loading && webhooks.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="p-4 bg-owly-primary-50 rounded-full mb-4">
-                <Webhook className="h-8 w-8 text-owly-primary" />
+              <div className="p-4 bg-rbai-primary-50 rounded-full mb-4">
+                <Webhook className="h-8 w-8 text-rbai-primary" />
               </div>
-              <h3 className="text-lg font-semibold text-owly-text mb-1">
+              <h3 className="text-lg font-semibold text-rbai-text mb-1">
                 No webhooks configured
               </h3>
-              <p className="text-sm text-owly-text-light mb-4 max-w-md">
-                Webhooks let you send real-time notifications to external services when events occur in Owly.
+              <p className="text-sm text-rbai-text-light mb-4 max-w-md">
+                Webhooks let you send real-time notifications to external services when events occur in Ride Bangla AI Agent.
               </p>
               <button
                 onClick={() => setModalWebhook("new")}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-owly-primary text-white text-sm font-medium rounded-lg hover:bg-owly-primary-dark transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-rbai-primary text-white text-sm font-medium rounded-lg hover:bg-rbai-primary-dark transition-colors"
               >
                 <Plus className="h-4 w-4" />
                 Add Your First Webhook
@@ -555,12 +555,12 @@ export default function WebhooksPage() {
               {webhooks.map((wh) => (
                 <div
                   key={wh.id}
-                  className="border border-owly-border rounded-xl bg-owly-surface p-5 transition-theme hover:shadow-sm"
+                  className="border border-rbai-border rounded-xl bg-rbai-surface p-5 transition-theme hover:shadow-sm"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 flex-wrap">
-                        <h3 className="text-sm font-semibold text-owly-text">
+                        <h3 className="text-sm font-semibold text-rbai-text">
                           {wh.name}
                         </h3>
                         <span
@@ -588,16 +588,16 @@ export default function WebhooksPage() {
                           {wh.isActive ? "Active" : "Inactive"}
                         </span>
                       </div>
-                      <p className="mt-1 text-xs text-owly-text-light font-mono truncate">
+                      <p className="mt-1 text-xs text-rbai-text-light font-mono truncate">
                         {wh.url}
                       </p>
                       {wh.description && (
-                        <p className="mt-1 text-xs text-owly-text-light">
+                        <p className="mt-1 text-xs text-rbai-text-light">
                           {wh.description}
                         </p>
                       )}
                       <div className="mt-2 flex items-center gap-3 flex-wrap">
-                        <span className="inline-flex items-center gap-1 text-xs text-owly-text-light">
+                        <span className="inline-flex items-center gap-1 text-xs text-rbai-text-light">
                           <Zap className="h-3 w-3" />
                           {getTriggerLabel(wh.triggerOn)}
                         </span>
@@ -608,7 +608,7 @@ export default function WebhooksPage() {
                       <button
                         onClick={() => handleTest(wh)}
                         disabled={testingId === wh.id}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-owly-primary bg-owly-primary-50 rounded-lg hover:bg-owly-primary-100 transition-colors disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rbai-primary bg-rbai-primary-50 rounded-lg hover:bg-rbai-primary-100 transition-colors disabled:opacity-50"
                         title="Send test payload"
                       >
                         {testingId === wh.id ? (
@@ -623,22 +623,22 @@ export default function WebhooksPage() {
                         className={cn(
                           "px-3 py-1.5 text-xs font-medium rounded-lg transition-colors",
                           wh.isActive
-                            ? "text-owly-text-light hover:bg-owly-bg"
-                            : "text-owly-success hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+                            ? "text-rbai-text-light hover:bg-rbai-bg"
+                            : "text-rbai-success hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
                         )}
                       >
                         {wh.isActive ? "Disable" : "Enable"}
                       </button>
                       <button
                         onClick={() => setModalWebhook(wh)}
-                        className="p-1.5 text-owly-text-light hover:text-owly-text hover:bg-owly-bg rounded-lg transition-colors"
+                        className="p-1.5 text-rbai-text-light hover:text-rbai-text hover:bg-rbai-bg rounded-lg transition-colors"
                         title="Edit webhook"
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => setDeleteTarget(wh)}
-                        className="p-1.5 text-owly-text-light hover:text-owly-danger hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                        className="p-1.5 text-rbai-text-light hover:text-rbai-danger hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                         title="Delete webhook"
                       >
                         <Trash2 className="h-4 w-4" />

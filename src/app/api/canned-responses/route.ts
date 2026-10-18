@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { parsePagination, paginatedResponse } from "@/lib/pagination";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
@@ -62,13 +62,13 @@ export async function POST(request: NextRequest) {
     }
 
     const response = await prisma.cannedResponse.create({
-      data: {
+      data: withBusinessId({
         title: title.trim(),
         content: content.trim(),
         category: category?.trim() || "General",
         shortcut: shortcut?.trim() || "",
         isActive: isActive ?? true,
-      },
+      }),
     });
 
     return NextResponse.json(response, { status: 201 });

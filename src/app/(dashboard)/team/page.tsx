@@ -69,12 +69,12 @@ function Modal({
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative w-full max-w-lg mx-4 bg-owly-surface rounded-xl border border-owly-border shadow-xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-owly-border">
-          <h3 className="text-lg font-semibold text-owly-text">{title}</h3>
+      <div className="relative w-full max-w-lg mx-4 bg-rbai-surface rounded-xl border border-rbai-border shadow-xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-rbai-border">
+          <h3 className="text-lg font-semibold text-rbai-text">{title}</h3>
           <button
             onClick={onClose}
-            className="p-1.5 text-owly-text-light hover:text-owly-text hover:bg-owly-primary-50 rounded-lg transition-colors"
+            className="p-1.5 text-rbai-text-light hover:text-rbai-text hover:bg-rbai-primary-50 rounded-lg transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -112,8 +112,8 @@ function DepartmentForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-owly-text mb-1.5">
-          Name <span className="text-owly-danger">*</span>
+        <label className="block text-sm font-medium text-rbai-text mb-1.5">
+          Name <span className="text-rbai-danger">*</span>
         </label>
         <input
           type="text"
@@ -121,11 +121,11 @@ function DepartmentForm({
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Customer Support"
           required
-          className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text placeholder:text-owly-text-light/60 focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+          className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text placeholder:text-rbai-text-light/60 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-owly-text mb-1.5">
+        <label className="block text-sm font-medium text-rbai-text mb-1.5">
           Description
         </label>
         <textarea
@@ -133,11 +133,11 @@ function DepartmentForm({
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Brief description of this department"
           rows={3}
-          className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text placeholder:text-owly-text-light/60 focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary resize-none"
+          className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text placeholder:text-rbai-text-light/60 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary resize-none"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-owly-text mb-1.5">
+        <label className="block text-sm font-medium text-rbai-text mb-1.5">
           Email
         </label>
         <input
@@ -145,21 +145,21 @@ function DepartmentForm({
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="department@company.com"
-          className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text placeholder:text-owly-text-light/60 focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+          className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text placeholder:text-rbai-text-light/60 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
         />
       </div>
       <div className="flex justify-end gap-3 pt-2">
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 text-sm font-medium text-owly-text-light hover:text-owly-text border border-owly-border rounded-lg hover:bg-owly-bg transition-colors"
+          className="px-4 py-2 text-sm font-medium text-rbai-text-light hover:text-rbai-text border border-rbai-border rounded-lg hover:bg-rbai-bg transition-colors"
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={loading || !name.trim()}
-          className="px-4 py-2 text-sm font-medium text-white bg-owly-primary hover:bg-owly-primary-dark rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          className="px-4 py-2 text-sm font-medium text-white bg-rbai-primary hover:bg-rbai-primary-dark rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
           {initial ? "Update Department" : "Create Department"}
@@ -211,8 +211,8 @@ function MemberForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-owly-text mb-1.5">
-            Name <span className="text-owly-danger">*</span>
+          <label className="block text-sm font-medium text-rbai-text mb-1.5">
+            Name <span className="text-rbai-danger">*</span>
           </label>
           <input
             type="text"
@@ -220,12 +220,12 @@ function MemberForm({
             onChange={(e) => setName(e.target.value)}
             placeholder="John Smith"
             required
-            className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text placeholder:text-owly-text-light/60 focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+            className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text placeholder:text-rbai-text-light/60 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-owly-text mb-1.5">
-            Email <span className="text-owly-danger">*</span>
+          <label className="block text-sm font-medium text-rbai-text mb-1.5">
+            Email <span className="text-rbai-danger">*</span>
           </label>
           <input
             type="email"
@@ -233,13 +233,13 @@ function MemberForm({
             onChange={(e) => setEmail(e.target.value)}
             placeholder="john@company.com"
             required
-            className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text placeholder:text-owly-text-light/60 focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+            className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text placeholder:text-rbai-text-light/60 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
           />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-owly-text mb-1.5">
+          <label className="block text-sm font-medium text-rbai-text mb-1.5">
             Phone
           </label>
           <input
@@ -247,17 +247,17 @@ function MemberForm({
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="+1 (555) 000-0000"
-            className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text placeholder:text-owly-text-light/60 focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+            className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text placeholder:text-rbai-text-light/60 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-owly-text mb-1.5">
+          <label className="block text-sm font-medium text-rbai-text mb-1.5">
             Role
           </label>
           <select
             value={role}
             onChange={(e) => setRole(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+            className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
           >
             <option value="member">Member</option>
             <option value="lead">Lead</option>
@@ -267,14 +267,14 @@ function MemberForm({
         </div>
       </div>
       <div>
-        <label className="block text-sm font-medium text-owly-text mb-1.5">
-          Department <span className="text-owly-danger">*</span>
+        <label className="block text-sm font-medium text-rbai-text mb-1.5">
+          Department <span className="text-rbai-danger">*</span>
         </label>
         <select
           value={departmentId}
           onChange={(e) => setDepartmentId(e.target.value)}
           required
-          className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+          className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
         >
           {departments.length === 0 && (
             <option value="">No departments available</option>
@@ -287,7 +287,7 @@ function MemberForm({
         </select>
       </div>
       <div>
-        <label className="block text-sm font-medium text-owly-text mb-1.5">
+        <label className="block text-sm font-medium text-rbai-text mb-1.5">
           Expertise
         </label>
         <input
@@ -295,21 +295,21 @@ function MemberForm({
           value={expertise}
           onChange={(e) => setExpertise(e.target.value)}
           placeholder="e.g. Billing, Technical Support, Sales"
-          className="w-full px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text placeholder:text-owly-text-light/60 focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+          className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text placeholder:text-rbai-text-light/60 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
         />
       </div>
       <div className="flex justify-end gap-3 pt-2">
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 text-sm font-medium text-owly-text-light hover:text-owly-text border border-owly-border rounded-lg hover:bg-owly-bg transition-colors"
+          className="px-4 py-2 text-sm font-medium text-rbai-text-light hover:text-rbai-text border border-rbai-border rounded-lg hover:bg-rbai-bg transition-colors"
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={loading || !name.trim() || !email.trim() || !departmentId}
-          className="px-4 py-2 text-sm font-medium text-white bg-owly-primary hover:bg-owly-primary-dark rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          className="px-4 py-2 text-sm font-medium text-white bg-rbai-primary hover:bg-rbai-primary-dark rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
           {initial ? "Update Member" : "Add Member"}
@@ -336,21 +336,21 @@ function DeleteConfirm({
 }) {
   return (
     <div className="space-y-4">
-      <p className="text-sm text-owly-text">
+      <p className="text-sm text-rbai-text">
         Are you sure you want to delete <strong>{label}</strong>? This action
         cannot be undone.
       </p>
       <div className="flex justify-end gap-3">
         <button
           onClick={onCancel}
-          className="px-4 py-2 text-sm font-medium text-owly-text-light hover:text-owly-text border border-owly-border rounded-lg hover:bg-owly-bg transition-colors"
+          className="px-4 py-2 text-sm font-medium text-rbai-text-light hover:text-rbai-text border border-rbai-border rounded-lg hover:bg-rbai-bg transition-colors"
         >
           Cancel
         </button>
         <button
           onClick={onConfirm}
           disabled={loading}
-          className="px-4 py-2 text-sm font-medium text-white bg-owly-danger hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+          className="px-4 py-2 text-sm font-medium text-white bg-rbai-danger hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
         >
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
           Delete
@@ -368,7 +368,7 @@ function getRoleBadge(role: string) {
   const map: Record<string, string> = {
     admin: "bg-purple-100 text-purple-700",
     manager: "bg-blue-100 text-blue-700",
-    lead: "bg-owly-primary-100 text-owly-primary-dark",
+    lead: "bg-rbai-primary-100 text-rbai-primary-dark",
     member: "bg-gray-100 text-gray-700",
   };
   return map[role] || map.member;
@@ -567,7 +567,7 @@ export default function TeamPage() {
       <div className="flex-1 overflow-auto p-6 space-y-6">
         {/* Tabs + actions bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex gap-1 bg-owly-bg p-1 rounded-lg border border-owly-border">
+          <div className="flex gap-1 bg-rbai-bg p-1 rounded-lg border border-rbai-border">
             {tabs.map((tab) => (
               <button
                 key={tab.key}
@@ -579,8 +579,8 @@ export default function TeamPage() {
                 className={cn(
                   "flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors",
                   activeTab === tab.key
-                    ? "bg-owly-surface text-owly-primary shadow-sm"
-                    : "text-owly-text-light hover:text-owly-text"
+                    ? "bg-rbai-surface text-rbai-primary shadow-sm"
+                    : "text-rbai-text-light hover:text-rbai-text"
                 )}
               >
                 <tab.icon className="h-4 w-4" />
@@ -594,7 +594,7 @@ export default function TeamPage() {
               <select
                 value={filterDept}
                 onChange={(e) => setFilterDept(e.target.value)}
-                className="px-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-surface text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+                className="px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-surface text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
               >
                 <option value="">All Departments</option>
                 {departments.map((d) => (
@@ -606,7 +606,7 @@ export default function TeamPage() {
             )}
 
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-owly-text-light" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-rbai-text-light" />
               <input
                 type="text"
                 value={search}
@@ -616,7 +616,7 @@ export default function TeamPage() {
                     ? "Search departments..."
                     : "Search members..."
                 }
-                className="pl-9 pr-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-surface text-owly-text placeholder:text-owly-text-light/60 focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary w-56"
+                className="pl-9 pr-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-surface text-rbai-text placeholder:text-rbai-text-light/60 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary w-56"
               />
             </div>
 
@@ -628,7 +628,7 @@ export default function TeamPage() {
                   setMemberModal({ open: true, editing: null });
                 }
               }}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-owly-primary hover:bg-owly-primary-dark rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-rbai-primary hover:bg-rbai-primary-dark rounded-lg transition-colors"
             >
               <Plus className="h-4 w-4" />
               {activeTab === "departments" ? "Add Department" : "Add Member"}
@@ -639,7 +639,7 @@ export default function TeamPage() {
         {/* Loading state */}
         {loading && (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-owly-primary" />
+            <Loader2 className="h-8 w-8 animate-spin text-rbai-primary" />
           </div>
         )}
 
@@ -647,12 +647,12 @@ export default function TeamPage() {
         {!loading && activeTab === "departments" && (
           <>
             {filteredDepartments.length === 0 ? (
-              <div className="bg-owly-surface rounded-xl border border-owly-border px-6 py-16 text-center">
-                <Building2 className="h-12 w-12 mx-auto text-owly-text-light/40 mb-4" />
-                <p className="text-lg font-medium text-owly-text">
+              <div className="bg-rbai-surface rounded-xl border border-rbai-border px-6 py-16 text-center">
+                <Building2 className="h-12 w-12 mx-auto text-rbai-text-light/40 mb-4" />
+                <p className="text-lg font-medium text-rbai-text">
                   {search ? "No departments found" : "No departments yet"}
                 </p>
-                <p className="text-sm text-owly-text-light mt-1">
+                <p className="text-sm text-rbai-text-light mt-1">
                   {search
                     ? "Try a different search term."
                     : "Create your first department to organize your team."}
@@ -662,7 +662,7 @@ export default function TeamPage() {
                     onClick={() =>
                       setDeptModal({ open: true, editing: null })
                     }
-                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-owly-primary hover:bg-owly-primary-dark rounded-lg transition-colors"
+                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-rbai-primary hover:bg-rbai-primary-dark rounded-lg transition-colors"
                   >
                     <Plus className="h-4 w-4" />
                     Create Department
@@ -674,18 +674,18 @@ export default function TeamPage() {
                 {filteredDepartments.map((dept) => (
                   <div
                     key={dept.id}
-                    className="bg-owly-surface rounded-xl border border-owly-border p-5 hover:border-owly-primary/30 transition-colors group"
+                    className="bg-rbai-surface rounded-xl border border-rbai-border p-5 hover:border-rbai-primary/30 transition-colors group"
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="p-2.5 rounded-lg bg-owly-primary-50 text-owly-primary">
+                        <div className="p-2.5 rounded-lg bg-rbai-primary-50 text-rbai-primary">
                           <Building2 className="h-5 w-5" />
                         </div>
                         <div>
-                          <h3 className="font-semibold text-owly-text">
+                          <h3 className="font-semibold text-rbai-text">
                             {dept.name}
                           </h3>
-                          <p className="text-xs text-owly-text-light mt-0.5">
+                          <p className="text-xs text-rbai-text-light mt-0.5">
                             {dept._count.members}{" "}
                             {dept._count.members === 1 ? "member" : "members"}
                           </p>
@@ -696,7 +696,7 @@ export default function TeamPage() {
                           onClick={() =>
                             setDeptModal({ open: true, editing: dept })
                           }
-                          className="p-1.5 text-owly-text-light hover:text-owly-primary hover:bg-owly-primary-50 rounded-lg transition-colors"
+                          className="p-1.5 text-rbai-text-light hover:text-rbai-primary hover:bg-rbai-primary-50 rounded-lg transition-colors"
                           title="Edit department"
                         >
                           <Edit2 className="h-4 w-4" />
@@ -710,7 +710,7 @@ export default function TeamPage() {
                               label: dept.name,
                             })
                           }
-                          className="p-1.5 text-owly-text-light hover:text-owly-danger hover:bg-red-50 rounded-lg transition-colors"
+                          className="p-1.5 text-rbai-text-light hover:text-rbai-danger hover:bg-red-50 rounded-lg transition-colors"
                           title="Delete department"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -719,13 +719,13 @@ export default function TeamPage() {
                     </div>
 
                     {dept.description && (
-                      <p className="text-sm text-owly-text-light mt-3 line-clamp-2">
+                      <p className="text-sm text-rbai-text-light mt-3 line-clamp-2">
                         {dept.description}
                       </p>
                     )}
 
                     {dept.email && (
-                      <div className="flex items-center gap-2 mt-3 text-sm text-owly-text-light">
+                      <div className="flex items-center gap-2 mt-3 text-sm text-rbai-text-light">
                         <Mail className="h-3.5 w-3.5" />
                         <span className="truncate">{dept.email}</span>
                       </div>
@@ -741,14 +741,14 @@ export default function TeamPage() {
         {!loading && activeTab === "members" && (
           <>
             {filteredMembers.length === 0 ? (
-              <div className="bg-owly-surface rounded-xl border border-owly-border px-6 py-16 text-center">
-                <Users className="h-12 w-12 mx-auto text-owly-text-light/40 mb-4" />
-                <p className="text-lg font-medium text-owly-text">
+              <div className="bg-rbai-surface rounded-xl border border-rbai-border px-6 py-16 text-center">
+                <Users className="h-12 w-12 mx-auto text-rbai-text-light/40 mb-4" />
+                <p className="text-lg font-medium text-rbai-text">
                   {search || filterDept
                     ? "No members found"
                     : "No team members yet"}
                 </p>
-                <p className="text-sm text-owly-text-light mt-1">
+                <p className="text-sm text-rbai-text-light mt-1">
                   {search || filterDept
                     ? "Try adjusting your search or filter."
                     : departments.length === 0
@@ -760,7 +760,7 @@ export default function TeamPage() {
                     onClick={() =>
                       setMemberModal({ open: true, editing: null })
                     }
-                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-owly-primary hover:bg-owly-primary-dark rounded-lg transition-colors"
+                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-rbai-primary hover:bg-rbai-primary-dark rounded-lg transition-colors"
                   >
                     <Plus className="h-4 w-4" />
                     Add Member
@@ -768,43 +768,43 @@ export default function TeamPage() {
                 )}
               </div>
             ) : (
-              <div className="bg-owly-surface rounded-xl border border-owly-border overflow-hidden">
+              <div className="bg-rbai-surface rounded-xl border border-rbai-border overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-owly-border bg-owly-bg/50">
-                        <th className="text-left px-5 py-3 font-medium text-owly-text-light">
+                      <tr className="border-b border-rbai-border bg-rbai-bg/50">
+                        <th className="text-left px-5 py-3 font-medium text-rbai-text-light">
                           Name
                         </th>
-                        <th className="text-left px-5 py-3 font-medium text-owly-text-light">
+                        <th className="text-left px-5 py-3 font-medium text-rbai-text-light">
                           Contact
                         </th>
-                        <th className="text-left px-5 py-3 font-medium text-owly-text-light">
+                        <th className="text-left px-5 py-3 font-medium text-rbai-text-light">
                           Department
                         </th>
-                        <th className="text-left px-5 py-3 font-medium text-owly-text-light">
+                        <th className="text-left px-5 py-3 font-medium text-rbai-text-light">
                           Role
                         </th>
-                        <th className="text-left px-5 py-3 font-medium text-owly-text-light">
+                        <th className="text-left px-5 py-3 font-medium text-rbai-text-light">
                           Expertise
                         </th>
-                        <th className="text-left px-5 py-3 font-medium text-owly-text-light">
+                        <th className="text-left px-5 py-3 font-medium text-rbai-text-light">
                           Status
                         </th>
-                        <th className="text-right px-5 py-3 font-medium text-owly-text-light">
+                        <th className="text-right px-5 py-3 font-medium text-rbai-text-light">
                           Actions
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-owly-border">
+                    <tbody className="divide-y divide-rbai-border">
                       {filteredMembers.map((member) => (
                         <tr
                           key={member.id}
-                          className="hover:bg-owly-primary-50/30 transition-colors"
+                          className="hover:bg-rbai-primary-50/30 transition-colors"
                         >
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-owly-primary-100 text-owly-primary flex items-center justify-center text-xs font-semibold flex-shrink-0">
+                              <div className="w-8 h-8 rounded-full bg-rbai-primary-100 text-rbai-primary flex items-center justify-center text-xs font-semibold flex-shrink-0">
                                 {member.name
                                   .split(" ")
                                   .map((n) => n[0])
@@ -812,19 +812,19 @@ export default function TeamPage() {
                                   .toUpperCase()
                                   .slice(0, 2)}
                               </div>
-                              <span className="font-medium text-owly-text">
+                              <span className="font-medium text-rbai-text">
                                 {member.name}
                               </span>
                             </div>
                           </td>
                           <td className="px-5 py-3.5">
                             <div className="space-y-0.5">
-                              <div className="flex items-center gap-1.5 text-owly-text-light">
+                              <div className="flex items-center gap-1.5 text-rbai-text-light">
                                 <Mail className="h-3.5 w-3.5" />
                                 <span>{member.email}</span>
                               </div>
                               {member.phone && (
-                                <div className="flex items-center gap-1.5 text-owly-text-light">
+                                <div className="flex items-center gap-1.5 text-rbai-text-light">
                                   <Phone className="h-3.5 w-3.5" />
                                   <span>{member.phone}</span>
                                 </div>
@@ -832,8 +832,8 @@ export default function TeamPage() {
                             </div>
                           </td>
                           <td className="px-5 py-3.5">
-                            <span className="inline-flex items-center gap-1.5 text-owly-text">
-                              <Building2 className="h-3.5 w-3.5 text-owly-text-light" />
+                            <span className="inline-flex items-center gap-1.5 text-rbai-text">
+                              <Building2 className="h-3.5 w-3.5 text-rbai-text-light" />
                               {member.department.name}
                             </span>
                           </td>
@@ -853,7 +853,7 @@ export default function TeamPage() {
                               {member.role}
                             </span>
                           </td>
-                          <td className="px-5 py-3.5 text-owly-text-light max-w-[200px] truncate">
+                          <td className="px-5 py-3.5 text-rbai-text-light max-w-[200px] truncate">
                             {member.expertise || "--"}
                           </td>
                           <td className="px-5 py-3.5">
@@ -890,7 +890,7 @@ export default function TeamPage() {
                                     editing: member,
                                   })
                                 }
-                                className="p-1.5 text-owly-text-light hover:text-owly-primary hover:bg-owly-primary-50 rounded-lg transition-colors"
+                                className="p-1.5 text-rbai-text-light hover:text-rbai-primary hover:bg-rbai-primary-50 rounded-lg transition-colors"
                                 title="Edit member"
                               >
                                 <Edit2 className="h-4 w-4" />
@@ -904,7 +904,7 @@ export default function TeamPage() {
                                     label: member.name,
                                   })
                                 }
-                                className="p-1.5 text-owly-text-light hover:text-owly-danger hover:bg-red-50 rounded-lg transition-colors"
+                                className="p-1.5 text-rbai-text-light hover:text-rbai-danger hover:bg-red-50 rounded-lg transition-colors"
                                 title="Delete member"
                               >
                                 <Trash2 className="h-4 w-4" />

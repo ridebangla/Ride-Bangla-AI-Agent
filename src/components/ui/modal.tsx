@@ -61,17 +61,17 @@ export function Modal({
     >
       <div
         className={cn(
-          "w-full rounded-xl bg-owly-surface border border-owly-border shadow-xl animate-scale-in",
+          "w-full rounded-xl bg-rbai-surface border border-rbai-border shadow-xl animate-scale-in",
           sizeStyles[size],
           className
         )}
       >
         {title && (
-          <div className="flex items-center justify-between border-b border-owly-border px-6 py-4">
-            <h2 className="text-base font-semibold text-owly-text">{title}</h2>
+          <div className="flex items-center justify-between border-b border-rbai-border px-6 py-4">
+            <h2 className="text-base font-semibold text-rbai-text">{title}</h2>
             <button
               onClick={onClose}
-              className="rounded p-1 text-owly-text-light hover:text-owly-text hover:bg-owly-bg transition-colors"
+              className="rounded p-1 text-rbai-text-light hover:text-rbai-text hover:bg-rbai-bg transition-colors"
             >
               <X className="h-4 w-4" />
             </button>
@@ -82,7 +82,7 @@ export function Modal({
           {!title && (
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 rounded p-1 text-owly-text-light hover:text-owly-text hover:bg-owly-bg transition-colors"
+              className="absolute top-4 right-4 rounded p-1 text-rbai-text-light hover:text-rbai-text hover:bg-rbai-bg transition-colors"
             >
               <X className="h-4 w-4" />
             </button>
@@ -91,7 +91,7 @@ export function Modal({
         </div>
 
         {footer && (
-          <div className="border-t border-owly-border px-6 py-4 flex justify-end gap-3">
+          <div className="border-t border-rbai-border px-6 py-4 flex justify-end gap-3">
             {footer}
           </div>
         )}

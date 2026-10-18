@@ -63,25 +63,25 @@ export default function LoginPage() {
   if (checking) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-owly-primary border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-rbai-primary border-t-transparent" />
       </div>
     );
   }
 
   return (
-    <div className="bg-owly-surface rounded-2xl shadow-lg border border-owly-border p-8">
+    <div className="bg-rbai-surface rounded-2xl shadow-lg border border-rbai-border p-8">
       <div className="flex flex-col items-center mb-8">
         <Image
-          src="/owly.png"
+          src="/rbai-logo.png"
           alt="Ride Bangla AI Agent"
           width={56}
           height={56}
           className="mb-4"
         />
-        <h1 className="text-2xl font-bold text-owly-text">
+        <h1 className="text-2xl font-bold text-rbai-text">
           Welcome to Ride Bangla AI Agent
         </h1>
-        <p className="text-owly-text-light text-sm mt-1">
+        <p className="text-rbai-text-light text-sm mt-1">
           Sign in to your account
         </p>
       </div>
@@ -90,7 +90,7 @@ export default function LoginPage() {
         <div>
           <label
             htmlFor="username"
-            className="block text-sm font-medium text-owly-text mb-1.5"
+            className="block text-sm font-medium text-rbai-text mb-1.5"
           >
             Username
           </label>
@@ -101,7 +101,7 @@ export default function LoginPage() {
             required
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full rounded-lg border border-owly-border bg-owly-bg px-3.5 py-2.5 text-sm text-owly-text placeholder:text-owly-text-light focus:outline-none focus:ring-2 focus:ring-owly-primary focus:border-transparent transition-shadow"
+            className="w-full rounded-lg border border-rbai-border bg-rbai-bg px-3.5 py-2.5 text-sm text-rbai-text placeholder:text-rbai-text-light focus:outline-none focus:ring-2 focus:ring-rbai-primary focus:border-transparent transition-shadow"
             placeholder="Enter your username"
           />
         </div>
@@ -109,7 +109,7 @@ export default function LoginPage() {
         <div>
           <label
             htmlFor="password"
-            className="block text-sm font-medium text-owly-text mb-1.5"
+            className="block text-sm font-medium text-rbai-text mb-1.5"
           >
             Password
           </label>
@@ -120,13 +120,13 @@ export default function LoginPage() {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg border border-owly-border bg-owly-bg px-3.5 py-2.5 text-sm text-owly-text placeholder:text-owly-text-light focus:outline-none focus:ring-2 focus:ring-owly-primary focus:border-transparent transition-shadow"
+            className="w-full rounded-lg border border-rbai-border bg-rbai-bg px-3.5 py-2.5 text-sm text-rbai-text placeholder:text-rbai-text-light focus:outline-none focus:ring-2 focus:ring-rbai-primary focus:border-transparent transition-shadow"
             placeholder="Enter your password"
           />
         </div>
 
         {error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-owly-danger">
+          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-rbai-danger">
             {error}
           </div>
         )}
@@ -134,7 +134,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-lg bg-owly-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-owly-primary-dark focus:outline-none focus:ring-2 focus:ring-owly-primary focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          className="w-full rounded-lg bg-rbai-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-rbai-primary-dark focus:outline-none focus:ring-2 focus:ring-rbai-primary focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? (
             <span className="flex items-center justify-center gap-2">

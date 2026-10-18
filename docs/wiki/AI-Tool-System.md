@@ -1,18 +1,18 @@
 # AI Tool System
 
-Owly's AI agent is more than a simple chatbot. It can take actions during conversations by calling tools -- structured functions that interact with the database, external services, and team members. This page explains how the tool system works and what each tool does.
+Ride Bangla AI Agent's AI agent is more than a simple chatbot. It can take actions during conversations by calling tools -- structured functions that interact with the database, external services, and team members. This page explains how the tool system works and what each tool does.
 
 ---
 
 ## How It Works
 
-When a customer sends a message, Owly's AI engine processes it through the following pipeline:
+When a customer sends a message, Ride Bangla AI Agent's AI engine processes it through the following pipeline:
 
 1. **Load context**: Retrieve the conversation history, business settings, and active knowledge base entries.
 2. **Build system prompt**: Construct a detailed system prompt that includes the business identity, tone guidelines, language preference, knowledge base content, and customer history.
 3. **Send to AI provider**: Send the full message history (system prompt + conversation) to the configured AI model (e.g., OpenAI's `gpt-4o-mini`) along with the available tool definitions.
 4. **Check for tool calls**: If the AI determines that a tool should be used, it returns a `tool_calls` response instead of a regular message.
-5. **Execute tools**: Owly executes each requested tool, collects the results, and sends them back to the AI.
+5. **Execute tools**: Ride Bangla AI Agent executes each requested tool, collects the results, and sends them back to the AI.
 6. **Generate response**: The AI uses the tool results to formulate its final response to the customer.
 7. **Save and return**: Both the customer's message and the AI's response are saved to the database.
 
@@ -58,7 +58,7 @@ Assigns a ticket to a team member based on their expertise.
 
 **What it does**: Searches for an available team member whose expertise field contains the specified text (case-insensitive). If found, updates the ticket's `assignedToId` and sets the status to `in_progress`. If no matching member is available, returns an error message.
 
-**Example scenario**: A ticket about payment processing issues is created. The AI calls `assign_to_person` with expertise "billing" and Owly finds a team member with "billing, payments, invoicing" in their expertise field.
+**Example scenario**: A ticket about payment processing issues is created. The AI calls `assign_to_person` with expertise "billing" and Ride Bangla AI Agent finds a team member with "billing, payments, invoicing" in their expertise field.
 
 ---
 
@@ -141,15 +141,15 @@ Triggers a configured webhook to notify an external system.
 
 ## Function Calling Mechanism
 
-Owly uses OpenAI's function calling (tool use) API. The tool definitions are passed to the model alongside the conversation messages:
+Ride Bangla AI Agent uses OpenAI's function calling (tool use) API. The tool definitions are passed to the model alongside the conversation messages:
 
 1. Each tool is defined with a `name`, `description`, and `parameters` schema using JSON Schema format.
 2. The AI model evaluates the conversation and decides whether any tools should be called.
-3. If the model returns `finish_reason: "tool_calls"`, Owly extracts the tool name and arguments.
-4. Owly executes the tool and returns the result as a `tool` message.
+3. If the model returns `finish_reason: "tool_calls"`, Ride Bangla AI Agent extracts the tool name and arguments.
+4. Ride Bangla AI Agent executes the tool and returns the result as a `tool` message.
 5. The model receives the tool result and either calls another tool or generates a text response.
 
-The maximum tool call depth is 5 iterations per request. If the AI exceeds this limit, Owly returns a fallback message suggesting the customer connect with a human team member.
+The maximum tool call depth is 5 iterations per request. If the AI exceeds this limit, Ride Bangla AI Agent returns a fallback message suggesting the customer connect with a human team member.
 
 ---
 
@@ -160,7 +160,7 @@ The system prompt that guides the AI's behavior is constructed dynamically for e
 ### Identity
 
 ```
-You are Owly, the AI customer support assistant for {businessName}.
+You are the Ride Bangla AI Agent, the AI customer support assistant for {businessName}.
 About the business: {businessDesc}
 ```
 

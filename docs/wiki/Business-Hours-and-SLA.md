@@ -6,7 +6,7 @@ Business Hours and SLA (Service Level Agreement) rules work together to define w
 
 ## Business Hours
 
-Business hours define your weekly availability schedule. When business hours are enabled, Owly can automatically send offline messages to customers who contact you outside of your schedule.
+Business hours define your weekly availability schedule. When business hours are enabled, Ride Bangla AI Agent can automatically send offline messages to customers who contact you outside of your schedule.
 
 ![Business Hours](../screenshots/08-business-hours.png)
 *The Business Hours configuration page showing the weekly schedule with time ranges, timezone selection, and offline message.*

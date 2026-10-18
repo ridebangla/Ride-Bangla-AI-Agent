@@ -82,7 +82,7 @@ export function ConfirmDialog({
     >
       <div
         className={cn(
-          "w-full max-w-md rounded-xl bg-owly-surface border border-owly-border shadow-xl p-6 transition-all duration-200",
+          "w-full max-w-md rounded-xl bg-rbai-surface border border-rbai-border shadow-xl p-6 transition-all duration-200",
           visible ? "scale-100 opacity-100" : "scale-95 opacity-0"
         )}
       >
@@ -91,22 +91,22 @@ export function ConfirmDialog({
             className={cn(
               "shrink-0 flex items-center justify-center rounded-full p-2",
               destructive
-                ? "bg-red-50 text-owly-danger"
-                : "bg-owly-primary-50 text-owly-primary"
+                ? "bg-red-50 text-rbai-danger"
+                : "bg-rbai-primary-50 text-rbai-primary"
             )}
           >
             {icon || <DefaultIcon className="h-5 w-5" />}
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-base font-semibold text-owly-text">{title}</h3>
+            <h3 className="text-base font-semibold text-rbai-text">{title}</h3>
             {description && (
-              <p className="mt-1 text-sm text-owly-text-light">{description}</p>
+              <p className="mt-1 text-sm text-rbai-text-light">{description}</p>
             )}
           </div>
           <button
             onClick={onCancel}
             disabled={loading}
-            className="shrink-0 rounded p-1 text-owly-text-light hover:text-owly-text transition-colors disabled:opacity-50"
+            className="shrink-0 rounded p-1 text-rbai-text-light hover:text-rbai-text transition-colors disabled:opacity-50"
           >
             <X className="h-4 w-4" />
           </button>
@@ -115,7 +115,7 @@ export function ConfirmDialog({
           <button
             onClick={onCancel}
             disabled={loading}
-            className="rounded-lg border border-owly-border bg-owly-surface px-4 py-2 text-sm font-medium text-owly-text hover:bg-owly-bg transition-colors disabled:opacity-50"
+            className="rounded-lg border border-rbai-border bg-rbai-surface px-4 py-2 text-sm font-medium text-rbai-text hover:bg-rbai-bg transition-colors disabled:opacity-50"
           >
             {cancelLabel}
           </button>
@@ -125,8 +125,8 @@ export function ConfirmDialog({
             className={cn(
               "rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:opacity-70 flex items-center gap-2",
               destructive
-                ? "bg-owly-danger hover:bg-red-600"
-                : "bg-owly-primary hover:bg-owly-primary-dark"
+                ? "bg-rbai-danger hover:bg-red-600"
+                : "bg-rbai-primary hover:bg-rbai-primary-dark"
             )}
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}

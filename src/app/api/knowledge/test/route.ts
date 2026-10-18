@@ -7,6 +7,9 @@ import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 export async function POST(request: NextRequest) {
   const auth = await requireAuth(request, "knowledge:read");
   if (!isAuthenticated(auth)) return auth;
+  if (!auth.businessId) {
+    return NextResponse.json({ error: "No business selected." }, { status: 400 });
+  }
 
   try {
     const body = await request.json();
@@ -21,7 +24,7 @@ export async function POST(request: NextRequest) {
 
     // Load settings for AI configuration
     const settings = await prisma.settings.findUnique({
-      where: { id: "default" },
+      where: { businessId: auth.businessId },
     });
 
     if (!settings?.aiApiKey) {

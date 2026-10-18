@@ -29,7 +29,7 @@ export const useTheme = create<ThemeStore>()(
       },
     }),
     {
-      name: "owly-theme",
+      name: "rbai-theme",
       onRehydrateStorage: () => (state) => {
         if (state?.theme === "dark" && typeof document !== "undefined") {
           document.documentElement.classList.add("dark");

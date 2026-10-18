@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 
 export async function logActivity(
@@ -10,13 +10,13 @@ export async function logActivity(
 ): Promise<void> {
   try {
     await prisma.activityLog.create({
-      data: {
+      data: withBusinessId({
         action,
         entity,
         entityId,
         description,
         userName: userName || "System",
-      },
+      }),
     });
   } catch (error) {
     logger.error("Failed to log activity", error);

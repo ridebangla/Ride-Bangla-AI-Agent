@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Email channel enables Owly to receive incoming customer emails via IMAP and send AI-generated responses via SMTP. When a customer sends an email to your support address, Owly automatically processes the message, generates an AI response, and replies with a branded HTML email -- all without manual intervention.
+The Email channel enables Ride Bangla AI Agent to receive incoming customer emails via IMAP and send AI-generated responses via SMTP. When a customer sends an email to your support address, Ride Bangla AI Agent automatically processes the message, generates an AI response, and replies with a branded HTML email -- all without manual intervention.
 
 The email integration uses industry-standard protocols (IMAP for receiving, SMTP for sending) and is compatible with virtually any email provider, including Gmail, Outlook, Yahoo, and custom mail servers.
 
@@ -68,11 +68,11 @@ The IMAP connection remains open and listens continuously for new messages. If t
 
 ## How Email Threading Works
 
-Owly maintains proper email threading using standard email headers, so customers see a clean conversation thread in their email client.
+Ride Bangla AI Agent maintains proper email threading using standard email headers, so customers see a clean conversation thread in their email client.
 
 ### In-Reply-To and References Headers
 
-When Owly sends a reply to a customer email, the following headers are set:
+When Ride Bangla AI Agent sends a reply to a customer email, the following headers are set:
 
 | Header | Value | Purpose |
 |--------|-------|---------|
@@ -94,14 +94,14 @@ The system also maintains conversation continuity at the application level:
 
 ## HTML Email Templates
 
-All outgoing emails from Owly are sent in both plain text and HTML formats. The HTML template provides a clean, branded appearance.
+All outgoing emails from Ride Bangla AI Agent are sent in both plain text and HTML formats. The HTML template provides a clean, branded appearance.
 
 ### Template Structure
 
 The HTML email template includes:
 
 - **Content area:** Each line of the AI response is wrapped in a `<p>` tag with consistent styling (Arial font family, dark text color `#1E293B`, 10px bottom margin).
-- **Footer:** A subtle footer separated by a border line (`#E2E8F0`), displaying "Powered by Owly Support" in a smaller, lighter font (`#64748B`, 12px).
+- **Footer:** A subtle footer separated by a border line (`#E2E8F0`), displaying "Powered by Ride Bangla AI Agent Support" in a smaller, lighter font (`#64748B`, 12px).
 - **Container:** The entire email is wrapped in a centered container with a maximum width of 600px and 20px padding for readability across devices.
 
 The plain text version of the response is always included as a fallback for email clients that do not render HTML.

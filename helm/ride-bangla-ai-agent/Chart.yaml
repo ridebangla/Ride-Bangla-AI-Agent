@@ -1,0 +1,18 @@
+apiVersion: v2
+name: ride-bangla-ai-agent
+description: AI-powered customer support agent with multi-channel support
+type: application
+version: 0.1.0
+appVersion: "0.2.0"
+home: https://github.com/ridebangla/Ride-Bangla-AI-Agent
+sources:
+  - https://github.com/ridebangla/Ride-Bangla-AI-Agent
+maintainers:
+  - name: Ride Bangla
+    url: https://github.com/ridebangla
+keywords:
+  - ai
+  - customer-support
+  - chatbot
+  - whatsapp
+  - helpdesk

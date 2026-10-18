@@ -111,11 +111,17 @@ describe("POST /api/auth", () => {
         const { isSetupComplete } = await import("@/lib/auth");
         (isSetupComplete as ReturnType<typeof vi.fn>).mockResolvedValue(false);
 
+      mockPrisma.business.create.mockResolvedValue({
+        id: "biz-1",
+        name: "My Business",
+        slug: "my-business-abc123",
+        siteKey: "rbsite-test",
+      });
       mockPrisma.admin.create.mockResolvedValue({
         id: "new-admin",
         username: "newadmin",
         name: "New Admin",
-        role: "admin",
+        role: "super_admin",
       });
       mockPrisma.settings.upsert.mockResolvedValue({});
       mockPrisma.channel.upsert.mockResolvedValue({});
@@ -369,7 +375,7 @@ describe("POST /api/auth", () => {
       const request = createRequest("/api/auth", {
         method: "POST",
         body: { action: "refresh" },
-        cookies: { "owly-refresh": refreshToken },
+        cookies: { "rbai-refresh": refreshToken },
       });
 
       const response = await POST(request);
@@ -378,8 +384,8 @@ describe("POST /api/auth", () => {
       expect(mockPrisma.revokedToken.upsert).toHaveBeenCalled();
       // New cookies issued.
       const setCookie = response.headers.getSetCookie();
-      expect(setCookie.some((c) => c.startsWith("owly-token="))).toBe(true);
-      expect(setCookie.some((c) => c.startsWith("owly-refresh="))).toBe(true);
+      expect(setCookie.some((c) => c.startsWith("rbai-token="))).toBe(true);
+      expect(setCookie.some((c) => c.startsWith("rbai-refresh="))).toBe(true);
     });
 
     it("should reject a refresh attempt with an access token", async () => {
@@ -391,7 +397,7 @@ describe("POST /api/auth", () => {
       const request = createRequest("/api/auth", {
         method: "POST",
         body: { action: "refresh" },
-        cookies: { "owly-refresh": accessToken },
+        cookies: { "rbai-refresh": accessToken },
       });
 
       const response = await POST(request);
@@ -420,7 +426,7 @@ describe("POST /api/auth", () => {
       const request = createRequest("/api/auth", {
         method: "POST",
         body: { action: "logout" },
-        cookies: { "owly-token": accessToken, "owly-refresh": refreshToken },
+        cookies: { "rbai-token": accessToken, "rbai-refresh": refreshToken },
       });
 
       const response = await POST(request);

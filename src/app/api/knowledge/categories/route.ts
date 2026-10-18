@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { parsePagination, paginatedResponse } from "@/lib/pagination";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
@@ -56,13 +56,13 @@ export async function POST(request: NextRequest) {
     });
 
     const category = await prisma.category.create({
-      data: {
+      data: withBusinessId({
         name: name.trim(),
         description: description?.trim() || "",
         icon: icon || "folder",
         color: color || "#4A7C9B",
         sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
-      },
+      }),
       include: {
         _count: {
           select: { entries: true },

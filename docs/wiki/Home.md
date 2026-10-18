@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="../../public/owly.png" alt="Owly" width="120" height="120" />
+  <img src="../../public/rbai-logo.png" alt="Ride Bangla AI Agent" width="120" height="120" />
 </p>
 
-<h1 align="center">Owly Documentation</h1>
+<h1 align="center">Ride Bangla AI Agent Documentation</h1>
 
 <p align="center">
   Open-source, self-hosted AI customer support agent.<br/>
@@ -11,9 +11,9 @@
 
 ---
 
-Owly is a free, self-hosted customer support platform powered by AI. It connects your WhatsApp, Email, and Phone channels to a single admin dashboard where conversations are handled automatically by an AI agent trained on your knowledge base. There are no monthly fees -- you only pay for the AI API usage from your chosen provider (OpenAI, Claude, or Ollama for fully local operation).
+Ride Bangla AI Agent is a free, self-hosted customer support platform powered by AI. It connects your WhatsApp, Email, and Phone channels to a single admin dashboard where conversations are handled automatically by an AI agent trained on your knowledge base. There are no monthly fees -- you only pay for the AI API usage from your chosen provider (OpenAI, Claude, or Ollama for fully local operation).
 
-Owly gives small businesses and solo operators the same multi-channel AI support capabilities that enterprise platforms charge hundreds of dollars per month to provide. Deploy it with Docker Compose or npm, complete the setup wizard, add your knowledge base entries, and your AI agent is live.
+Ride Bangla AI Agent gives small businesses and solo operators the same multi-channel AI support capabilities that enterprise platforms charge hundreds of dollars per month to provide. Deploy it with Docker Compose or npm, complete the setup wizard, add your knowledge base entries, and your AI agent is live.
 
 ---
 
@@ -65,7 +65,7 @@ Owly gives small businesses and solo operators the same multi-channel AI support
 | Page | Description |
 |------|-------------|
 | Architecture Overview | Tech stack, project structure, and key design decisions |
-| Contributing | How to contribute to Owly -- development setup, coding standards, and PR guidelines |
+| Contributing | How to contribute to Ride Bangla AI Agent -- development setup, coding standards, and PR guidelines |
 | Deployment | Production deployment with Docker, reverse proxy, SSL, and environment variables |
 
 ---
@@ -74,9 +74,9 @@ Owly gives small businesses and solo operators the same multi-channel AI support
 
 | Resource | Link |
 |----------|------|
-| GitHub Repository | [github.com/hsperus/owly](https://github.com/hsperus/owly) |
-| Report an Issue | [GitHub Issues](https://github.com/hsperus/owly/issues) |
-| License | [MIT License](https://github.com/hsperus/owly/blob/main/LICENSE) |
+| GitHub Repository | [github.com/ridebangla/Ride-Bangla-AI-Agent](https://github.com/ridebangla/Ride-Bangla-AI-Agent) |
+| Report an Issue | [GitHub Issues](https://github.com/ridebangla/Ride-Bangla-AI-Agent/issues) |
+| License | [MIT License](https://github.com/ridebangla/Ride-Bangla-AI-Agent/blob/main/LICENSE) |
 | Health Check Endpoint | `GET /api/health` |
 
 ---

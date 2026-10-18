@@ -206,27 +206,27 @@ export default function ConversationsPage() {
         {/* Left Panel - Conversation List */}
         <div
           className={cn(
-            "w-full md:w-96 lg:w-[420px] border-r border-owly-border flex flex-col bg-owly-surface",
+            "w-full md:w-96 lg:w-[420px] border-r border-rbai-border flex flex-col bg-rbai-surface",
             mobileShowDetail && "hidden md:flex"
           )}
         >
           {/* Filters */}
-          <div className="p-3 border-b border-owly-border space-y-2">
+          <div className="p-3 border-b border-rbai-border space-y-2">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-owly-text-light" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-rbai-text-light" />
               <input
                 type="text"
                 placeholder="Search conversations..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-sm border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary"
+                className="w-full pl-9 pr-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary"
               />
             </div>
             <div className="flex gap-2">
               <select
                 value={channelFilter}
                 onChange={(e) => setChannelFilter(e.target.value)}
-                className="flex-1 text-xs px-2 py-1.5 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+                className="flex-1 text-xs px-2 py-1.5 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
               >
                 {channels.map((ch) => (
                   <option key={ch.value} value={ch.value}>
@@ -237,7 +237,7 @@ export default function ConversationsPage() {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="flex-1 text-xs px-2 py-1.5 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+                className="flex-1 text-xs px-2 py-1.5 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
               >
                 {statuses.map((s) => (
                   <option key={s.value} value={s.value}>
@@ -252,40 +252,40 @@ export default function ConversationsPage() {
           <div className="flex-1 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center h-40">
-                <div className="text-sm text-owly-text-light">Loading...</div>
+                <div className="text-sm text-rbai-text-light">Loading...</div>
               </div>
             ) : fetchError ? (
               <div className="flex flex-col items-center justify-center h-64 px-6 text-center">
                 <div className="p-4 rounded-full bg-red-50 mb-4">
                   <Inbox className="h-8 w-8 text-red-400" />
                 </div>
-                <p className="font-medium text-owly-text">
+                <p className="font-medium text-rbai-text">
                   Could not load conversations
                 </p>
-                <p className="text-sm text-owly-text-light mt-1">
+                <p className="text-sm text-rbai-text-light mt-1">
                   {fetchError}
                 </p>
                 <button
                   onClick={() => { setLoading(true); fetchConversations(); }}
-                  className="mt-3 px-4 py-2 text-sm font-medium text-white bg-owly-primary rounded-lg hover:bg-owly-primary/90 transition-colors"
+                  className="mt-3 px-4 py-2 text-sm font-medium text-white bg-rbai-primary rounded-lg hover:bg-rbai-primary/90 transition-colors"
                 >
                   Retry
                 </button>
               </div>
             ) : conversations.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 px-6 text-center">
-                <div className="p-4 rounded-full bg-owly-primary-50 mb-4">
-                  <Inbox className="h-8 w-8 text-owly-primary" />
+                <div className="p-4 rounded-full bg-rbai-primary-50 mb-4">
+                  <Inbox className="h-8 w-8 text-rbai-primary" />
                 </div>
-                <p className="font-medium text-owly-text">
+                <p className="font-medium text-rbai-text">
                   No conversations found
                 </p>
-                <p className="text-sm text-owly-text-light mt-1">
+                <p className="text-sm text-rbai-text-light mt-1">
                   Conversations will appear here when customers reach out
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-owly-border">
+              <div className="divide-y divide-rbai-border">
                 {conversations.map((conv) => {
                   const ChannelIcon =
                     channelIcons[conv.channel] || MessageSquare;
@@ -297,8 +297,8 @@ export default function ConversationsPage() {
                       key={conv.id}
                       onClick={() => handleSelectConversation(conv.id)}
                       className={cn(
-                        "w-full px-4 py-3.5 text-left hover:bg-owly-primary-50/50 transition-colors",
-                        isSelected && "bg-owly-primary-50 border-l-2 border-l-owly-primary"
+                        "w-full px-4 py-3.5 text-left hover:bg-rbai-primary-50/50 transition-colors",
+                        isSelected && "bg-rbai-primary-50 border-l-2 border-l-rbai-primary"
                       )}
                     >
                       <div className="flex items-start gap-3">
@@ -306,35 +306,35 @@ export default function ConversationsPage() {
                           className={cn(
                             "p-2 rounded-lg mt-0.5 flex-shrink-0",
                             channelColors[conv.channel] ||
-                              "text-owly-primary bg-owly-primary-50"
+                              "text-rbai-primary bg-rbai-primary-50"
                           )}
                         >
                           <ChannelIcon className="h-4 w-4" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
-                            <p className="font-medium text-sm text-owly-text truncate">
+                            <p className="font-medium text-sm text-rbai-text truncate">
                               {conv.customerName}
                             </p>
-                            <span className="text-xs text-owly-text-light flex-shrink-0 ml-2">
+                            <span className="text-xs text-rbai-text-light flex-shrink-0 ml-2">
                               {formatRelativeTime(conv.updatedAt)}
                             </span>
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-xs text-owly-text-light">
+                            <span className="text-xs text-rbai-text-light">
                               {getChannelLabel(conv.channel)}
                             </span>
-                            <span className="text-xs text-owly-text-light">
+                            <span className="text-xs text-rbai-text-light">
                               --
                             </span>
-                            <span className="text-xs text-owly-text-light">
+                            <span className="text-xs text-rbai-text-light">
                               {conv._count.messages} messages
                             </span>
                           </div>
                           {lastMessage && (
-                            <p className="text-sm text-owly-text-light mt-1 truncate">
+                            <p className="text-sm text-rbai-text-light mt-1 truncate">
                               {lastMessage.role === "admin" && (
-                                <span className="text-owly-primary font-medium">
+                                <span className="text-rbai-primary font-medium">
                                   You:{" "}
                                 </span>
                               )}
@@ -353,7 +353,7 @@ export default function ConversationsPage() {
                             {conv.tags.slice(0, 2).map((ct) => (
                               <span
                                 key={ct.id}
-                                className="px-1.5 py-0.5 rounded text-xs font-medium bg-owly-primary-50 text-owly-primary"
+                                className="px-1.5 py-0.5 rounded text-xs font-medium bg-rbai-primary-50 text-rbai-primary"
                               >
                                 {ct.tag.name}
                               </span>
@@ -372,46 +372,46 @@ export default function ConversationsPage() {
         {/* Right Panel - Conversation Detail */}
         <div
           className={cn(
-            "flex-1 flex flex-col bg-owly-bg",
+            "flex-1 flex flex-col bg-rbai-bg",
             !mobileShowDetail && "hidden md:flex"
           )}
         >
           {!selectedId ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-              <div className="p-5 rounded-full bg-owly-surface border border-owly-border mb-4">
-                <MessageSquare className="h-10 w-10 text-owly-text-light" />
+              <div className="p-5 rounded-full bg-rbai-surface border border-rbai-border mb-4">
+                <MessageSquare className="h-10 w-10 text-rbai-text-light" />
               </div>
-              <p className="font-semibold text-lg text-owly-text">
+              <p className="font-semibold text-lg text-rbai-text">
                 Select a conversation
               </p>
-              <p className="text-sm text-owly-text-light mt-1 max-w-sm">
+              <p className="text-sm text-rbai-text-light mt-1 max-w-sm">
                 Choose a conversation from the list to view the full message
                 thread and reply to customers
               </p>
             </div>
           ) : detailLoading && !selectedConversation ? (
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-sm text-owly-text-light">Loading...</div>
+              <div className="text-sm text-rbai-text-light">Loading...</div>
             </div>
           ) : selectedConversation ? (
             <>
               {/* Conversation Header */}
-              <div className="px-4 py-3 bg-owly-surface border-b border-owly-border flex items-center gap-3">
+              <div className="px-4 py-3 bg-rbai-surface border-b border-rbai-border flex items-center gap-3">
                 <button
                   onClick={() => {
                     setMobileShowDetail(false);
                     setSelectedId(null);
                     setSelectedConversation(null);
                   }}
-                  className="md:hidden p-1.5 hover:bg-owly-primary-50 rounded-lg transition-colors"
+                  className="md:hidden p-1.5 hover:bg-rbai-primary-50 rounded-lg transition-colors"
                 >
-                  <ArrowLeft className="h-5 w-5 text-owly-text" />
+                  <ArrowLeft className="h-5 w-5 text-rbai-text" />
                 </button>
                 <div
                   className={cn(
                     "p-2 rounded-lg flex-shrink-0",
                     channelColors[selectedConversation.channel] ||
-                      "text-owly-primary bg-owly-primary-50"
+                      "text-rbai-primary bg-rbai-primary-50"
                   )}
                 >
                   {(() => {
@@ -423,7 +423,7 @@ export default function ConversationsPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-owly-text truncate">
+                    <h3 className="font-semibold text-rbai-text truncate">
                       {selectedConversation.customerName}
                     </h3>
                     <span
@@ -435,7 +435,7 @@ export default function ConversationsPage() {
                       {selectedConversation.status}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-owly-text-light">
+                  <div className="flex items-center gap-2 text-xs text-rbai-text-light">
                     <span>
                       {getChannelLabel(selectedConversation.channel)}
                     </span>
@@ -451,7 +451,7 @@ export default function ConversationsPage() {
                   <select
                     value={selectedConversation.status}
                     onChange={(e) => handleStatusChange(e.target.value)}
-                    className="text-xs px-2 py-1.5 border border-owly-border rounded-lg bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 text-owly-text"
+                    className="text-xs px-2 py-1.5 border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 text-rbai-text"
                   >
                     {statuses
                       .filter((s) => s.value !== "all")
@@ -466,8 +466,8 @@ export default function ConversationsPage() {
 
               {/* Tags Bar */}
               {selectedConversation.tags.length > 0 && (
-                <div className="px-4 py-2 bg-owly-surface border-b border-owly-border flex items-center gap-2">
-                  <Tag className="h-3.5 w-3.5 text-owly-text-light" />
+                <div className="px-4 py-2 bg-rbai-surface border-b border-rbai-border flex items-center gap-2">
+                  <Tag className="h-3.5 w-3.5 text-rbai-text-light" />
                   {selectedConversation.tags.map((ct) => (
                     <span
                       key={ct.id}
@@ -487,8 +487,8 @@ export default function ConversationsPage() {
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
                 {selectedConversation.messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-center">
-                    <MessageSquare className="h-8 w-8 text-owly-text-light opacity-40 mb-2" />
-                    <p className="text-sm text-owly-text-light">
+                    <MessageSquare className="h-8 w-8 text-rbai-text-light opacity-40 mb-2" />
+                    <p className="text-sm text-rbai-text-light">
                       No messages in this conversation yet
                     </p>
                   </div>
@@ -501,7 +501,7 @@ export default function ConversationsPage() {
                     if (isSystem) {
                       return (
                         <div key={msg.id} className="flex justify-center">
-                          <div className="px-3 py-1.5 bg-owly-surface border border-owly-border rounded-full text-xs text-owly-text-light">
+                          <div className="px-3 py-1.5 bg-rbai-surface border border-rbai-border rounded-full text-xs text-rbai-text-light">
                             {msg.content}
                           </div>
                         </div>
@@ -520,8 +520,8 @@ export default function ConversationsPage() {
                           className={cn(
                             "max-w-[75%] rounded-2xl px-4 py-2.5",
                             isAdmin
-                              ? "bg-owly-primary text-white rounded-br-md"
-                              : "bg-owly-surface border border-owly-border text-owly-text rounded-bl-md"
+                              ? "bg-rbai-primary text-white rounded-br-md"
+                              : "bg-rbai-surface border border-rbai-border text-rbai-text rounded-bl-md"
                           )}
                         >
                           <div className="flex items-center gap-2 mb-0.5">
@@ -530,7 +530,7 @@ export default function ConversationsPage() {
                                 "text-xs font-medium",
                                 isAdmin
                                   ? "text-white/80"
-                                  : "text-owly-text-light"
+                                  : "text-rbai-text-light"
                               )}
                             >
                               {isAdmin
@@ -548,7 +548,7 @@ export default function ConversationsPage() {
                               "text-xs mt-1",
                               isAdmin
                                 ? "text-white/60"
-                                : "text-owly-text-light"
+                                : "text-rbai-text-light"
                             )}
                           >
                             {formatRelativeTime(msg.createdAt)}
@@ -562,7 +562,7 @@ export default function ConversationsPage() {
               </div>
 
               {/* Reply Input */}
-              <div className="px-4 py-3 bg-owly-surface border-t border-owly-border">
+              <div className="px-4 py-3 bg-rbai-surface border-t border-rbai-border">
                 <div className="flex items-end gap-2">
                   <div className="flex-1 relative">
                     <textarea
@@ -571,7 +571,7 @@ export default function ConversationsPage() {
                       onKeyDown={handleKeyDown}
                       placeholder="Type your reply... (Enter to send, Shift+Enter for new line)"
                       rows={1}
-                      className="w-full px-4 py-2.5 text-sm border border-owly-border rounded-xl bg-owly-bg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary resize-none"
+                      className="w-full px-4 py-2.5 text-sm border border-rbai-border rounded-xl bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary resize-none"
                       style={{
                         minHeight: "42px",
                         maxHeight: "120px",
@@ -590,8 +590,8 @@ export default function ConversationsPage() {
                     className={cn(
                       "p-2.5 rounded-xl transition-colors flex-shrink-0",
                       replyText.trim() && !sending
-                        ? "bg-owly-primary text-white hover:bg-owly-primary-dark"
-                        : "bg-owly-border text-owly-text-light cursor-not-allowed"
+                        ? "bg-rbai-primary text-white hover:bg-rbai-primary-dark"
+                        : "bg-rbai-border text-rbai-text-light cursor-not-allowed"
                     )}
                   >
                     <Send className="h-4 w-4" />

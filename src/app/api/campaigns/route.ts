@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { parsePagination, paginatedResponse } from "@/lib/pagination";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     }
 
     const campaign = await prisma.campaign.create({
-      data: {
+      data: withBusinessId({
         name: name.trim(),
         description: description?.trim() || "",
         channel: channel || "email",
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
         subject: subject?.trim() || "",
         segments: segments || [],
         scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
-      },
+      }),
     });
 
     return NextResponse.json(campaign, { status: 201 });

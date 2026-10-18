@@ -8,12 +8,12 @@ const spec = {
     description: "AI-powered customer support agent API. Multi-channel support for WhatsApp, Email, and Phone with autonomous AI actions.",
     version: "2026-04-07",
     contact: {
-      name: "Hesper Labs",
-      url: "https://github.com/Hesper-Labs/owly",
+      name: "Ride Bangla",
+      url: "https://github.com/ridebangla/Ride-Bangla-AI-Agent",
     },
     license: {
       name: "MIT",
-      url: "https://github.com/Hesper-Labs/owly/blob/main/LICENSE",
+      url: "https://github.com/ridebangla/Ride-Bangla-AI-Agent/blob/main/LICENSE",
     },
   },
   servers: [
@@ -133,7 +133,7 @@ const spec = {
   },
   components: {
     securitySchemes: {
-      cookieAuth: { type: "apiKey", in: "cookie", name: "owly-token" },
+      cookieAuth: { type: "apiKey", in: "cookie", name: "rbai-token" },
     },
     schemas: {
       PaginatedResponse: {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { parsePagination, paginatedResponse } from "@/lib/pagination";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 import { validateOutboundUrl } from "@/lib/ssrf";
@@ -53,14 +53,14 @@ export async function POST(request: NextRequest) {
   }
 
   const webhook = await prisma.webhook.create({
-    data: {
+    data: withBusinessId({
       name,
       description: description || "",
       url,
       method: method || "POST",
       headers: headers || {},
       triggerOn,
-    },
+    }),
   });
 
   return NextResponse.json(webhook, { status: 201 });

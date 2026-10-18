@@ -1,9 +1,10 @@
 import { Client, LocalAuth, Message } from "whatsapp-web.js";
 import * as qrcode from "qrcode";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { chat, createNewConversation } from "@/lib/ai/engine";
 import { logger } from "@/lib/logger";
 import { resolveCustomer } from "@/lib/customer-resolver";
+import { enterBusinessContext, resolveChannelBusiness } from "@/lib/tenant";
 
 let whatsappClient: Client | null = null;
 let currentQR: string | null = null;
@@ -48,15 +49,18 @@ export async function initWhatsApp(): Promise<void> {
   });
 
   client.on("ready", async () => {
+    const businessId = await resolveChannelBusiness();
+    if (!businessId) throw new Error("[WhatsApp] cannot resolve business for channel");
+    enterBusinessContext(businessId);
     logger.info("[WhatsApp] Client is ready");
     currentQR = null;
     connectionStatus = "connected";
     statusMessage = "Connected to WhatsApp";
 
     await prisma.channel.upsert({
-      where: { type: "whatsapp" },
+      where: { businessId_type: { businessId, type: "whatsapp" } },
       update: { isActive: true, status: "connected" },
-      create: { type: "whatsapp", isActive: true, status: "connected" },
+      create: withBusinessId({ type: "whatsapp", isActive: true, status: "connected" }),
     });
   });
 
@@ -73,20 +77,27 @@ export async function initWhatsApp(): Promise<void> {
   });
 
   client.on("disconnected", async (reason: string) => {
+    const businessId = await resolveChannelBusiness();
+    if (!businessId) throw new Error("[WhatsApp] cannot resolve business for channel");
+    enterBusinessContext(businessId);
     logger.info(`[WhatsApp] Disconnected: ${reason}`);
     connectionStatus = "disconnected";
     statusMessage = `Disconnected: ${reason}`;
     whatsappClient = null;
 
     await prisma.channel.upsert({
-      where: { type: "whatsapp" },
+      where: { businessId_type: { businessId, type: "whatsapp" } },
       update: { isActive: false, status: "disconnected" },
-      create: { type: "whatsapp", isActive: false, status: "disconnected" },
+      create: withBusinessId({ type: "whatsapp", isActive: false, status: "disconnected" }),
     });
   });
 
   client.on("message", async (message: Message) => {
     try {
+      // Tenant context: channel workers run outside HTTP requests, so the
+      // business must be resolved explicitly (fail-closed, never guessed
+      // across businesses).
+      enterBusinessContext(await resolveChannelBusiness());
       if (message.fromMe) return;
 
       const contact = await message.getContact();
@@ -118,22 +129,37 @@ export async function initWhatsApp(): Promise<void> {
       }
 
       let messageContent = message.body;
+      let media: { kind: "image" | "video" | "audio"; mimeType: string; bytes: Buffer } | undefined;
 
-      // Handle media messages
+      // Handle media messages — real multimodal path: the attachment bytes go
+      // to the brain's perception step (vision / Whisper), not just a label.
       if (message.hasMedia) {
-        const media = await message.downloadMedia();
-        if (media) {
-          const mediaType = media.mimetype.split("/")[0];
-          messageContent = `[${mediaType} attachment: ${media.filename || "media"}] ${message.body || ""}`;
-
-          if (mediaType === "audio") {
-            messageContent = `[Voice message received] ${message.body || ""}`;
+        try {
+          const downloaded = await message.downloadMedia();
+          if (downloaded?.data) {
+            const prefix = downloaded.mimetype.split("/")[0];
+            const kind =
+              prefix === "image" ? "image" : prefix === "video" ? "video" : prefix === "audio" ? "audio" : null;
+            if (kind) {
+              media = {
+                kind,
+                mimeType: downloaded.mimetype,
+                bytes: Buffer.from(downloaded.data, "base64"),
+              };
+              messageContent = message.body || "";
+            } else {
+              messageContent = `[${prefix} attachment: ${downloaded.filename || "media"}] ${message.body || ""}`;
+            }
           }
+        } catch (mediaErr) {
+          logger.warn("[WhatsApp] media download failed", {
+            error: mediaErr instanceof Error ? mediaErr.message : String(mediaErr),
+          });
         }
       }
 
-      // Get AI response
-      const aiResponse = await chat(conversation.id, messageContent);
+      // Get AI response (with media perception when an attachment was sent)
+      const aiResponse = await chat(conversation.id, messageContent, media ? { media } : undefined);
 
       // Send response back via WhatsApp
       await message.reply(aiResponse);

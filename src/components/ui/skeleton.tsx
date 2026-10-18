@@ -8,7 +8,7 @@ function SkeletonPulse({ className }: SkeletonBaseProps) {
   return (
     <div
       className={cn(
-        "animate-pulse rounded bg-owly-border/60",
+        "animate-pulse rounded bg-rbai-border/60",
         className
       )}
     />
@@ -50,7 +50,7 @@ export function SkeletonCard({ count = 1, className }: SkeletonCardProps) {
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
-          className="rounded-xl border border-owly-border bg-owly-surface p-5 space-y-4"
+          className="rounded-xl border border-rbai-border bg-rbai-surface p-5 space-y-4"
         >
           <div className="flex items-center gap-3">
             <SkeletonPulse className="h-10 w-10 rounded-full" />
@@ -81,9 +81,9 @@ export function SkeletonTable({
   className,
 }: SkeletonTableProps) {
   return (
-    <div className={cn("rounded-xl border border-owly-border bg-owly-surface overflow-hidden", className)}>
+    <div className={cn("rounded-xl border border-rbai-border bg-rbai-surface overflow-hidden", className)}>
       {/* Header */}
-      <div className="flex gap-4 border-b border-owly-border bg-owly-bg/50 px-5 py-3">
+      <div className="flex gap-4 border-b border-rbai-border bg-rbai-bg/50 px-5 py-3">
         {Array.from({ length: columns }).map((_, i) => (
           <SkeletonPulse
             key={i}
@@ -95,7 +95,7 @@ export function SkeletonTable({
       {Array.from({ length: rows }).map((_, rowIdx) => (
         <div
           key={rowIdx}
-          className="flex gap-4 border-b border-owly-border/50 px-5 py-4 last:border-b-0"
+          className="flex gap-4 border-b border-rbai-border/50 px-5 py-4 last:border-b-0"
         >
           {Array.from({ length: columns }).map((_, colIdx) => (
             <SkeletonPulse

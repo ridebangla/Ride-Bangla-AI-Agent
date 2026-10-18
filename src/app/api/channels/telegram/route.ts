@@ -23,7 +23,8 @@ export async function POST(request: NextRequest) {
   try {
     const update = await request.json();
 
-    await handleTelegramUpdate(update);
+    const businessSlug = request.nextUrl.searchParams.get("business");
+    await handleTelegramUpdate(update, businessSlug);
 
     // Telegram expects 200 OK quickly
     return NextResponse.json({ ok: true });

@@ -105,7 +105,7 @@ describe("Auth Module", () => {
 
       const cookie = setAuthCookie("test-token-value");
 
-      expect(cookie.name).toBe("owly-token");
+      expect(cookie.name).toBe("rbai-token");
       expect(cookie.value).toBe("test-token-value");
       expect(cookie.httpOnly).toBe(true);
       expect(cookie.sameSite).toBe("lax");
@@ -121,7 +121,7 @@ describe("Auth Module", () => {
 
       const cookie = clearAuthCookie();
 
-      expect(cookie.name).toBe("owly-token");
+      expect(cookie.name).toBe("rbai-token");
       expect(cookie.value).toBe("");
       expect(cookie.maxAge).toBe(0);
     });

@@ -1,6 +1,6 @@
 # Customers
 
-The Customers page is Owly's built-in CRM (Customer Relationship Management) system. It provides a centralized directory of every customer who has interacted with your business, along with their contact details, conversation history across all channels, tags for categorization, and internal notes for long-term context.
+The Customers page is Ride Bangla AI Agent's built-in CRM (Customer Relationship Management) system. It provides a centralized directory of every customer who has interacted with your business, along with their contact details, conversation history across all channels, tags for categorization, and internal notes for long-term context.
 
 ![Customers Overview](../screenshots/04-customers.png)
 *The Customer Management page showing customer profiles with contact information, tags, block status, and action buttons.*
@@ -22,7 +22,7 @@ The Customers page is Owly's built-in CRM (Customer Relationship Management) sys
 
 ## Customer Profiles
 
-Each customer in Owly has a profile containing the following fields:
+Each customer in Ride Bangla AI Agent has a profile containing the following fields:
 
 | Field | Description | Required |
 |-------|-------------|----------|
@@ -36,7 +36,7 @@ Each customer in Owly has a profile containing the following fields:
 | **Last Contact** | Timestamp of the customer's most recent interaction | Auto-set |
 | **Metadata** | Additional structured data stored as JSON | No |
 
-A single customer may have contact information across multiple channels. Owly consolidates all of their interactions -- WhatsApp messages, emails, phone calls, and API requests -- into one unified profile.
+A single customer may have contact information across multiple channels. Ride Bangla AI Agent consolidates all of their interactions -- WhatsApp messages, emails, phone calls, and API requests -- into one unified profile.
 
 ### Adding a Customer Manually
 
@@ -64,7 +64,7 @@ Customers are created automatically when they contact your business through any 
 ### How Automatic Creation Works
 
 1. A new message arrives through WhatsApp, Email, Phone, or the API.
-2. Owly extracts the sender's contact information (phone number, email address, or WhatsApp number).
+2. Ride Bangla AI Agent extracts the sender's contact information (phone number, email address, or WhatsApp number).
 3. The system searches existing customer profiles for a match on any of the indexed contact fields (email, phone, or WhatsApp).
 4. **If a match is found:** The existing customer profile is linked to the conversation, and the `lastContact` timestamp is updated.
 5. **If no match is found:** A new customer profile is created with the available contact information. The name is set to "Unknown" if it cannot be determined from the channel.
@@ -164,7 +164,7 @@ Each note automatically records:
 
 ## Conversation History
 
-One of the most powerful features of Owly's customer management is the ability to view a customer's complete conversation history across all channels in a single view.
+One of the most powerful features of Ride Bangla AI Agent's customer management is the ability to view a customer's complete conversation history across all channels in a single view.
 
 ### What the History Shows
 
@@ -186,7 +186,7 @@ This unified history is critical for delivering consistent support. Consider thi
 2. The AI creates a ticket and promises a replacement.
 3. On Wednesday, the same customer sends a WhatsApp message asking about the status.
 
-Because Owly links both conversations to the same customer profile, you (and the AI, using the `get_customer_history` tool) can see the full context. The AI knows about the Monday email and the pending ticket, so it can provide an informed status update instead of treating the WhatsApp message as a brand-new inquiry.
+Because Ride Bangla AI Agent links both conversations to the same customer profile, you (and the AI, using the `get_customer_history` tool) can see the full context. The AI knows about the Monday email and the pending ticket, so it can provide an informed status update instead of treating the WhatsApp message as a brand-new inquiry.
 
 ### How the AI Uses Customer History
 

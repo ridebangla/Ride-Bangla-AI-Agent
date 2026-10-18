@@ -224,13 +224,13 @@ export default function KnowledgeTestPage() {
             {messages.length === 0 && !loading && (
               <div className="flex-1 flex items-center justify-center min-h-[400px]">
                 <div className="text-center max-w-md">
-                  <div className="mx-auto w-16 h-16 rounded-2xl bg-owly-primary-50 flex items-center justify-center mb-4">
-                    <Bot className="h-8 w-8 text-owly-primary" />
+                  <div className="mx-auto w-16 h-16 rounded-2xl bg-rbai-primary-50 flex items-center justify-center mb-4">
+                    <Bot className="h-8 w-8 text-rbai-primary" />
                   </div>
-                  <h3 className="text-lg font-semibold text-owly-text mb-2">
+                  <h3 className="text-lg font-semibold text-rbai-text mb-2">
                     Test Your Knowledge Base
                   </h3>
-                  <p className="text-sm text-owly-text-light">
+                  <p className="text-sm text-rbai-text-light">
                     Ask a question below to see how the AI responds using your
                     knowledge base entries. This helps verify your content before
                     going live.
@@ -248,8 +248,8 @@ export default function KnowledgeTestPage() {
                 )}
               >
                 {message.role === "assistant" && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-owly-primary-50 flex items-center justify-center">
-                    <Bot className="h-4 w-4 text-owly-primary" />
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-rbai-primary-50 flex items-center justify-center">
+                    <Bot className="h-4 w-4 text-rbai-primary" />
                   </div>
                 )}
 
@@ -263,8 +263,8 @@ export default function KnowledgeTestPage() {
                     className={cn(
                       "rounded-xl px-4 py-3 text-sm leading-relaxed",
                       message.role === "user"
-                        ? "bg-owly-primary text-white rounded-br-sm"
-                        : "bg-owly-surface border border-owly-border text-owly-text rounded-bl-sm"
+                        ? "bg-rbai-primary text-white rounded-br-sm"
+                        : "bg-rbai-surface border border-rbai-border text-rbai-text rounded-bl-sm"
                     )}
                   >
                     <div className="whitespace-pre-wrap">{message.content}</div>
@@ -277,7 +277,7 @@ export default function KnowledgeTestPage() {
                       <div className="w-full">
                         <button
                           onClick={() => toggleSources(message.id)}
-                          className="flex items-center gap-1.5 text-xs text-owly-text-light hover:text-owly-text transition-colors"
+                          className="flex items-center gap-1.5 text-xs text-rbai-text-light hover:text-rbai-text transition-colors"
                         >
                           <BookOpen className="h-3 w-3" />
                           {message.sources.length} source
@@ -294,21 +294,21 @@ export default function KnowledgeTestPage() {
                             {message.sources.map((source) => (
                               <div
                                 key={source.id}
-                                className="bg-owly-bg border border-owly-border rounded-lg px-3 py-2"
+                                className="bg-rbai-bg border border-rbai-border rounded-lg px-3 py-2"
                               >
                                 <div className="flex items-center gap-2 mb-1">
                                   <span
                                     className="w-2 h-2 rounded-full flex-shrink-0"
                                     style={{ backgroundColor: source.categoryColor }}
                                   />
-                                  <span className="text-xs font-medium text-owly-text">
+                                  <span className="text-xs font-medium text-rbai-text">
                                     {source.title}
                                   </span>
-                                  <span className="text-xs text-owly-text-light">
+                                  <span className="text-xs text-rbai-text-light">
                                     {source.category}
                                   </span>
                                 </div>
-                                <p className="text-xs text-owly-text-light line-clamp-2">
+                                <p className="text-xs text-rbai-text-light line-clamp-2">
                                   {source.contentPreview}
                                 </p>
                               </div>
@@ -320,7 +320,7 @@ export default function KnowledgeTestPage() {
 
                   <div
                     className={cn(
-                      "flex items-center gap-2 text-xs text-owly-text-light",
+                      "flex items-center gap-2 text-xs text-rbai-text-light",
                       message.role === "user" ? "justify-end" : "justify-start"
                     )}
                   >
@@ -332,7 +332,7 @@ export default function KnowledgeTestPage() {
                 </div>
 
                 {message.role === "user" && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-owly-primary flex items-center justify-center">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-rbai-primary flex items-center justify-center">
                     <User className="h-4 w-4 text-white" />
                   </div>
                 )}
@@ -341,11 +341,11 @@ export default function KnowledgeTestPage() {
 
             {loading && (
               <div className="flex gap-3 justify-start">
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-owly-primary-50 flex items-center justify-center">
-                  <Bot className="h-4 w-4 text-owly-primary" />
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-rbai-primary-50 flex items-center justify-center">
+                  <Bot className="h-4 w-4 text-rbai-primary" />
                 </div>
-                <div className="bg-owly-surface border border-owly-border rounded-xl rounded-bl-sm px-4 py-3">
-                  <div className="flex items-center gap-2 text-sm text-owly-text-light">
+                <div className="bg-rbai-surface border border-rbai-border rounded-xl rounded-bl-sm px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-rbai-text-light">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Searching knowledge base...
                   </div>
@@ -365,7 +365,7 @@ export default function KnowledgeTestPage() {
           )}
 
           {/* Input area */}
-          <div className="border-t border-owly-border bg-owly-surface px-6 py-4">
+          <div className="border-t border-rbai-border bg-rbai-surface px-6 py-4">
             <div className="flex items-center gap-3">
               <input
                 ref={inputRef}
@@ -375,12 +375,12 @@ export default function KnowledgeTestPage() {
                 onKeyDown={handleKeyDown}
                 placeholder="Ask a question..."
                 disabled={loading}
-                className="flex-1 px-4 py-2.5 text-sm border border-owly-border rounded-lg focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary bg-owly-bg text-owly-text disabled:opacity-50 placeholder:text-owly-text-light"
+                className="flex-1 px-4 py-2.5 text-sm border border-rbai-border rounded-lg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary bg-rbai-bg text-rbai-text disabled:opacity-50 placeholder:text-rbai-text-light"
               />
               <button
                 onClick={handleSend}
                 disabled={!input.trim() || loading}
-                className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-owly-primary text-white hover:bg-owly-primary-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-rbai-primary text-white hover:bg-rbai-primary-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <Send className="h-4 w-4" />
               </button>
@@ -389,59 +389,59 @@ export default function KnowledgeTestPage() {
         </div>
 
         {/* ================= SIDEBAR: KB STATS ================= */}
-        <div className="w-72 flex-shrink-0 border-l border-owly-border bg-owly-surface overflow-y-auto">
-          <div className="px-5 py-4 border-b border-owly-border">
-            <h3 className="text-sm font-semibold text-owly-text">
+        <div className="w-72 flex-shrink-0 border-l border-rbai-border bg-rbai-surface overflow-y-auto">
+          <div className="px-5 py-4 border-b border-rbai-border">
+            <h3 className="text-sm font-semibold text-rbai-text">
               Knowledge Base Stats
             </h3>
           </div>
 
           {stats ? (
             <div className="p-5 space-y-4">
-              <div className="flex items-center gap-3 p-3 bg-owly-bg rounded-lg">
-                <div className="p-2 rounded-lg bg-owly-primary-50">
-                  <Layers className="h-4 w-4 text-owly-primary" />
+              <div className="flex items-center gap-3 p-3 bg-rbai-bg rounded-lg">
+                <div className="p-2 rounded-lg bg-rbai-primary-50">
+                  <Layers className="h-4 w-4 text-rbai-primary" />
                 </div>
                 <div>
-                  <p className="text-lg font-semibold text-owly-text">
+                  <p className="text-lg font-semibold text-rbai-text">
                     {stats.totalCategories}
                   </p>
-                  <p className="text-xs text-owly-text-light">Categories</p>
+                  <p className="text-xs text-rbai-text-light">Categories</p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 p-3 bg-owly-bg rounded-lg">
+              <div className="flex items-center gap-3 p-3 bg-rbai-bg rounded-lg">
                 <div className="p-2 rounded-lg bg-green-50">
                   <FileText className="h-4 w-4 text-green-600" />
                 </div>
                 <div>
-                  <p className="text-lg font-semibold text-owly-text">
+                  <p className="text-lg font-semibold text-rbai-text">
                     {stats.activeEntries}
-                    <span className="text-sm font-normal text-owly-text-light">
+                    <span className="text-sm font-normal text-rbai-text-light">
                       {" "}
                       / {stats.totalEntries}
                     </span>
                   </p>
-                  <p className="text-xs text-owly-text-light">Active Entries</p>
+                  <p className="text-xs text-rbai-text-light">Active Entries</p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 p-3 bg-owly-bg rounded-lg">
+              <div className="flex items-center gap-3 p-3 bg-rbai-bg rounded-lg">
                 <div className="p-2 rounded-lg bg-amber-50">
                   <Clock className="h-4 w-4 text-amber-600" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-owly-text">
+                  <p className="text-sm font-medium text-rbai-text">
                     {stats.lastUpdated
                       ? formatRelativeDate(stats.lastUpdated)
                       : "Never"}
                   </p>
-                  <p className="text-xs text-owly-text-light">Last Updated</p>
+                  <p className="text-xs text-rbai-text-light">Last Updated</p>
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-owly-border">
-                <p className="text-xs text-owly-text-light leading-relaxed">
+              <div className="pt-3 border-t border-rbai-border">
+                <p className="text-xs text-rbai-text-light leading-relaxed">
                   The AI uses active knowledge base entries to answer questions.
                   Inactive entries are excluded from responses.
                 </p>
@@ -449,7 +449,7 @@ export default function KnowledgeTestPage() {
             </div>
           ) : (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-5 w-5 animate-spin text-owly-text-light" />
+              <Loader2 className="h-5 w-5 animate-spin text-rbai-text-light" />
             </div>
           )}
         </div>

@@ -1,6 +1,6 @@
 # Architecture
 
-This page provides a technical overview of Owly's architecture, covering the technology stack, directory layout, database design, authentication flow, and key design decisions.
+This page provides a technical overview of Ride Bangla AI Agent's architecture, covering the technology stack, directory layout, database design, authentication flow, and key design decisions.
 
 ---
 
@@ -63,7 +63,7 @@ The admin dashboard is a React-based single-page application served by Next.js. 
 ## Directory Structure
 
 ```
-owly/
+ride-bangla-ai-agent/
 +-- prisma/
 |   +-- schema.prisma          # Database schema definition
 |   +-- migrations/            # Database migration files
@@ -180,14 +180,14 @@ The database contains 20 models organized into functional groups.
 
 ## Authentication Flow
 
-Owly uses JWT-based authentication with HTTP-only cookies.
+Ride Bangla AI Agent uses JWT-based authentication with HTTP-only cookies.
 
 ### Login Process
 
 1. User submits username and password to `POST /api/auth`.
 2. The server verifies the password against the bcrypt hash stored in the `Admin` table.
 3. On success, a JWT token is generated containing the user's ID, username, and role.
-4. The token is set as an HTTP-only cookie named `owly-token`.
+4. The token is set as an HTTP-only cookie named `rbai-token`.
 5. The client is redirected to the dashboard.
 
 ### Request Authentication
@@ -195,7 +195,7 @@ Owly uses JWT-based authentication with HTTP-only cookies.
 1. The Next.js middleware (`src/middleware.ts`) intercepts every request.
 2. Public paths (`/login`, `/setup`, `/api/auth`, `/api/health`) are allowed without authentication.
 3. Twilio webhook paths (`/api/channels/phone/*`) are allowed without cookie auth (Twilio uses its own signature verification).
-4. For all other paths, the middleware checks for the `owly-token` cookie.
+4. For all other paths, the middleware checks for the `rbai-token` cookie.
 5. If missing: API routes return `401 Unauthorized`, page routes redirect to `/login`.
 
 ### API Key Authentication
@@ -294,11 +294,11 @@ Each communication channel has a dedicated handler that normalizes incoming mess
 
 ### Single-Process Architecture
 
-Owly runs as a single Next.js process that handles both the frontend and backend. This simplifies deployment but means that long-running AI requests share resources with the dashboard. For high-traffic deployments, consider running multiple instances behind a load balancer.
+Ride Bangla AI Agent runs as a single Next.js process that handles both the frontend and backend. This simplifies deployment but means that long-running AI requests share resources with the dashboard. For high-traffic deployments, consider running multiple instances behind a load balancer.
 
 ### Knowledge Base as Context Injection
 
-Rather than using vector embeddings or a dedicated RAG pipeline, Owly injects the entire active knowledge base into the AI's system prompt. This approach is simpler to implement and works well for knowledge bases with up to a few hundred entries. For larger knowledge bases, a vector search system would be more appropriate.
+Rather than using vector embeddings or a dedicated RAG pipeline, Ride Bangla AI Agent injects the entire active knowledge base into the AI's system prompt. This approach is simpler to implement and works well for knowledge bases with up to a few hundred entries. For larger knowledge bases, a vector search system would be more appropriate.
 
 ### Tool Depth Limit
 
@@ -306,7 +306,7 @@ The AI can call tools up to 5 times per request. This prevents infinite loops wh
 
 ### Singleton Settings
 
-The `Settings` and `BusinessHours` models use a fixed ID (`"default"`) to enforce a singleton pattern. There is only one configuration per Owly instance.
+The `Settings` and `BusinessHours` models use a fixed ID (`"default"`) to enforce a singleton pattern. There is only one configuration per Ride Bangla AI Agent instance.
 
 ### Prisma ORM
 

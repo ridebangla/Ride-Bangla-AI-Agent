@@ -1,6 +1,6 @@
 # API Reference
 
-Owly provides a REST API for programmatic access to all major features. This page documents every available endpoint, including request and response formats.
+Ride Bangla AI Agent provides a REST API for programmatic access to all major features. This page documents every available endpoint, including request and response formats.
 
 ![API Documentation Page](../screenshots/17-api-docs.png)
 
@@ -15,23 +15,23 @@ All API requests (except `/api/health` and `/api/auth`) require authentication. 
 Include an API key in the `X-API-Key` header:
 
 ```
-X-API-Key: owly_your_api_key_here
+X-API-Key: rbai_your_api_key_here
 ```
 
 Generate API keys from the Admin page. See [API Keys](API-Keys) for details.
 
 ### Method 2: Session Cookie (Dashboard)
 
-The Owly dashboard uses JWT-based session cookies (`owly-token`). This method is used automatically by the browser when you are logged in. It is not recommended for external integrations.
+The Ride Bangla AI Agent dashboard uses JWT-based session cookies (`rbai-token`). This method is used automatically by the browser when you are logged in. It is not recommended for external integrations.
 
 ---
 
 ## Base URL
 
-All endpoints are relative to your Owly deployment URL:
+All endpoints are relative to your Ride Bangla AI Agent deployment URL:
 
 ```
-https://your-owly-domain
+https://your-rbai-domain
 ```
 
 For local development:
@@ -524,7 +524,7 @@ Export data in JSON or CSV format.
 
 #### GET /api/health
 
-A public endpoint (no authentication required) to check if the Owly server is running.
+A public endpoint (no authentication required) to check if the Ride Bangla AI Agent server is running.
 
 **Response (200):**
 
@@ -571,7 +571,7 @@ Content-Type: application/json
 
 ## Rate Limiting
 
-Owly does not currently enforce built-in rate limiting. If you are deploying Owly in a production environment with public-facing API access, it is strongly recommended to add rate limiting at the reverse proxy level (e.g., Nginx, Caddy, or Cloudflare).
+Ride Bangla AI Agent does not currently enforce built-in rate limiting. If you are deploying Ride Bangla AI Agent in a production environment with public-facing API access, it is strongly recommended to add rate limiting at the reverse proxy level (e.g., Nginx, Caddy, or Cloudflare).
 
 ### Recommended Limits
 
@@ -585,10 +585,10 @@ Owly does not currently enforce built-in rate limiting. If you are deploying Owl
 ### Nginx Rate Limiting Example
 
 ```nginx
-limit_req_zone $http_x_api_key zone=owly_api:10m rate=60r/m;
+limit_req_zone $http_x_api_key zone=rbai_api:10m rate=60r/m;
 
 location /api/ {
-    limit_req zone=owly_api burst=10 nodelay;
+    limit_req zone=rbai_api burst=10 nodelay;
     proxy_pass http://localhost:3000;
 }
 ```

@@ -27,7 +27,7 @@ The Ticket System tracks customer issues that require structured follow-up beyon
 
 Not every customer interaction can be resolved in a single conversation. Some issues require investigation, coordination between departments, or follow-up over days or weeks. The ticket system provides the structure to track these issues from identification to resolution.
 
-Tickets in Owly are tightly integrated with the rest of the platform:
+Tickets in Ride Bangla AI Agent are tightly integrated with the rest of the platform:
 
 - **Conversations.** Tickets are linked to the conversation where the issue was first reported, preserving the full context.
 - **Departments.** Tickets are assigned to the department best equipped to handle the issue.
@@ -88,7 +88,7 @@ Each ticket contains the following information:
 
 ## Priority Levels
 
-Priority indicates how urgently a ticket needs attention. Owly supports four priority levels:
+Priority indicates how urgently a ticket needs attention. Ride Bangla AI Agent supports four priority levels:
 
 | Priority | Description | Typical Response Expectation | Example Scenarios |
 |----------|-------------|------------------------------|-------------------|
@@ -266,7 +266,7 @@ Filters can be combined. For example, you can view all "High" priority tickets t
 
 ## How the AI Creates Tickets Automatically
 
-One of Owly's most powerful features is the AI's ability to create tickets during conversations without human intervention.
+One of Ride Bangla AI Agent's most powerful features is the AI's ability to create tickets during conversations without human intervention.
 
 ### When the AI Creates a Ticket
 

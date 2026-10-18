@@ -49,7 +49,7 @@ describe("Outbound webhooks (M-54)", () => {
     expect(String(updateArg.data.lastError)).toContain("WEBHOOK_SECRET");
   });
 
-  it("signs deliveries with X-Owly-Signature when WEBHOOK_SECRET is set", async () => {
+  it("signs deliveries with X-RBAI-Signature when WEBHOOK_SECRET is set", async () => {
     process.env.WEBHOOK_SECRET = "test-webhook-secret";
     try {
       mockPrisma.webhookDelivery.create.mockResolvedValue({ id: "d1" });
@@ -72,7 +72,7 @@ describe("Outbound webhooks (M-54)", () => {
       expect(fetch).toHaveBeenCalledTimes(1);
       const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock
         .calls[0];
-      expect(init.headers["X-Owly-Signature"]).toMatch(/^[0-9a-f]{64}$/);
+      expect(init.headers["X-RBAI-Signature"]).toMatch(/^[0-9a-f]{64}$/);
     } finally {
       delete process.env.WEBHOOK_SECRET;
     }

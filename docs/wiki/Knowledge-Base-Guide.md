@@ -1,6 +1,6 @@
 # Knowledge Base Guide
 
-The knowledge base is the foundation of your AI support agent. It contains the information that Owly uses to answer customer questions accurately. A well-organized knowledge base leads to better, more relevant AI responses.
+The knowledge base is the foundation of your AI support agent. It contains the information that Ride Bangla AI Agent uses to answer customer questions accurately. A well-organized knowledge base leads to better, more relevant AI responses.
 
 ![Knowledge Base](../screenshots/05-knowledge-base.png)
 *The Knowledge Base page showing categories with entry counts, descriptions, and color-coded icons.*
@@ -9,10 +9,10 @@ The knowledge base is the foundation of your AI support agent. It contains the i
 
 ## How the Knowledge Base Works
 
-Owly uses a technique called RAG (Retrieval-Augmented Generation) to provide accurate answers. Here is what happens when a customer asks a question:
+Ride Bangla AI Agent uses a technique called RAG (Retrieval-Augmented Generation) to provide accurate answers. Here is what happens when a customer asks a question:
 
 1. The customer sends a message through any channel (WhatsApp, Email, Phone, or API)
-2. Owly retrieves all active knowledge base entries
+2. Ride Bangla AI Agent retrieves all active knowledge base entries
 3. The entries are sorted by priority (higher priority entries are given more weight)
 4. The AI receives the knowledge base along with the customer's question
 5. The AI generates a response based on your knowledge base content, not from general internet knowledge
@@ -128,7 +128,7 @@ Review your knowledge base periodically. Remove outdated information and add new
 
 ## Testing Your Knowledge Base
 
-Owly includes a built-in testing tool that lets you see how the AI responds using your current knowledge base.
+Ride Bangla AI Agent includes a built-in testing tool that lets you see how the AI responds using your current knowledge base.
 
 ### Using the Test Page
 

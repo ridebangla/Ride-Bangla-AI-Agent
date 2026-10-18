@@ -9,7 +9,7 @@
 
 ## Security Features
 
-Owly includes the following security measures out of the box:
+Ride Bangla AI Agent includes the following security measures out of the box:
 
 - **JWT authentication** with httpOnly, secure, sameSite cookies
 - **bcrypt password hashing** with 12 salt rounds
@@ -19,7 +19,7 @@ Owly includes the following security measures out of the box:
 - **Secret masking** in API responses (API keys, passwords, tokens replaced with `***`)
 - **XSS protection** via HTML entity escaping in email templates
 - **CRLF injection prevention** in email subject lines
-- **Webhook signatures** using HMAC-SHA256 (`X-Owly-Signature` header)
+- **Webhook signatures** using HMAC-SHA256 (`X-RBAI-Signature` header)
 - **Request ID tracking** for audit trail (`X-Request-Id` header)
 - **Non-root Docker container** (UID 1001)
 - **Structured logging** (no secrets in log output)
@@ -30,7 +30,7 @@ If you discover a security vulnerability, please report it responsibly.
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Instead, please send an email to the maintainers or use [GitHub's private vulnerability reporting](https://github.com/Hesper-Labs/owly/security/advisories/new).
+Instead, please send an email to the maintainers or use [GitHub's private vulnerability reporting](https://github.com/ridebangla/Ride-Bangla-AI-Agent/security/advisories/new).
 
 ### What to include
 

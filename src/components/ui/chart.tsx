@@ -68,12 +68,12 @@ export function BarChart({
     <div
       ref={ref}
       className={cn(
-        "bg-owly-surface rounded-xl border border-owly-border p-5",
+        "bg-rbai-surface rounded-xl border border-rbai-border p-5",
         className
       )}
     >
       {title && (
-        <h3 className="text-sm font-semibold text-owly-text mb-4">{title}</h3>
+        <h3 className="text-sm font-semibold text-rbai-text mb-4">{title}</h3>
       )}
       <div className="flex items-end gap-2" style={{ height }}>
         {data.map((d, i) => {
@@ -86,7 +86,7 @@ export function BarChart({
             >
               {/* Tooltip */}
               <div className="relative mb-1">
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 rounded text-xs font-medium text-white bg-owly-text whitespace-nowrap z-10">
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 rounded text-xs font-medium text-white bg-rbai-text whitespace-nowrap z-10">
                   {d.value.toLocaleString()}
                 </span>
               </div>
@@ -100,7 +100,7 @@ export function BarChart({
                 }}
               />
               {/* Label */}
-              <span className="text-[10px] text-owly-text-light mt-2 truncate w-full text-center leading-tight">
+              <span className="text-[10px] text-rbai-text-light mt-2 truncate w-full text-center leading-tight">
                 {d.label}
               </span>
             </div>
@@ -173,12 +173,12 @@ export function LineChart({
     <div
       ref={ref}
       className={cn(
-        "bg-owly-surface rounded-xl border border-owly-border p-5",
+        "bg-rbai-surface rounded-xl border border-rbai-border p-5",
         className
       )}
     >
       {title && (
-        <h3 className="text-sm font-semibold text-owly-text mb-4">{title}</h3>
+        <h3 className="text-sm font-semibold text-rbai-text mb-4">{title}</h3>
       )}
       <svg
         viewBox={`0 0 ${chartWidth} ${chartHeight}`}
@@ -210,7 +210,7 @@ export function LineChart({
                 x={padding.left - 8}
                 y={y + 3}
                 textAnchor="end"
-                className="fill-owly-text-light"
+                className="fill-rbai-text-light"
                 fontSize="10"
               >
                 {v}
@@ -271,7 +271,7 @@ export function LineChart({
                 x={p.x}
                 y={chartHeight - 6}
                 textAnchor="middle"
-                className="fill-owly-text-light"
+                className="fill-rbai-text-light"
                 fontSize="10"
               >
                 {p.label}
@@ -351,12 +351,12 @@ export function DonutChart({
     <div
       ref={ref}
       className={cn(
-        "bg-owly-surface rounded-xl border border-owly-border p-5",
+        "bg-rbai-surface rounded-xl border border-rbai-border p-5",
         className
       )}
     >
       {title && (
-        <h3 className="text-sm font-semibold text-owly-text mb-4">{title}</h3>
+        <h3 className="text-sm font-semibold text-rbai-text mb-4">{title}</h3>
       )}
       <div className="flex items-center gap-6 flex-wrap justify-center">
         {/* Donut */}
@@ -380,10 +380,10 @@ export function DonutChart({
           </svg>
           {/* Center label */}
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-2xl font-bold text-owly-text">
+            <span className="text-2xl font-bold text-rbai-text">
               {total.toLocaleString()}
             </span>
-            <span className="text-xs text-owly-text-light">Total</span>
+            <span className="text-xs text-rbai-text-light">Total</span>
           </div>
         </div>
 
@@ -395,8 +395,8 @@ export function DonutChart({
                 className="w-3 h-3 rounded-sm flex-shrink-0"
                 style={{ backgroundColor: seg.color }}
               />
-              <span className="text-owly-text-light">{seg.label}</span>
-              <span className="font-medium text-owly-text ml-auto pl-3">
+              <span className="text-rbai-text-light">{seg.label}</span>
+              <span className="font-medium text-rbai-text ml-auto pl-3">
                 {seg.value}
               </span>
             </div>

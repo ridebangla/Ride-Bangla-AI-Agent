@@ -12,8 +12,26 @@ import {
   Clock,
 } from "lucide-react";
 import { formatRelativeTime, getChannelLabel, getStatusColor } from "@/lib/utils";
+import { enterServerBusinessContext } from "@/lib/server-context";
+
+// This page reads tenant-scoped data in a Server Component: it must render
+// per request (never statically prerendered) and enter the viewer's business
+// context from the session cookie.
+export const dynamic = "force-dynamic";
 
 async function getStats() {
+  const businessId = await enterServerBusinessContext();
+  if (!businessId) {
+    return {
+      totalConversations: 0,
+      activeConversations: 0,
+      totalTickets: 0,
+      openTickets: 0,
+      totalMessages: 0,
+      recentConversations: [],
+      resolutionRate: 0,
+    };
+  }
   const [
     totalConversations,
     activeConversations,
@@ -102,15 +120,15 @@ export default async function DashboardPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-owly-surface rounded-xl border border-owly-border">
-            <div className="px-5 py-4 border-b border-owly-border">
-              <h3 className="font-semibold text-owly-text">
+          <div className="lg:col-span-2 bg-rbai-surface rounded-xl border border-rbai-border">
+            <div className="px-5 py-4 border-b border-rbai-border">
+              <h3 className="font-semibold text-rbai-text">
                 Recent Conversations
               </h3>
             </div>
-            <div className="divide-y divide-owly-border">
+            <div className="divide-y divide-rbai-border">
               {stats.recentConversations.length === 0 ? (
-                <div className="px-5 py-12 text-center text-owly-text-light">
+                <div className="px-5 py-12 text-center text-rbai-text-light">
                   <MessageSquare className="h-10 w-10 mx-auto mb-3 opacity-40" />
                   <p className="font-medium">No conversations yet</p>
                   <p className="text-sm mt-1">
@@ -126,27 +144,27 @@ export default async function DashboardPage() {
                   return (
                     <div
                       key={conv.id}
-                      className="px-5 py-3.5 hover:bg-owly-primary-50/50 transition-colors cursor-pointer"
+                      className="px-5 py-3.5 hover:bg-rbai-primary-50/50 transition-colors cursor-pointer"
                     >
                       <div className="flex items-start gap-3">
-                        <div className="p-2 rounded-lg bg-owly-primary-50 text-owly-primary mt-0.5">
+                        <div className="p-2 rounded-lg bg-rbai-primary-50 text-rbai-primary mt-0.5">
                           <ChannelIcon className="h-4 w-4" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
-                            <p className="font-medium text-sm text-owly-text truncate">
+                            <p className="font-medium text-sm text-rbai-text truncate">
                               {conv.customerName}
                             </p>
-                            <span className="text-xs text-owly-text-light flex-shrink-0 ml-2">
+                            <span className="text-xs text-rbai-text-light flex-shrink-0 ml-2">
                               {formatRelativeTime(conv.updatedAt)}
                             </span>
                           </div>
-                          <p className="text-xs text-owly-text-light mt-0.5">
+                          <p className="text-xs text-rbai-text-light mt-0.5">
                             {getChannelLabel(conv.channel)} -{" "}
                             {conv._count.messages} messages
                           </p>
                           {lastMessage && (
-                            <p className="text-sm text-owly-text-light mt-1 truncate">
+                            <p className="text-sm text-rbai-text-light mt-1 truncate">
                               {lastMessage.content}
                             </p>
                           )}
@@ -165,9 +183,9 @@ export default async function DashboardPage() {
           </div>
 
           <div className="space-y-6">
-            <div className="bg-owly-surface rounded-xl border border-owly-border">
-              <div className="px-5 py-4 border-b border-owly-border">
-                <h3 className="font-semibold text-owly-text">
+            <div className="bg-rbai-surface rounded-xl border border-rbai-border">
+              <div className="px-5 py-4 border-b border-rbai-border">
+                <h3 className="font-semibold text-rbai-text">
                   Channel Overview
                 </h3>
               </div>
@@ -201,21 +219,21 @@ export default async function DashboardPage() {
               </div>
             </div>
 
-            <div className="bg-owly-surface rounded-xl border border-owly-border">
-              <div className="px-5 py-4 border-b border-owly-border">
-                <h3 className="font-semibold text-owly-text">Quick Stats</h3>
+            <div className="bg-rbai-surface rounded-xl border border-rbai-border">
+              <div className="px-5 py-4 border-b border-rbai-border">
+                <h3 className="font-semibold text-rbai-text">Quick Stats</h3>
               </div>
               <div className="p-5 space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-owly-text-light">Total Messages</span>
+                  <span className="text-rbai-text-light">Total Messages</span>
                   <span className="font-medium">{stats.totalMessages}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-owly-text-light">Total Tickets</span>
+                  <span className="text-rbai-text-light">Total Tickets</span>
                   <span className="font-medium">{stats.totalTickets}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-owly-text-light">
+                  <span className="text-rbai-text-light">
                     Avg. Resolution Rate
                   </span>
                   <span className="font-medium">{stats.resolutionRate}%</span>

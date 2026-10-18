@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId, getBusinessId, TenantContextError } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 
 /**
@@ -114,11 +114,11 @@ export async function transferConversation(
 
   // Add internal note about transfer
   await prisma.internalNote.create({
-    data: {
+    data: withBusinessId({
       conversationId,
       content: `Conversation transferred from ${fromMemberName} to ${member.name}${note ? `: ${note}` : ""}`,
       authorName: "System",
-    },
+    }),
   });
 
   logger.info("Conversation transferred", {
@@ -164,11 +164,11 @@ export async function mergeConversations(
 
   // Add merge note
   await prisma.internalNote.create({
-    data: {
+    data: withBusinessId({
       conversationId: primaryId,
       content: `Merged with conversation ${secondaryId} (${secondary.customerName} via ${secondary.channel})`,
       authorName: "System",
-    },
+    }),
   });
 
   // Close secondary
@@ -201,11 +201,11 @@ export async function snoozeConversation(
   });
 
   await prisma.internalNote.create({
-    data: {
+    data: withBusinessId({
       conversationId,
       content: `Snoozed until ${snoozeUntil.toLocaleDateString()}: ${reason}`,
       authorName,
-    },
+    }),
   });
 
   return true;
@@ -289,14 +289,16 @@ export async function executeMacro(
         }
 
         case "add_tag": {
+          const businessId = getBusinessId();
+          if (!businessId) throw new TenantContextError("tag", "add_tag");
           let tag = await prisma.tag.findUnique({
-            where: { name: action.value },
+            where: { businessId_name: { businessId, name: action.value } },
           });
           if (!tag) {
-            tag = await prisma.tag.create({ data: { name: action.value } });
+            tag = await prisma.tag.create({ data: withBusinessId({ name: action.value }) });
           }
           await prisma.conversationTag.create({
-            data: { conversationId, tagId: tag.id },
+            data: withBusinessId({ conversationId, tagId: tag.id }),
           }).catch(() => { /* already tagged */ });
           executed++;
           break;
@@ -304,14 +306,14 @@ export async function executeMacro(
 
         case "add_note":
           await prisma.internalNote.create({
-            data: { conversationId, content: action.value, authorName },
+            data: withBusinessId({ conversationId, content: action.value, authorName }),
           });
           executed++;
           break;
 
         case "send_message":
           await prisma.message.create({
-            data: { conversationId, role: "assistant", content: action.value },
+            data: withBusinessId({ conversationId, role: "assistant", content: action.value }),
           });
           executed++;
           break;

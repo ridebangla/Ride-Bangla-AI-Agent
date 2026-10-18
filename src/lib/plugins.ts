@@ -1,7 +1,7 @@
 import { logger } from "@/lib/logger";
 
 /**
- * Plugin System for Owly
+ * Plugin System for Ride Bangla AI Agent
  * Allows extending functionality via standardized hooks.
  */
 
@@ -18,7 +18,7 @@ export interface PluginHook {
   handler: (context: PluginContext, data: unknown) => Promise<unknown>;
 }
 
-export interface OwlyPlugin {
+export interface RbaiPlugin {
   id: string;
   name: string;
   version: string;
@@ -29,13 +29,13 @@ export interface OwlyPlugin {
 }
 
 // Plugin registry
-const plugins = new Map<string, OwlyPlugin>();
+const plugins = new Map<string, RbaiPlugin>();
 const hookRegistry = new Map<string, PluginHook[]>();
 
 /**
  * Register a plugin.
  */
-export async function registerPlugin(plugin: OwlyPlugin): Promise<boolean> {
+export async function registerPlugin(plugin: RbaiPlugin): Promise<boolean> {
   if (plugins.has(plugin.id)) {
     logger.warn(`Plugin already registered: ${plugin.id}`);
     return false;

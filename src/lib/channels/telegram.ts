@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { chat, createNewConversation } from "@/lib/ai/engine";
 import { resolveCustomer } from "@/lib/customer-resolver";
 import { logger } from "@/lib/logger";
+import { enterBusinessContext, resolveChannelBusiness } from "@/lib/tenant";
 
 interface TelegramUpdate {
   update_id: number;
@@ -19,8 +20,39 @@ interface TelegramUpdate {
       type: string;
     };
     text?: string;
+    caption?: string;
+    photo?: { file_id: string; width: number; height: number }[];
+    voice?: { file_id: string; mime_type?: string };
+    video?: { file_id: string; mime_type?: string };
     date: number;
   };
+}
+
+/** Download a Telegram file_id into bytes via the Bot API. */
+async function downloadTelegramFile(
+  token: string,
+  fileId: string
+): Promise<{ bytes: Buffer; mimeType: string } | null> {
+  const infoRes = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
+  if (!infoRes.ok) return null;
+  const info = (await infoRes.json()) as { ok: boolean; result?: { file_path?: string } };
+  const filePath = info.result?.file_path;
+  if (!filePath) return null;
+  const dlRes = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+  if (!dlRes.ok) return null;
+  const bytes = Buffer.from(await dlRes.arrayBuffer());
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  const mimeType =
+    ext === "jpg" || ext === "jpeg"
+      ? "image/jpeg"
+      : ext === "png"
+        ? "image/png"
+        : ext === "mp4"
+          ? "video/mp4"
+          : ext === "ogg" || ext === "oga"
+            ? "audio/ogg"
+            : "application/octet-stream";
+  return { bytes, mimeType };
 }
 
 async function getTelegramToken(): Promise<string> {
@@ -62,9 +94,13 @@ export async function verifyTelegramSecretToken(
 /**
  * Handle incoming Telegram webhook update.
  */
-export async function handleTelegramUpdate(update: TelegramUpdate): Promise<string | null> {
+export async function handleTelegramUpdate(
+  update: TelegramUpdate,
+  businessSlug?: string | null
+): Promise<string | null> {
+  enterBusinessContext(await resolveChannelBusiness(businessSlug));
   const message = update.message;
-  if (!message?.text) return null;
+  if (!message) return null;
 
   try {
     const chatId = String(message.chat.id);
@@ -85,10 +121,31 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<stri
       conversation = await createNewConversation("telegram", userName, contact, customerId);
     }
 
-    const aiResponse = await chat(conversation.id, message.text);
+    // Text, photo, voice or video — media goes through the brain's real
+    // perception path (vision / Whisper), never just a label.
+    const token = await getTelegramToken();
+    let text = message.text ?? message.caption ?? "";
+    let media: { kind: "image" | "video" | "audio"; mimeType: string; bytes: Buffer } | undefined;
+
+    if (!text && token) {
+      const fileId = message.photo?.length
+        ? message.photo[message.photo.length - 1].file_id
+        : message.voice?.file_id ?? message.video?.file_id;
+      const kind = message.photo?.length ? "image" : message.voice ? "audio" : message.video ? "video" : null;
+      if (fileId && kind) {
+        const dl = await downloadTelegramFile(token, fileId).catch(() => null);
+        if (dl && dl.bytes.length > 0 && dl.bytes.length < 15 * 1024 * 1024) {
+          media = { kind: kind as "image" | "video" | "audio", mimeType: dl.mimeType, bytes: dl.bytes };
+          text = message.caption ?? "";
+        }
+      }
+    }
+
+    if (!text && !media) return null;
+
+    const aiResponse = await chat(conversation.id, text, media ? { media } : undefined);
 
     // Send reply via Telegram API
-    const token = await getTelegramToken();
     if (token) {
       await sendTelegramMessage(token, message.chat.id, aiResponse);
     }
@@ -101,9 +158,9 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<stri
 }
 
 /**
- * Send a message via Telegram Bot API.
+ * Send a message via Telegram Bot API. Exported for the follow-up dispatcher.
  */
-async function sendTelegramMessage(
+export async function sendTelegramMessage(
   token: string,
   chatId: number,
   text: string

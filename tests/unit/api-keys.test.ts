@@ -23,7 +23,7 @@ describe("API key hashing + scopes (H-15)", () => {
   });
 
   it("hashes deterministically and never equals the plaintext", () => {
-    const key = "owly_test_key_123";
+    const key = "rbai_test_key_123";
     expect(hashApiKey(key)).toBe(
       crypto.createHash("sha256").update(key, "utf8").digest("hex")
     );
@@ -33,7 +33,7 @@ describe("API key hashing + scopes (H-15)", () => {
   });
 
   it("derives the display suffix and masks it", () => {
-    expect(keySuffixOf("owly_abcdefgh12345678")).toBe("12345678");
+    expect(keySuffixOf("rbai_abcdefgh12345678")).toBe("12345678");
     expect(maskApiKeySuffix("12345678")).toBe("********12345678");
     expect(publicApiKey({
       id: "1",
@@ -93,7 +93,7 @@ describe("API key hashing + scopes (H-15)", () => {
     expect(response.status).toBe(201);
     // Full key returned once, hash never returned.
     expect(typeof data.key).toBe("string");
-    expect(data.key.startsWith("owly_")).toBe(true);
+    expect(data.key.startsWith("rbai_")).toBe(true);
     expect("keyHash" in data).toBe(false);
     // What was stored is the hash of the returned key — not the key itself.
     const stored = mockPrisma.apiKey.create.mock.calls[0][0].data;

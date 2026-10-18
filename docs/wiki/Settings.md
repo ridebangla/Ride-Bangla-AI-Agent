@@ -1,6 +1,6 @@
 # Settings
 
-The Settings page is the central configuration hub for your Owly instance. It controls how the AI behaves, which communication channels are active, and how your business is represented to customers.
+The Settings page is the central configuration hub for your Ride Bangla AI Agent instance. It controls how the AI behaves, which communication channels are active, and how your business is represented to customers.
 
 ![Settings Page](../screenshots/18-settings.png)
 
@@ -8,7 +8,7 @@ The Settings page is the central configuration hub for your Owly instance. It co
 
 ## Navigation
 
-The Settings page is organized into six tabs, each controlling a different aspect of your Owly deployment. Click any tab to switch between sections. Changes are saved per-section, so you can update one area without affecting others.
+The Settings page is organized into six tabs, each controlling a different aspect of your Ride Bangla AI Agent deployment. Click any tab to switch between sections. Changes are saved per-section, so you can update one area without affecting others.
 
 ---
 
@@ -34,7 +34,7 @@ The General tab defines your business identity and how the AI communicates with 
 
 ## AI Configuration
 
-The AI Configuration tab controls which language model powers Owly's conversational engine.
+The AI Configuration tab controls which language model powers Ride Bangla AI Agent's conversational engine.
 
 | Field | Description | Default |
 |-------|-------------|---------|
@@ -49,7 +49,7 @@ The AI Configuration tab controls which language model powers Owly's conversatio
 - **gpt-4o-mini**: Best for most use cases. Fast responses, low cost, good accuracy for customer support.
 - **gpt-4o**: Use when you need the highest quality responses, such as complex technical support or nuanced conversations.
 
-> **Important**: The API key is stored in your database. Owly never transmits it anywhere except to the configured AI provider. You can verify this in the source code at `src/lib/ai/engine.ts`.
+> **Important**: The API key is stored in your database. Ride Bangla AI Agent never transmits it anywhere except to the configured AI provider. You can verify this in the source code at `src/lib/ai/engine.ts`.
 
 ---
 
@@ -81,8 +81,8 @@ The Phone tab configures Twilio integration for handling inbound and outbound ph
 1. Create a Twilio account at [twilio.com](https://www.twilio.com).
 2. Purchase a phone number with voice capabilities.
 3. Copy your Account SID and Auth Token from the Twilio Console.
-4. Enter the credentials in Owly's Phone settings.
-5. Configure your Twilio phone number's webhook URL to point to `https://your-owly-domain/api/channels/phone/incoming`.
+4. Enter the credentials in Ride Bangla AI Agent's Phone settings.
+5. Configure your Twilio phone number's webhook URL to point to `https://your-rbai-domain/api/channels/phone/incoming`.
 
 ---
 
@@ -122,11 +122,11 @@ If using Gmail, you must generate an App Password instead of using your regular 
 
 ## WhatsApp
 
-The WhatsApp tab configures how Owly connects to WhatsApp for messaging.
+The WhatsApp tab configures how Ride Bangla AI Agent connects to WhatsApp for messaging.
 
 | Field | Description | Default |
 |-------|-------------|---------|
-| **Connection Mode** | How Owly connects to WhatsApp. Options: `web` (WhatsApp Web via QR code), `api` (WhatsApp Business API). | web |
+| **Connection Mode** | How Ride Bangla AI Agent connects to WhatsApp. Options: `web` (WhatsApp Web via QR code), `api` (WhatsApp Business API). | web |
 | **API Key** | Required only for API mode. Your WhatsApp Business API key. | (empty) |
 | **Phone Number** | Required only for API mode. The WhatsApp Business phone number. | (empty) |
 

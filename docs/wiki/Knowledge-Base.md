@@ -1,6 +1,6 @@
 # Knowledge Base
 
-The knowledge base is the foundation of your AI support agent. Every answer Owly gives to a customer is derived from the knowledge entries you create and maintain. A well-structured, accurately prioritized knowledge base directly translates to better, more reliable AI responses. A neglected one leads to incorrect answers, frustrated customers, and unnecessary escalations.
+The knowledge base is the foundation of your AI support agent. Every answer Ride Bangla AI Agent gives to a customer is derived from the knowledge entries you create and maintain. A well-structured, accurately prioritized knowledge base directly translates to better, more reliable AI responses. A neglected one leads to incorrect answers, frustrated customers, and unnecessary escalations.
 
 ![Knowledge Base Overview](../screenshots/05-knowledge-base.png)
 *The Knowledge Base page showing categories with entry counts, descriptions, and color-coded icons.*
@@ -22,11 +22,11 @@ The knowledge base is the foundation of your AI support agent. Every answer Owly
 
 ## How the AI Uses the Knowledge Base
 
-Owly uses a method called **Retrieval-Augmented Generation (RAG)** to answer customer questions. Here is a plain-language explanation of what happens each time a customer sends a message:
+Ride Bangla AI Agent uses a method called **Retrieval-Augmented Generation (RAG)** to answer customer questions. Here is a plain-language explanation of what happens each time a customer sends a message:
 
 1. **Customer sends a message.** The message arrives through any channel -- WhatsApp, Email, Phone, or the API.
 
-2. **Owly retrieves knowledge entries.** The system loads all active knowledge base entries from the database.
+2. **Ride Bangla AI Agent retrieves knowledge entries.** The system loads all active knowledge base entries from the database.
 
 3. **Entries are sorted by priority.** Higher-priority entries are given more prominence in the AI's context. This means a priority-9 entry about your refund policy will carry more weight than a priority-2 entry about office parking.
 
@@ -198,7 +198,7 @@ Each entry has an active toggle that controls whether the AI includes it in resp
 
 ## KB Test Mode
 
-Owly includes a built-in testing capability that lets you verify how the AI responds to questions using your current knowledge base.
+Ride Bangla AI Agent includes a built-in testing capability that lets you verify how the AI responds to questions using your current knowledge base.
 
 ### How to Use Test Mode
 

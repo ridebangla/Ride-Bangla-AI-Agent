@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 import { emitNewMessage } from "@/lib/realtime";
@@ -74,11 +74,11 @@ export async function POST(
     const messageRole = validRoles.includes(role) ? role : "assistant";
 
     const message = await prisma.message.create({
-      data: {
+      data: withBusinessId({
         conversationId: id,
         role: messageRole,
         content: content.trim(),
-      },
+      }),
     });
 
     await prisma.conversation.update({

@@ -1,18 +1,18 @@
 # API Keys
 
-API keys allow external applications and scripts to interact with Owly's REST API programmatically. They are managed from the "API Keys" tab on the Admin page.
+API keys allow external applications and scripts to interact with Ride Bangla AI Agent's REST API programmatically. They are managed from the "API Keys" tab on the Admin page.
 
 ---
 
 ## Purpose
 
-API keys provide authentication for the Owly REST API without requiring a user session. Common use cases include:
+API keys provide authentication for the Ride Bangla AI Agent REST API without requiring a user session. Common use cases include:
 
 - Sending messages to the AI chat endpoint from your own application or website.
-- Integrating Owly with third-party platforms (CRM systems, helpdesk tools, custom dashboards).
+- Integrating Ride Bangla AI Agent with third-party platforms (CRM systems, helpdesk tools, custom dashboards).
 - Automating knowledge base updates through scripts or CI/CD pipelines.
 - Pulling analytics and conversation data into external reporting tools.
-- Building custom chatbot widgets that communicate with Owly's backend.
+- Building custom chatbot widgets that communicate with Ride Bangla AI Agent's backend.
 
 ---
 
@@ -32,19 +32,19 @@ The full API key is displayed **only once** immediately after creation. Copy it 
 
 ## Key Format
 
-All Owly API keys follow a consistent format:
+All Ride Bangla AI Agent API keys follow a consistent format:
 
 ```
-owly_<64-character-hex-string>
+rbai_<64-character-hex-string>
 ```
 
 Example:
 
 ```
-owly_a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+rbai_a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
 ```
 
-The `owly_` prefix makes it easy to identify Owly API keys in configuration files and environment variables. The key is generated using 32 cryptographically random bytes encoded as hexadecimal, providing 256 bits of entropy.
+The `rbai_` prefix makes it easy to identify Ride Bangla AI Agent API keys in configuration files and environment variables. The key is generated using 32 cryptographically random bytes encoded as hexadecimal, providing 256 bits of entropy.
 
 ---
 
@@ -81,20 +81,20 @@ Click the trash icon next to a key and confirm the deletion. Deleted keys are pe
 Include the API key in the `X-API-Key` HTTP header with every request:
 
 ```bash
-curl -X POST https://your-owly-domain/api/chat \
+curl -X POST https://your-rbai-domain/api/chat \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: owly_your_api_key_here" \
+  -H "X-API-Key: rbai_your_api_key_here" \
   -d '{"message": "Hello, I need help with my order"}'
 ```
 
 ### JavaScript Example
 
 ```javascript
-const response = await fetch("https://your-owly-domain/api/chat", {
+const response = await fetch("https://your-rbai-domain/api/chat", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "X-API-Key": "owly_your_api_key_here",
+    "X-API-Key": "rbai_your_api_key_here",
   },
   body: JSON.stringify({
     message: "Hello, I need help with my order",
@@ -111,10 +111,10 @@ console.log(data.response);
 import requests
 
 response = requests.post(
-    "https://your-owly-domain/api/chat",
+    "https://your-rbai-domain/api/chat",
     headers={
         "Content-Type": "application/json",
-        "X-API-Key": "owly_your_api_key_here",
+        "X-API-Key": "rbai_your_api_key_here",
     },
     json={"message": "Hello, I need help with my order"},
 )
@@ -139,6 +139,6 @@ print(data["response"])
 
 6. **Deactivate before deleting.** When rotating keys, deactivate the old key first and verify that your application works with the new key before deleting the old one.
 
-7. **Restrict network access.** If possible, deploy Owly behind a reverse proxy or firewall that limits API access to known IP addresses.
+7. **Restrict network access.** If possible, deploy Ride Bangla AI Agent behind a reverse proxy or firewall that limits API access to known IP addresses.
 
 8. **Use HTTPS exclusively.** API keys sent over unencrypted HTTP connections can be intercepted. Always use HTTPS in production.

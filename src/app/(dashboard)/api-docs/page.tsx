@@ -577,40 +577,40 @@ function TryItPanel({ endpoint }: { endpoint: Endpoint }) {
   ];
 
   return (
-    <div className="mt-4 border border-owly-border rounded-lg overflow-hidden">
+    <div className="mt-4 border border-rbai-border rounded-lg overflow-hidden">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 w-full px-4 py-3 text-sm font-medium text-owly-text bg-owly-primary-50 hover:bg-owly-primary-100 transition-colors text-left"
+        className="flex items-center gap-2 w-full px-4 py-3 text-sm font-medium text-rbai-text bg-rbai-primary-50 hover:bg-rbai-primary-100 transition-colors text-left"
       >
         {open ? (
-          <ChevronDown className="h-4 w-4 text-owly-primary" />
+          <ChevronDown className="h-4 w-4 text-rbai-primary" />
         ) : (
-          <ChevronRight className="h-4 w-4 text-owly-primary" />
+          <ChevronRight className="h-4 w-4 text-rbai-primary" />
         )}
-        <Send className="h-4 w-4 text-owly-primary" />
+        <Send className="h-4 w-4 text-rbai-primary" />
         Try it
       </button>
 
       {open && (
-        <div className="p-4 space-y-4 bg-owly-surface border-t border-owly-border">
+        <div className="p-4 space-y-4 bg-rbai-surface border-t border-rbai-border">
           {allParams.length > 0 && (
             <div className="space-y-3">
-              <h4 className="text-xs font-semibold text-owly-text-light uppercase tracking-wider">
+              <h4 className="text-xs font-semibold text-rbai-text-light uppercase tracking-wider">
                 Parameters
               </h4>
               {allParams.map((p) => (
                 <div key={p.name} className="flex items-start gap-3">
                   <div className="w-40 flex-shrink-0">
-                    <label className="text-sm font-medium text-owly-text">
+                    <label className="text-sm font-medium text-rbai-text">
                       {p.name}
-                      {p.required && <span className="text-owly-danger ml-0.5">*</span>}
+                      {p.required && <span className="text-rbai-danger ml-0.5">*</span>}
                     </label>
-                    <p className="text-xs text-owly-text-light">{p.type}</p>
+                    <p className="text-xs text-rbai-text-light">{p.type}</p>
                   </div>
                   <input
                     type="text"
                     placeholder={p.description}
-                    className="flex-1 px-3 py-1.5 text-sm border border-owly-border rounded-lg bg-owly-bg text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary transition-theme"
+                    className="flex-1 px-3 py-1.5 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-theme"
                     value={paramValues[p.name] || ""}
                     onChange={(e) =>
                       setParamValues({ ...paramValues, [p.name]: e.target.value })
@@ -623,11 +623,11 @@ function TryItPanel({ endpoint }: { endpoint: Endpoint }) {
 
           {(endpoint.method === "POST" || endpoint.method === "PUT") && (
             <div className="space-y-2">
-              <h4 className="text-xs font-semibold text-owly-text-light uppercase tracking-wider">
+              <h4 className="text-xs font-semibold text-rbai-text-light uppercase tracking-wider">
                 Request Body (JSON)
               </h4>
               <textarea
-                className="w-full h-40 px-3 py-2 text-sm font-mono border border-owly-border rounded-lg bg-owly-bg text-owly-text focus:outline-none focus:ring-2 focus:ring-owly-primary/30 focus:border-owly-primary resize-y transition-theme"
+                className="w-full h-40 px-3 py-2 text-sm font-mono border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary resize-y transition-theme"
                 value={bodyText}
                 onChange={(e) => setBodyText(e.target.value)}
               />
@@ -637,7 +637,7 @@ function TryItPanel({ endpoint }: { endpoint: Endpoint }) {
           <button
             onClick={handleSend}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-owly-primary text-white text-sm font-medium rounded-lg hover:bg-owly-primary-dark transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-rbai-primary text-white text-sm font-medium rounded-lg hover:bg-rbai-primary-dark transition-colors disabled:opacity-50"
           >
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -650,7 +650,7 @@ function TryItPanel({ endpoint }: { endpoint: Endpoint }) {
           {response !== null && (
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-owly-text-light uppercase tracking-wider">
+                <span className="text-xs font-semibold text-rbai-text-light uppercase tracking-wider">
                   Response
                 </span>
                 {responseStatus !== null && (
@@ -683,15 +683,15 @@ function TryItPanel({ endpoint }: { endpoint: Endpoint }) {
 
 function EndpointCard({ endpoint }: { endpoint: Endpoint }) {
   return (
-    <div className="border border-owly-border rounded-xl bg-owly-surface p-6 transition-theme">
+    <div className="border border-rbai-border rounded-xl bg-rbai-surface p-6 transition-theme">
       <div className="flex items-center gap-3 flex-wrap">
         <MethodBadge method={endpoint.method} />
-        <code className="text-sm font-semibold text-owly-text font-mono">
+        <code className="text-sm font-semibold text-rbai-text font-mono">
           {endpoint.path}
         </code>
       </div>
 
-      <p className="mt-3 text-sm text-owly-text-light leading-relaxed">
+      <p className="mt-3 text-sm text-rbai-text-light leading-relaxed">
         {endpoint.description}
       </p>
 
@@ -699,23 +699,23 @@ function EndpointCard({ endpoint }: { endpoint: Endpoint }) {
       {((endpoint.params && endpoint.params.length > 0) ||
         (endpoint.queryParams && endpoint.queryParams.length > 0)) && (
         <div className="mt-4">
-          <h4 className="text-xs font-semibold text-owly-text-light uppercase tracking-wider mb-2">
+          <h4 className="text-xs font-semibold text-rbai-text-light uppercase tracking-wider mb-2">
             Parameters
           </h4>
-          <div className="border border-owly-border rounded-lg overflow-hidden">
+          <div className="border border-rbai-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-owly-bg">
-                  <th className="text-left px-4 py-2 text-xs font-semibold text-owly-text-light uppercase">
+                <tr className="bg-rbai-bg">
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-rbai-text-light uppercase">
                     Name
                   </th>
-                  <th className="text-left px-4 py-2 text-xs font-semibold text-owly-text-light uppercase">
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-rbai-text-light uppercase">
                     Type
                   </th>
-                  <th className="text-left px-4 py-2 text-xs font-semibold text-owly-text-light uppercase">
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-rbai-text-light uppercase">
                     Required
                   </th>
-                  <th className="text-left px-4 py-2 text-xs font-semibold text-owly-text-light uppercase">
+                  <th className="text-left px-4 py-2 text-xs font-semibold text-rbai-text-light uppercase">
                     Description
                   </th>
                 </tr>
@@ -723,19 +723,19 @@ function EndpointCard({ endpoint }: { endpoint: Endpoint }) {
               <tbody>
                 {[...(endpoint.params || []), ...(endpoint.queryParams || [])].map(
                   (p) => (
-                    <tr key={p.name} className="border-t border-owly-border">
-                      <td className="px-4 py-2 font-mono text-owly-text font-medium">
+                    <tr key={p.name} className="border-t border-rbai-border">
+                      <td className="px-4 py-2 font-mono text-rbai-text font-medium">
                         {p.name}
                       </td>
-                      <td className="px-4 py-2 text-owly-text-light">{p.type}</td>
+                      <td className="px-4 py-2 text-rbai-text-light">{p.type}</td>
                       <td className="px-4 py-2">
                         {p.required ? (
-                          <span className="text-owly-danger font-medium">Yes</span>
+                          <span className="text-rbai-danger font-medium">Yes</span>
                         ) : (
-                          <span className="text-owly-text-light">No</span>
+                          <span className="text-rbai-text-light">No</span>
                         )}
                       </td>
-                      <td className="px-4 py-2 text-owly-text-light">{p.description}</td>
+                      <td className="px-4 py-2 text-rbai-text-light">{p.description}</td>
                     </tr>
                   )
                 )}
@@ -781,7 +781,7 @@ export default function ApiDocsPage() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar */}
-        <aside className="w-60 flex-shrink-0 border-r border-owly-border bg-owly-bg overflow-y-auto p-4 hidden lg:block">
+        <aside className="w-60 flex-shrink-0 border-r border-rbai-border bg-rbai-bg overflow-y-auto p-4 hidden lg:block">
           <nav className="space-y-1">
             {apiSections.map((section) => {
               const Icon = section.icon;
@@ -793,8 +793,8 @@ export default function ApiDocsPage() {
                   className={cn(
                     "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left",
                     isActive
-                      ? "bg-owly-primary text-white"
-                      : "text-owly-text-light hover:bg-owly-surface hover:text-owly-text"
+                      ? "bg-rbai-primary text-white"
+                      : "text-rbai-text-light hover:bg-rbai-surface hover:text-rbai-text"
                   )}
                 >
                   <Icon className="h-4 w-4 flex-shrink-0" />
@@ -816,7 +816,7 @@ export default function ApiDocsPage() {
               <select
                 value={activeSection}
                 onChange={(e) => setActiveSection(e.target.value)}
-                className="w-full px-3 py-2 border border-owly-border rounded-lg bg-owly-surface text-owly-text text-sm focus:outline-none focus:ring-2 focus:ring-owly-primary/30"
+                className="w-full px-3 py-2 border border-rbai-border rounded-lg bg-rbai-surface text-rbai-text text-sm focus:outline-none focus:ring-2 focus:ring-rbai-primary/30"
               >
                 {apiSections.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -827,29 +827,29 @@ export default function ApiDocsPage() {
             </div>
 
             {/* Authentication Section */}
-            <div className="border border-owly-border rounded-xl bg-owly-surface p-6 transition-theme">
+            <div className="border border-rbai-border rounded-xl bg-rbai-surface p-6 transition-theme">
               <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-owly-primary-50 rounded-lg">
-                  <Key className="h-5 w-5 text-owly-primary" />
+                <div className="p-2 bg-rbai-primary-50 rounded-lg">
+                  <Key className="h-5 w-5 text-rbai-primary" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-owly-text">
+                  <h3 className="text-lg font-semibold text-rbai-text">
                     Authentication
                   </h3>
-                  <p className="text-sm text-owly-text-light">
+                  <p className="text-sm text-rbai-text-light">
                     All API requests require authentication
                   </p>
                 </div>
               </div>
 
-              <div className="space-y-3 text-sm text-owly-text-light leading-relaxed">
+              <div className="space-y-3 text-sm text-rbai-text-light leading-relaxed">
                 <p>
                   Include your API key in the request headers using the{" "}
-                  <code className="px-1.5 py-0.5 bg-owly-bg rounded text-owly-text font-mono text-xs">
+                  <code className="px-1.5 py-0.5 bg-rbai-bg rounded text-rbai-text font-mono text-xs">
                     X-API-Key
                   </code>{" "}
                   header. You can generate and manage API keys from the{" "}
-                  <span className="font-medium text-owly-text">Settings</span> page.
+                  <span className="font-medium text-rbai-text">Settings</span> page.
                 </p>
                 <div className="bg-gray-900 dark:bg-gray-950 text-gray-100 text-sm p-4 rounded-lg border border-gray-700 font-mono">
                   <span className="text-blue-400">curl</span>{" "}
@@ -868,14 +868,14 @@ export default function ApiDocsPage() {
 
             {/* Section Header */}
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-owly-primary-50 rounded-lg">
-                <currentSection.icon className="h-5 w-5 text-owly-primary" />
+              <div className="p-2 bg-rbai-primary-50 rounded-lg">
+                <currentSection.icon className="h-5 w-5 text-rbai-primary" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-owly-text">
+                <h3 className="text-lg font-semibold text-rbai-text">
                   {currentSection.name}
                 </h3>
-                <p className="text-sm text-owly-text-light">
+                <p className="text-sm text-rbai-text-light">
                   {currentSection.endpoints.length} endpoint
                   {currentSection.endpoints.length !== 1 ? "s" : ""}
                 </p>
