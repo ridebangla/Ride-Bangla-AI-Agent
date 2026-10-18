@@ -69,7 +69,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="bg-rbai-surface rounded-2xl shadow-lg border border-rbai-border p-8">
+    <div className="flex flex-col items-center">
+      <Image
+        src="/agent-brand.png"
+        alt="Ride Bangla AI Agent"
+        width={300}
+        height={300}
+        className="mb-6 rounded-2xl shadow-lg"
+        priority
+      />
+      <div className="bg-rbai-surface rounded-2xl shadow-lg border border-rbai-border p-8 w-full">
       <div className="flex flex-col items-center mb-8">
         <Image
           src="/agent-avatar.png"
@@ -146,6 +155,7 @@ export default function LoginPage() {
           )}
         </button>
       </form>
+      </div>
     </div>
   );
 }
