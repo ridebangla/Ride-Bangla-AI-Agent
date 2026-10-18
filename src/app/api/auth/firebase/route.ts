@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import admin from "firebase-admin";
+import * as admin from "firebase-admin";
 import { getUnscopedPrisma } from "@/lib/prisma";
 import {
   generateRefreshToken,
