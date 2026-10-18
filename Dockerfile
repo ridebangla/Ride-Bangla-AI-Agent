@@ -8,7 +8,6 @@ RUN npm ci
 
 COPY . .
 
-RUN npx prisma generate
 RUN npm run build
 
 # ---- Runner stage ----
@@ -54,8 +53,6 @@ COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/src/generated ./src/generated
 COPY --from=builder /app/next.config.ts ./
 
 RUN chown -R nextjs:nodejs /app
@@ -67,4 +64,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD node -e "fetch('http://localhost:3000/api/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
 
-CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]
+CMD ["npm", "start"]

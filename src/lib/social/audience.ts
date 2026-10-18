@@ -4,7 +4,7 @@
  */
 import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import type { Prisma } from "@/generated/prisma/client";
+import type { InputJsonValue } from "@/lib/models";
 
 const STOPWORDS = new Set(
   [
@@ -114,7 +114,7 @@ export async function analyzeAudience(): Promise<Record<string, AudienceData>> {
       updatedAt: new Date().toISOString(),
     };
 
-    const jsonData = data as unknown as Prisma.InputJsonValue;
+    const jsonData = data as unknown as InputJsonValue;
     const existingProfile = await prisma.audienceProfile.findFirst({
       where: { platform },
     });

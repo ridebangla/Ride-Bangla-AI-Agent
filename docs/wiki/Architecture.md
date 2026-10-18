@@ -16,7 +16,7 @@ This page provides a technical overview of Ride Bangla AI Agent's architecture, 
                                          |
 +-------------+    +-----------+    +----+------------+    +-----------+
 |  WhatsApp   +--->+           |    |                 |    |           |
-+-------------+    |           |    |   Next.js App   |    | PostgreSQL|
++-------------+    |           |    |   Next.js App   |    | Firestore |
 +-------------+    |  Channel  +--->+   (App Router)  +<-->+ Database  |
 |    Email    +--->+  Handlers |    |                 |    |           |
 +-------------+    |           |    +---+----+--------+    +-----------+
@@ -46,8 +46,8 @@ The admin dashboard is a React-based single-page application served by Next.js. 
 | **Language** | TypeScript | Type-safe JavaScript for frontend and backend |
 | **UI** | React 19 + Tailwind CSS 4 | Component-based UI with utility-first styling |
 | **State Management** | Zustand | Lightweight client-side state management |
-| **Database** | PostgreSQL | Relational database for all persistent data |
-| **ORM** | Prisma 7 | Type-safe database access and schema management |
+| **Database** | Cloud Firestore | NoSQL document database for all persistent data |
+| **Data layer** | `src/lib/firestore.ts` (Firebase Admin SDK) | Firestore access with Prisma-compatible query API + fail-closed multi-tenancy |
 | **AI Engine** | OpenAI SDK | Chat completions with function calling |
 | **Voice** | ElevenLabs SDK | Text-to-speech for phone channel |
 | **Phone** | Twilio SDK | Inbound/outbound phone call handling |
@@ -64,8 +64,7 @@ The admin dashboard is a React-based single-page application served by Next.js. 
 
 ```
 ride-bangla-ai-agent/
-+-- prisma/
-|   +-- schema.prisma          # Database schema definition
++-- firestore.rules            # Firestore security rules (tenant isolation)
 |   +-- migrations/            # Database migration files
 |   +-- seed.ts                # Database seed script
 +-- public/                    # Static assets (logo, favicon)
@@ -108,13 +107,15 @@ ride-bangla-ai-agent/
 |   |   +-- layout/            # Sidebar, header, shared layout components
 |   |   +-- ui/                # Reusable UI components (cards, charts, dialogs)
 |   +-- generated/
-|   |   +-- prisma/            # Generated Prisma client
+|   |   +-- firestore.ts       # Firestore data-access layer
+|   |   +-- firestore-query.ts   # Pure where/orderBy/select engine
+|   |   +-- models.ts            # TypeScript model interfaces
 |   +-- lib/
 |       +-- ai/
 |       |   +-- engine.ts      # AI conversation engine (chat loop, prompt building)
 |       |   +-- tools.ts       # Tool definitions and execution logic
 |       |   +-- types.ts       # TypeScript interfaces for AI system
-|       +-- prisma.ts          # Prisma client singleton
+|       +-- prisma.ts          # Data-layer re-export (keeps `@/lib/prisma` imports working)
 |       +-- utils.ts           # Shared utility functions
 +-- docs/                      # Documentation and screenshots
 +-- package.json
@@ -308,9 +309,15 @@ The AI can call tools up to 5 times per request. This prevents infinite loops wh
 
 The `Settings` and `BusinessHours` models use a fixed ID (`"default"`) to enforce a singleton pattern. There is only one configuration per Ride Bangla AI Agent instance.
 
-### Prisma ORM
+### Firestore data layer
 
-Prisma was chosen for type-safe database access and automatic migration management. The generated client at `src/generated/prisma/` provides full TypeScript types for all models.
+Firestore was chosen so the whole ecosystem runs on Firebase. `src/lib/firestore.ts`
+(Firebase Admin SDK) exposes a Prisma-compatible query API (`findMany`, `create`,
+`upsert`, `include`, `where`, ...) with fail-closed multi-tenancy: every
+tenant collection carries `businessId`, queries are auto-scoped to the ambient
+business, and access without a business context throws `TenantContextError`.
+Model TypeScript interfaces live in `src/lib/models.ts`. There are no
+migrations — Firestore is schemaless.
 
 ### No Separate Worker Process
 

@@ -5,13 +5,16 @@ serves many businesses; every business's data is strictly isolated.
 
 ## 1. Requirements
 
-- Node.js 20+, PostgreSQL 14+, `ffmpeg` on the host (only needed for
-  customer **video** messages — photo/voice work without it).
+- Node.js 20+, a Firebase project with **Firestore** enabled, `ffmpeg` on the
+  host (only needed for customer **video** messages — photo/voice work
+  without it).
 - Environment variables — copy `.env.example` to `.env` and fill in:
 
 | Variable | Required for | Notes |
 |---|---|---|
-| `DATABASE_URL` | everything | Postgres connection string |
+| `FIREBASE_PROJECT_ID` | everything | Firebase project id |
+| `FIREBASE_CLIENT_EMAIL` | everything | Service-account client email |
+| `FIREBASE_PRIVATE_KEY` | everything | Service-account private key (escaped `\n` ok) |
 | `JWT_SECRET` | everything | 32+ random chars; also needed at build time |
 | `OPENAI_API_KEY` | AI brain (fallback) | Per-business key in Settings overrides this |
 | `CRON_SECRET` | scheduled jobs | `Authorization: Bearer <CRON_SECRET>` |
@@ -23,11 +26,12 @@ serves many businesses; every business's data is strictly isolated.
 
 ```bash
 npm install
-npx prisma migrate deploy   # applies all migrations incl. multi-tenancy
-npm run db:seed              # creates business "Ride Bangla", super admin, settings, channels, knowledge base
+npm run db:seed   # creates business "Ride Bangla", super admin, settings, channels, knowledge base (writes to Firestore)
 npm run build && npm start
 ```
 
+There are no database migrations: Firestore is schemaless and the data
+layer (`src/lib/firestore.ts`) creates collections/documents on first write.
 The seed prints the **widget site key** and creates the Super Admin:
 
 - username `admin`, password `admin123` — **change it immediately** after first login.
@@ -40,9 +44,9 @@ Then: sign in → **Settings → AI Configuration** → paste the OpenAI API key
 ### Multi-tenancy model
 
 - `Business` is the tenant root (`slug`, `siteKey`, `isActive`).
-- Every tenant table has `businessId`; the exported Prisma client auto-scopes
-  all queries to the ambient business (AsyncLocalStorage) and throws
-  `TenantContextError` when no context is active — **fail-closed**.
+- Every tenant collection carries `businessId`; the exported Firestore data
+  layer auto-scopes all queries to the ambient business (AsyncLocalStorage)
+  and throws `TenantContextError` when no context is active — **fail-closed**.
 - API routes: `requireAuth()` enters the business context. A business admin
   is pinned to their business; the Super Admin passes `?business=<slug>` to
   choose (auto-selected when exactly one business exists).
@@ -188,7 +192,7 @@ Dashboard → **Social** page (or the API):
 
 | Service | Needed for | Status in code |
 |---|---|---|
-| PostgreSQL database | everything | code ready; operator provisions |
+| Firebase project (Firestore) + service-account key | everything | code ready; operator creates project, enables Firestore, creates service account |
 | OpenAI API key | brain, vision, Whisper, post text, promo images | code ready; key in Settings |
 | `ffmpeg` on host | customer video messages | code ready; install on server |
 | Meta app + Facebook Page token | FB posting, comment/message sync | code ready; operator creates app, passes review |
@@ -206,7 +210,126 @@ Dashboard → **Social** page (or the API):
 
 - No plaintext secrets: API keys stored as SHA-256 hashes (shown once);
   social tokens AES-256-GCM; cookies `rbai-token`/`rbai-refresh` (httpOnly).
-- Webhook signature renamed to `X-RBAI-Signature` (HMAC-SHA256).
-- Tenant isolation is enforced in the data layer (fail-closed), not just UI.
-- `npm test` (385 tests) covers auth, tenant isolation, tools, RBAC,
-  webhooks, and injection resistance.
+- Webhook signature header is `X-RBAI-Signature` (HMAC-SHA256).
+- Tenant isolation is enforced in the Firestore data layer (fail-closed),
+  not just UI. `firestore.rules` (repo root) additionally locks every
+  collection down for direct client access (tenant claim match or Super
+  Admin; default deny). The app server itself uses the Admin SDK, which
+  bypasses rules — the data-layer scoping is the primary enforcement.
+- `npm test` covers auth, tenant isolation, the Firestore query engine,
+  tools, RBAC, webhooks, and injection resistance.
+
+## 11. Firestore collections (data-layer reference)
+
+One collection per model. The document ID is the model's `id` (UUID, or a
+stable string for seed rows like `dept-tech`). `DateTime` fields are stored
+as Firestore Timestamps and decoded back to `Date` on read. Every tenant
+collection carries `businessId`; `businesses` and `revokedTokens` do not.
+
+| Collection | Stores | Tenant-scoped |
+|---|---|---|
+| `businesses` | Tenant roots (`name`, `slug`, `siteKey`, `isActive`) | no |
+| `admins` | Dashboard users (`username`, bcrypt `password`, `role`; `businessId` null = Super Admin) | yes |
+| `revokedTokens` | Revoked JWT `jti`s with `expiresAt` | no |
+| `settings` | Per-business AI/channel/SMTP config (doc id `default`) | yes |
+| `businessHours` | Per-business opening hours | yes |
+| `categories` | Knowledge-base categories | yes |
+| `knowledgeEntries` | Knowledge-base articles (`categoryId`) | yes |
+| `departments` | Support departments | yes |
+| `teamMembers` | Agents (`departmentId`) | yes |
+| `conversations` | Chat conversations (`channel`, `customerId?`, `status`) | yes |
+| `messages` | Chat messages (`conversationId`, `role`, `content`, media) | yes |
+| `internalNotes` | Agent-only notes on conversations | yes |
+| `customers` | Unified cross-channel customer memory | yes |
+| `customerNotes` | Notes on customers | yes |
+| `tickets` | Support tickets (`conversationId?`, `departmentId?`, `assignedToId?`) | yes |
+| `tags` | Conversation tags (unique per business+name) | yes |
+| `conversationTags` | Tag assignments (unique per conversation+tag) | yes |
+| `callLogs` | Twilio call records (`callSid` unique) | yes |
+| `channels` | Channel configs (unique per business+type) | yes |
+| `schedules` | Team member weekly schedules | yes |
+| `webhooks` | Outbound webhook definitions | yes |
+| `webhookDeliveries` | Delivery attempts + retry state | yes |
+| `activityLogs` | Audit trail (delete = Super Admin only) | yes |
+| `slaRules` | Response/resolution-time rules | yes |
+| `cannedResponses` | Agent quick replies (`usageCount`) | yes |
+| `automationRules` | Auto-route/tag/reply rules (`triggerCount`) | yes |
+| `apiKeys` | API keys — **only SHA-256 `keyHash` stored**, never the key | yes |
+| `campaigns` | Outbound campaigns | yes |
+| `flows` | Visual flow definitions | yes |
+| `followUps` | Scheduled follow-up messages (cron-dispatched) | yes |
+| `socialAccounts` | Connected FB/IG/X/YT accounts (tokens AES-256-GCM encrypted) | yes |
+| `scheduledPosts` | Text+picture posts (cron-dispatched) | yes |
+| `socialInteractions` | Seen comments/messages/likes + reply tracking | yes |
+| `audienceProfiles` | Per-platform audience intelligence (unique per business+platform) | yes |
+| `agentCommands` | Admin command queue for the agent | yes |
+| `productCategories` | Catalog categories (unique per business+name) | yes |
+| `products` | Catalog products (`categoryId?`, price, availability) | yes |
+
+Unique constraints (enforced by the data layer, `P2002`-compatible errors):
+`businesses.slug`, `businesses.siteKey`, `admins.username`, `apiKeys.keyHash`,
+`callLogs.callSid`, `settings.businessId`, `businessHours.businessId`,
+`tags(businessId,name)`, `channels(businessId,type)`,
+`conversationTags(conversationId,tagId)`,
+`socialAccounts(businessId,platform,accountRef)`,
+`socialInteractions(businessId,platform,externalId)`,
+`audienceProfiles(businessId,platform)`, `productCategories(businessId,name)`.
+
+## 12. What changed in the Firebase migration (2026-10-18)
+
+- **Data layer**: Prisma/Postgres replaced by `src/lib/firestore.ts`
+  (Firebase Admin SDK). It exposes the same interface the app was built
+  against — `prisma.<model>.findMany/findFirst/findUnique/create/update/
+  delete/count/aggregate/groupBy/upsert/...` with Prisma-style
+  `where`/`include`/`select`/`orderBy`/`take`/`skip`/`distinct` — so routes,
+  libs and tests are unchanged. `@/lib/prisma` is now a thin re-export shim.
+- **Multi-tenancy**: unchanged contract — ambient-business auto-scoping,
+  `TenantContextError` fail-closed, Super Admin unscoped. One fix: `sLARule`
+  is now actually tenant-scoped (the old Prisma proxy listed it as
+  `"slaRule"`, which never matched the delegate name `sLARule`, so SLA rules
+  were silently unscoped).
+- **Deleted**: `prisma/` (schema, migrations, seed), `prisma.config.ts`,
+  `@prisma/*` / `pg` dependencies and `db:migrate` / `db:push` /
+  `db:studio` scripts. Seed moved to `scripts/seed.ts`
+  (`npm run db:seed`); backfill script ported to the Firestore layer.
+- **New files**: `src/lib/firestore.ts` (data layer),
+  `src/lib/firestore-query.ts` (pure where/orderBy/select engine),
+  `src/lib/models.ts` (TypeScript model interfaces, replacing the generated
+  Prisma client types), `firestore.rules` (tenant-isolation rules for direct
+  client access; NOT deployed from here).
+- **Setup**: no migrations — Firestore is schemaless. `npm run db:seed`
+  writes straight to Firestore. `DATABASE_URL` is replaced by
+  `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY`.
+- **Unchanged**: rebrand (`rbai-` tokens/cookies/widget/logo/theme),
+  customer-service core loop, multimodal pipeline, social automation pillar
+  (text+picture posts, reply-to-everything, command queue; audience profiles
+  were already Firestore-native and are untouched), RBAC incl. Super Admin
+  bypass, rate limits, `rbai_` API key prefix, cron endpoints, and the
+  `X-RBAI-Signature` webhook header.
+
+## 13. Firestore behavior differences (vs Postgres)
+
+Honest, exact list — everything else behaves identically:
+
+1. **Filtering/sorting scale**: reads prefilter server-side on `businessId`
+   (or document id) and evaluate the remaining `where`/`orderBy` in memory.
+   Correct at any size, but large tenant collections (hundreds of thousands
+   of docs) will be slower than Postgres indexes. Add composite indexes for
+   hot paths if that ever becomes a problem.
+2. **Atomicity**: single-document writes use Firestore transactions
+   (atomic). Multi-document operations (`updateMany`/`deleteMany`,
+   relation fan-out) are sequential, not atomic — a crash mid-batch can
+   leave partial writes. The old `$transaction([...])` array form is
+   emulated sequentially for the same reason. (The app never used
+   `$transaction`.)
+3. **Counters**: `{ increment }` / `{ decrement }` are read-modify-write
+   inside a transaction (correct), not server-side atomic increments.
+4. **Case-insensitive search**: evaluated in memory (Firestore has no
+   native case-insensitive `contains`); results identical.
+5. **`distinct`, `groupBy`, `aggregate`, relation-`_count` ordering**: computed
+   in memory with identical result shapes.
+6. **Timestamps**: stored as Firestore Timestamps; decoded to `Date` on
+   read. Sub-millisecond precision is not preserved (same as Postgres
+   `timestamp` in practice).
+7. **`$queryRaw`**: kept only as a connectivity probe (`SELECT 1` in
+   `/api/health`); the SQL text is ignored and Firestore is pinged instead.

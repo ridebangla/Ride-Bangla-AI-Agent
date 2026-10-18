@@ -13,7 +13,7 @@ import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { getActiveAccounts, getDecryptedToken } from "./accounts";
 import { getOpenAI, getKnowledgeContext } from "./ai";
-import type { SocialAccount } from "@/generated/prisma/client";
+import type { SocialAccount } from "@/lib/models";
 
 const TIMEOUT_MS = 15_000;
 

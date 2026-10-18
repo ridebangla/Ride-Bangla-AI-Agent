@@ -14,10 +14,10 @@ npm install
 
 # Set up environment
 cp .env.example .env
-# Edit .env with your PostgreSQL connection string
+# Edit .env with your Firebase service-account credentials (see .env.example)
 
-# Run database migrations
-npx prisma migrate dev
+# Seed the database (Firestore is schemaless — no migrations needed)
+npm run db:seed
 
 # Start dev server
 npm run dev

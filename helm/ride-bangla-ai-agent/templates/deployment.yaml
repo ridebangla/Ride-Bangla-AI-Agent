@@ -31,20 +31,6 @@ spec:
       serviceAccountName: {{ include "ride-bangla-ai-agent.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- if .Values.migration.enabled }}
-      initContainers:
-        - name: migrate
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["npx", "prisma", "migrate", "deploy"]
-          envFrom:
-            - configMapRef:
-                name: {{ include "ride-bangla-ai-agent.fullname" . }}
-            - secretRef:
-                name: {{ include "ride-bangla-ai-agent.secretName" . }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"

@@ -28,7 +28,7 @@
 | Requirement | Why |
 |---|---|
 | Node.js 20+ | Runtime |
-| PostgreSQL 16+ | Database (conversations, knowledge base, settings) |
+| Firebase project (Firestore enabled) | Database (conversations, knowledge base, settings) |
 | OpenAI API key | AI replies (`OPENAI_API_KEY`) |
 | (Optional) Twilio account | Phone/SMS channel |
 | (Optional) ElevenLabs API key | Voice replies on phone calls |
@@ -46,13 +46,13 @@ npm install
 # 3. Configure
 cp .env.example .env
 # Edit .env — at minimum set:
-#   DATABASE_URL="postgresql://user:password@localhost:5432/ridebangla_ai"
+#   FIREBASE_PROJECT_ID="your-firebase-project-id"
+#   FIREBASE_CLIENT_EMAIL="firebase-adminsdk-xxxxx@your-project.iam.gserviceaccount.com"
+#   FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 #   JWT_SECRET="a-random-32-character-string"
 #   OPENAI_API_KEY="sk-..."
 
-# 4. Set up the database
-npx prisma migrate dev        # creates tables
-npx prisma generate           # generates the client
+# 4. Seed the database (Firestore is schemaless — no migrations needed)
 npm run db:seed               # loads Ride Bangla knowledge base + default admin
 
 # 5. Run
@@ -80,7 +80,7 @@ All settings live in `.env` (see `.env.example`). The essentials:
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` | Yes | Firebase service-account credentials (Firestore) |
 | `JWT_SECRET` | Yes | Session signing (32+ random chars) |
 | `OPENAI_API_KEY` | Yes | AI-powered replies |
 | `NEXT_PUBLIC_APP_URL` | Yes | Public URL (webhooks/callbacks) |
@@ -108,7 +108,7 @@ tests/            # 365 automated tests (vitest)
 
 - TypeScript: clean (`npx tsc --noEmit`)
 - Tests: 365/365 passing (`npm test`)
-- Build: compiles cleanly (`npm run build`); needs a live PostgreSQL for page prerender
+- Build: compiles cleanly (`npm run build`); needs `JWT_SECRET` set at build time
 
 ## License
 

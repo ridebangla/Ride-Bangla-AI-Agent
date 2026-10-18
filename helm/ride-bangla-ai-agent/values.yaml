@@ -87,16 +87,11 @@ probes:
     periodSeconds: 10
     failureThreshold: 3
 
-# -- Database (external PostgreSQL)
-database:
-  # Provide either `url` OR individual fields (host, port, etc.)
-  url: ""
-  host: "postgresql"
-  port: 5432
-  name: "ride-bangla-ai-agent"
-  user: "postgres"
-  password: "postgres"
-  sslMode: "prefer"
+# -- Firebase (Firestore) — service-account credentials
+firebase:
+  projectId: ""
+  clientEmail: ""
+  privateKey: ""
 
 # -- Application config (non-sensitive)
 config:
@@ -116,10 +111,6 @@ secrets:
   twilioPhoneNumber: ""
   elevenLabsApiKey: ""
   webhookSecret: ""
-
-# -- Database migration (init container)
-migration:
-  enabled: true
 
 # -- Persistent storage for WhatsApp sessions
 persistence:

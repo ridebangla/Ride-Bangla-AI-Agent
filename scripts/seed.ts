@@ -1,15 +1,21 @@
-import { PrismaClient } from "../src/generated/prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
+/**
+ * Seed script: creates the default business ("Ride Bangla"), the Super Admin
+ * account, per-business settings, channels, business hours, departments,
+ * team members, knowledge base, tags, canned responses and SLA rules.
+ *
+ * Run: npx tsx scripts/seed.ts
+ *
+ * Uses the RAW (unscoped) Firestore client — setup-time code, not request
+ * code. Requires FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL and
+ * FIREBASE_PRIVATE_KEY (see OPERATIONS.md §1).
+ */
 import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
+import { getUnscopedPrisma, closeDb } from "../src/lib/firestore";
 
-const connectionString =
-  process.env.DATABASE_URL ||
-  "postgresql://postgres:postgres@localhost:5432/ride-bangla-ai-agent?schema=public";
-const adapter = new PrismaPg({ connectionString });
 // NOTE: the seed intentionally uses the RAW client (no tenant scoping) —
-/// it is setup-time code, not request code.
-const prisma = new PrismaClient({ adapter });
+// it is setup-time code, not request code.
+const prisma = getUnscopedPrisma();
 
 function siteKey() {
   return "rbsite-" + randomUUID().replace(/-/g, "");
@@ -239,5 +245,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    await closeDb();
   });

@@ -59,16 +59,6 @@ Service account name
 {{- end }}
 {{- end }}
 
-{{/*
-Database URL - construct from individual fields or use provided URL
-*/}}
-{{- define "ride-bangla-ai-agent.databaseUrl" -}}
-{{- if .Values.database.url }}
-{{- .Values.database.url }}
-{{- else }}
-{{- printf "postgresql://%s:%s@%s:%d/%s?schema=public&sslmode=%s" .Values.database.user .Values.database.password .Values.database.host (int .Values.database.port) .Values.database.name .Values.database.sslMode }}
-{{- end }}
-{{- end }}
 
 {{/*
 Secret name - use existing or generate

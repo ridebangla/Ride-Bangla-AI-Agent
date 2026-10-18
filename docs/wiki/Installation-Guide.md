@@ -11,7 +11,7 @@ Before installing Ride Bangla AI Agent, make sure you have the following:
 | Requirement | Minimum Version | Notes |
 |-------------|----------------|-------|
 | **Node.js** | 20.0+ | Required for npm-based setup. Check with `node -v` |
-| **PostgreSQL** | 16.0+ | Can be installed locally or via Docker |
+| **Firebase project** | Firestore enabled | Database (no local install needed) |
 | **npm** | 10.0+ | Comes with Node.js. Check with `npm -v` |
 | **Git** | 2.0+ | For cloning the repository |
 | **Docker** (optional) | 24.0+ | Required only for Docker Compose setup |
@@ -25,7 +25,7 @@ Before installing Ride Bangla AI Agent, make sure you have the following:
 
 ## Option 1: Docker Compose (Recommended)
 
-Docker Compose is the simplest way to run Ride Bangla AI Agent. It handles PostgreSQL, the application, and persistent storage automatically.
+Docker Compose is the simplest way to run Ride Bangla AI Agent. It builds the application container and reads your Firebase credentials from `.env` (Firestore itself runs in your Firebase project — no database container needed).
 
 ### Step 1: Clone the Repository
 
@@ -51,7 +51,7 @@ JWT_SECRET="a-random-secret-string-at-least-32-chars"
 NEXTAUTH_SECRET="another-random-secret-string"
 ```
 
-The `DATABASE_URL` is already configured for Docker Compose in `docker-compose.yml` and does not need to be changed.
+The Firebase credentials come from your `.env` file (see below) — no database container is needed.
 
 ### Step 3: Start the Services
 
@@ -59,9 +59,8 @@ The `DATABASE_URL` is already configured for Docker Compose in `docker-compose.y
 docker compose up -d
 ```
 
-This starts two services:
+This starts the service:
 
-- **db** -- PostgreSQL 16 (Alpine) on port 5432
 - **app** -- Ride Bangla AI Agent application on port 3000
 
 ### Step 4: Open the Application
@@ -88,7 +87,7 @@ docker compose logs -f app
 
 ## Option 2: Manual Setup (npm)
 
-Use this method for development or if you prefer to manage PostgreSQL separately.
+Use this method for development or if you prefer to run Node.js directly.
 
 ### Step 1: Clone the Repository
 
@@ -109,10 +108,13 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` and set the `DATABASE_URL` to point to your PostgreSQL instance:
+Edit `.env` and set your Firebase service-account credentials:
 
 ```bash
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ride-bangla-ai-agent?schema=public"
+# Required: Firebase service-account credentials (Firestore)
+FIREBASE_PROJECT_ID="your-firebase-project-id"
+FIREBASE_CLIENT_EMAIL="firebase-adminsdk-xxxxx@your-project.iam.gserviceaccount.com"
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
 Also set your secret keys:
@@ -122,27 +124,19 @@ JWT_SECRET="a-random-secret-string-at-least-32-chars"
 NEXTAUTH_SECRET="another-random-secret-string"
 ```
 
-### Step 4: Create the Database
+### Step 4: Enable Firestore
 
-Make sure PostgreSQL is running, then create the database:
+In the Firebase console, open your project and enable **Firestore Database**
+(Native mode). No tables or migrations are needed — collections are created
+on first write.
 
-```bash
-createdb ride-bangla-ai-agent
-```
-
-Or connect to PostgreSQL and create it manually:
-
-```sql
-CREATE DATABASE ride-bangla-ai-agent;
-```
-
-### Step 5: Run Database Migrations
+### Step 5: Seed the database
 
 ```bash
-npx prisma migrate dev
+npm run db:seed
 ```
 
-This creates all required tables in your database.
+Firestore is schemaless — there are no migrations. This creates the default business, the Super Admin, and the knowledge base.
 
 ### Step 6: (Optional) Seed Demo Data
 
@@ -175,7 +169,7 @@ The following table describes all environment variables in `.env.example`:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes | PostgreSQL connection string. Format: `postgresql://USER:PASSWORD@HOST:PORT/DB?schema=public` |
+| `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` | Yes | Firebase service-account credentials (Firestore). |
 | `JWT_SECRET` | Yes | Secret key for signing JWT authentication tokens. Use a random string of at least 32 characters. |
 | `NEXTAUTH_SECRET` | Yes | Secret for NextAuth session encryption. Use a different random string from `JWT_SECRET`. |
 | `NEXT_PUBLIC_APP_URL` | No | Public URL of your Ride Bangla AI Agent instance. Defaults to `http://localhost:3000`. Set this to your domain in production. |
@@ -207,7 +201,7 @@ After starting Ride Bangla AI Agent, verify that everything is working:
 
 2. **Setup wizard:** Navigate to `http://localhost:3000`. On first launch you will be redirected to the setup wizard at `/setup`.
 
-3. **Database connection:** If you see a database connection error, check that PostgreSQL is running and `DATABASE_URL` is correct.
+3. **Database connection:** If you see a database connection error, check that Firestore is enabled and your Firebase service-account credentials are correct.
 
 ---
 
@@ -232,55 +226,30 @@ ports:
   - "8080:3000"  # Access Ride Bangla AI Agent at localhost:8080
 ```
 
-### Port 5432 Already in Use (PostgreSQL)
-
-If you have a local PostgreSQL instance conflicting with the Docker container:
-
-```bash
-# Option 1: Stop local PostgreSQL
-brew services stop postgresql  # macOS
-sudo systemctl stop postgresql  # Linux
-
-# Option 2: Change Docker port mapping in docker-compose.yml
-ports:
-  - "5433:5432"
-```
-
-If you change the PostgreSQL port, update `DATABASE_URL` accordingly.
-
 ### Database Connection Refused
 
 Common causes and solutions:
 
-1. **PostgreSQL is not running:**
+1. **Firestore is not reachable:**
    ```bash
-   # Check status
-   docker compose ps          # Docker
-   pg_isready                 # Local install
+   # Check the app logs for the Firebase Admin SDK error
+   docker compose logs app          # Docker
    ```
 
-2. **Wrong credentials:** Verify that the username, password, host, and port in `DATABASE_URL` match your PostgreSQL configuration.
+2. **Wrong credentials:** Verify `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY` in your `.env` file.
 
-3. **Database does not exist:** Create it manually:
-   ```bash
-   createdb ride-bangla-ai-agent
-   ```
+3. **Firestore not enabled:** Enable Firestore (Native mode) in the Firebase console for your project.
 
-4. **Docker networking issue:** If running the app outside Docker but the database inside Docker, use `localhost` (not `db`) as the host:
-   ```
-   DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ride-bangla-ai-agent?schema=public"
-   ```
+4. **Permission denied:** The service account needs the Cloud Datastore User role (or Owner) on the project.
 
-### Prisma Migration Errors
+### Firestore Errors
 
-If migrations fail:
+If writes fail, check the service-account credentials and Firestore permissions
+(see "Database Connection Refused" above). The seed is idempotent — re-running
+it is safe:
 
 ```bash
-# Reset the database (WARNING: deletes all data)
-npx prisma migrate reset
-
-# Or push schema without migrations (development only)
-npm run db:push
+npm run db:seed
 ```
 
 ### WhatsApp Channel: Missing Puppeteer Dependencies
@@ -347,9 +316,9 @@ apk add --no-cache \
    npm install
    ```
 
-4. Regenerate Prisma client:
+4. Re-run the seed (idempotent):
    ```bash
-   npx prisma generate
+   npm run db:seed
    ```
 
 ---

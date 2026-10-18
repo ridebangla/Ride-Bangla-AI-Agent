@@ -2,7 +2,9 @@ import { vi } from "vitest";
 
 // Set test environment variables
 process.env.JWT_SECRET = "test-secret-key-for-testing-only";
-process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/rbai_test";
+process.env.FIREBASE_PROJECT_ID = "test-project";
+process.env.FIREBASE_CLIENT_EMAIL = "test@test-project.iam.gserviceaccount.com";
+process.env.FIREBASE_PRIVATE_KEY = "test-private-key";
 process.env.NODE_ENV = "test";
 
 // Mock Prisma globally

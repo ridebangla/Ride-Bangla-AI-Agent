@@ -8,7 +8,7 @@
  */
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
-import type { SocialAccount } from "@/generated/prisma/client";
+import type { SocialAccount } from "@/lib/models";
 
 const ALGORITHM = "aes-256-gcm";
 

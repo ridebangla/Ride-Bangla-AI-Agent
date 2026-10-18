@@ -6,7 +6,7 @@ This tutorial walks you through getting Ride Bangla AI Agent up and running with
 
 ## Prerequisites
 
-- A machine with Node.js 20+ and PostgreSQL 16+ installed (or Docker).
+- A machine with Node.js 20+ and a Firebase project with Firestore enabled (or Docker).
 - An OpenAI API key (or another supported provider key). You can get one at [platform.openai.com/api-keys](https://platform.openai.com/api-keys).
 
 ---
@@ -36,11 +36,11 @@ Then start the application:
 docker compose up -d
 ```
 
-**Without Docker (requires local PostgreSQL running):**
+**Without Docker (requires Firebase service-account credentials in `.env`):**
 
 ```bash
 npm install
-npx prisma migrate dev
+npm run db:seed   # Firestore is schemaless — no migrations needed
 npm run dev
 ```
 

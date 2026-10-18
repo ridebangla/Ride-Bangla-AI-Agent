@@ -23,7 +23,7 @@ There are several ways to contribute to Ride Bangla AI Agent:
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
 | Node.js | 20 or higher | Runtime environment |
-| PostgreSQL | 16 or higher | Database |
+| Firebase project (Firestore enabled) | — | Database |
 | npm | Bundled with Node.js | Package manager |
 
 ### Step-by-Step Setup
@@ -47,10 +47,13 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` and set your PostgreSQL connection string:
+Edit `.env` and set your Firebase service-account credentials:
 
 ```
-DATABASE_URL="postgresql://user:password@localhost:5432/ride-bangla-ai-agent"
+# Required: Firebase service-account credentials (Firestore)
+FIREBASE_PROJECT_ID="your-firebase-project-id"
+FIREBASE_CLIENT_EMAIL="firebase-adminsdk-xxxxx@your-project.iam.gserviceaccount.com"
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
 **4. Set up the database:**
@@ -200,7 +203,7 @@ refactor: extract common form validation into shared utility
 
 When reporting a bug, include:
 
-1. **Environment**: Ride Bangla AI Agent version, Node.js version, PostgreSQL version, operating system.
+1. **Environment**: Ride Bangla AI Agent version, Node.js version, Firebase project region, operating system.
 2. **Steps to reproduce**: A numbered list of steps that reliably trigger the issue.
 3. **Expected behavior**: What you expected to happen.
 4. **Actual behavior**: What actually happened, including any error messages.

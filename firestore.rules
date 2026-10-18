@@ -1,0 +1,308 @@
+/**
+ * Firestore security rules — Ride Bangla AI Agent.
+ *
+ * NOTE: the Next.js app server talks to Firestore EXCLUSIVELY through the
+ * Firebase Admin SDK, which bypasses these rules entirely. Tenant isolation
+ * is enforced in the application data layer (src/lib/firestore.ts —
+ * fail-closed per-business scoping, TenantContextError when no context).
+ *
+ * These rules are the defense-in-depth layer: they govern any direct client
+ * (web/mobile) access using Firebase Auth, so a leaked or mis-scoped client
+ * can never read or write another business's data.
+ *
+ * Expected Firebase Auth custom claims (set by the Super Admin):
+ *   - `businessId`: the business this user belongs to
+ *     (absent/null for the Super Admin)
+ *   - `role`: `super_admin` | `admin` | `agent`
+ *
+ * DO NOT deploy from here directly — these collections are merged into the
+ * Admin Console unified ruleset at deploy time.
+ */
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isSuperAdmin() {
+      return isSignedIn() && request.auth.token.role == 'super_admin';
+    }
+    // Business user whose custom claim matches the document's tenant.
+    function tenantMatch(businessId) {
+      return isSignedIn()
+        && request.auth.token.businessId != null
+        && request.auth.token.businessId == businessId;
+    }
+    // Read: super admin sees all; business users see their own tenant only.
+    function tenantRead() {
+      return isSuperAdmin() || tenantMatch(resource.data.businessId);
+    }
+    // Create: the new document must belong to the caller's business.
+    function tenantCreate() {
+      return isSuperAdmin()
+        || (isSignedIn()
+            && request.auth.token.businessId != null
+            && request.resource.data.businessId == request.auth.token.businessId);
+    }
+    // Update: tenant match on the existing doc AND the new doc (a document
+    // may never be moved to another business).
+    function tenantUpdate() {
+      return isSuperAdmin()
+        || (tenantMatch(resource.data.businessId)
+            && request.resource.data.businessId == resource.data.businessId);
+    }
+    // Delete: tenant match on the existing doc.
+    function tenantDelete() {
+      return isSuperAdmin() || tenantMatch(resource.data.businessId);
+    }
+
+    // ------------------------------------------------------------------
+    // Non-tenant collections
+    // ------------------------------------------------------------------
+
+    // Tenant roots. Reads are staff-only; writes are Super Admin only.
+    // (siteKey inside is public-by-design for the chat widget, but the
+    // document as a whole stays staff-only here.)
+    match /businesses/{businessId} {
+      allow get, list: if isSuperAdmin() || tenantMatch(businessId);
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // JWT revocation list — Super Admin only.
+    match /revokedTokens/{jti} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    // Admin accounts (contain password hashes) — Super Admin only.
+    match /admins/{adminId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    // ------------------------------------------------------------------
+    // Tenant collections (every document carries businessId)
+    // ------------------------------------------------------------------
+
+    match /settings/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /categories/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /knowledgeEntries/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /departments/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /teamMembers/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /conversations/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /messages/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /tickets/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /tags/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /conversationTags/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /callLogs/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /channels/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /schedules/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /webhooks/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /webhookDeliveries/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /activityLogs/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      // Audit-log hygiene: entries may only be REMOVED by the Super Admin —
+      // business users can never delete their own audit trail.
+      allow delete: if isSuperAdmin();
+    }
+    match /slaRules/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /cannedResponses/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /customers/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /customerNotes/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /automationRules/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /businessHours/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    // API keys: only key HASHES are stored. Key management is Super Admin /
+    // business-admin only — the `agent` role may never create, rotate or
+    // delete keys.
+    match /apiKeys/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate() && request.auth.token.role != 'agent';
+      allow update: if tenantUpdate() && request.auth.token.role != 'agent';
+      allow delete: if tenantDelete() && request.auth.token.role != 'agent';
+    }
+    match /internalNotes/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /campaigns/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /flows/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /followUps/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    // Social accounts hold AES-encrypted platform tokens — staff-only.
+    match /socialAccounts/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /scheduledPosts/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /socialInteractions/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /audienceProfiles/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /agentCommands/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /productCategories/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /products/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+
+    // ------------------------------------------------------------------
+    // Default deny: anything not listed above is inaccessible.
+    // ------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

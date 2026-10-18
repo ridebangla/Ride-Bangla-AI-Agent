@@ -84,7 +84,7 @@ Ride Bangla AI Agent gives small businesses and solo operators the same multi-ch
 ## Tech Stack
 
 - **Framework:** Next.js with TypeScript
-- **Database:** PostgreSQL 16+ with Prisma ORM
+- **Database:** Cloud Firestore (Firebase) via `src/lib/firestore.ts`
 - **AI:** OpenAI GPT, Claude (Anthropic), Ollama (local models)
 - **Voice:** Twilio Voice + OpenAI Whisper (STT) + ElevenLabs (TTS)
 - **Messaging:** WhatsApp Web (whatsapp-web.js) + IMAP/SMTP for email
@@ -92,4 +92,4 @@ Ride Bangla AI Agent gives small businesses and solo operators the same multi-ch
 
 **Version:** 0.1.0 |
 **License:** MIT |
-**Minimum Requirements:** Node.js 20+, PostgreSQL 16+
+**Minimum Requirements:** Node.js 20+, a Firebase project with Firestore enabled
