@@ -118,6 +118,14 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "login") {
+    // Password login retired 2026-10-18: sign in with Firebase (Admin Console account).
+    return NextResponse.json(
+      {
+        error:
+          "Password sign-in is retired. Please sign in with your Admin Console email.",
+      },
+      { status: 410 }
+    );
     if (!username || !password) {
       return NextResponse.json(
         { error: "Username and password are required" },

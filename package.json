@@ -33,6 +33,7 @@
     "clsx": "^2.1.1",
     "elevenlabs": "^1.59.0",
     "firebase-admin": "^13.5.0",
+    "firebase": "^11.10.0",
     "imap": "^0.8.19",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.7.0",
