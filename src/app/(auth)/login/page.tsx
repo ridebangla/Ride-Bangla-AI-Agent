@@ -100,13 +100,15 @@ export default function LoginPage() {
 
   return (
     <div className="flex flex-col items-center">
-      <Image
-        src="/agent-brand.png"
-        alt="Ride Bangla AI Agent"
-        width={300}
-        height={300}
+      <video
+        src="/login-hero.mp4"
         className="mb-6 rounded-2xl shadow-lg"
-        priority
+        style={{ width: 300, height: 400, objectFit: "cover" }}
+        muted
+        loop
+        playsInline
+        autoPlay
+        preload="auto"
       />
       <div className="bg-rbai-surface rounded-2xl shadow-lg border border-rbai-border p-8 w-full">
       <div className="flex flex-col items-center mb-8">
