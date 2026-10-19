@@ -30,6 +30,10 @@ export interface Business {
   subscriptionStatus?: string; // 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired'
   trialEndsAt?: Date | null;
   websiteUrl?: string;
+  /** Phase 4: Stripe billing — set on first checkout; used by webhooks + the
+      customer portal to resolve tenancy without trusting client input. */
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
   /** Phase 2: auto landing page (hosted at /p/[slug]). */
   tagline?: string;
   brandColor?: string;

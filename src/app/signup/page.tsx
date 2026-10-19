@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -21,6 +21,14 @@ const TRIAL_POINTS = [
   "Product catalog, order handling and 24/7 customer replies",
 ];
 
+// Plan names/prices shown when the visitor arrives from /pricing?plan=<id>.
+// Read from window.location on mount (no Suspense boundary needed).
+const PLAN_INFO: Record<string, { name: string; price: string }> = {
+  starter: { name: "Starter", price: "$19/month" },
+  growth: { name: "Growth", price: "$49/month" },
+  pro: { name: "Pro", price: "$99/month" },
+};
+
 export default function SignupPage() {
   const router = useRouter();
   const [businessName, setBusinessName] = useState("");
@@ -29,6 +37,20 @@ export default function SignupPage() {
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [chosenPlan, setChosenPlan] = useState<string | null>(null);
+
+  useEffect(() => {
+    const plan = new URLSearchParams(window.location.search).get("plan");
+    if (plan && PLAN_INFO[plan]) {
+      setChosenPlan(plan);
+      // Remember the pick so /billing can highlight it after signup.
+      try {
+        localStorage.setItem("rbai-chosen-plan", plan);
+      } catch {
+        /* storage unavailable — the signup note already showed the plan */
+      }
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -134,6 +156,16 @@ export default function SignupPage() {
               <p className="text-rbai-text-light text-sm mt-1">
                 10 days free. No credit card. Set up in minutes.
               </p>
+              {chosenPlan && (
+                <p className="mt-3 rounded-lg bg-rbai-primary-50 border border-rbai-primary/20 px-3.5 py-2.5 text-sm text-rbai-text">
+                  You picked the{" "}
+                  <span className="font-semibold">
+                    {PLAN_INFO[chosenPlan].name} plan ({PLAN_INFO[chosenPlan].price})
+                  </span>
+                  . Your 10-day free trial starts now — the plan applies when
+                  you subscribe from Billing.
+                </p>
+              )}
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">

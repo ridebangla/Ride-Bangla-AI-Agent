@@ -99,7 +99,13 @@ export async function middleware(request: NextRequest) {
   // slug (same scoping as /p/[slug]), rate-limited per IP in its handler,
   // and every check is derived from public page data (image URLs, copy,
   // theme, SEO meta) — nothing tenant-private is exposed.
-  const publicPaths = ["/login", "/setup", "/signup", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/landing/quality", "/p/"];
+  // Phase 4: /pricing is the public SaaS pricing page (marketing, no
+  // tenant data), and /api/webhooks/stripe carries Stripe's signature, not
+  // a JWT — it verifies authenticity itself via STRIPE_WEBHOOK_SECRET in
+  // its handler (see src/app/api/webhooks/stripe/route.ts). Both must stay
+  // public here or pricing 404-redirects to /login and Stripe can never
+  // deliver billing events.
+  const publicPaths = ["/login", "/setup", "/signup", "/pricing", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/landing/quality", "/api/webhooks/stripe", "/p/"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   // The SaaS marketing landing page lives at `/` — EXACT match only (a

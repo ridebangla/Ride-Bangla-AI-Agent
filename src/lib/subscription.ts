@@ -38,11 +38,15 @@
  *    reply for an inbound message. A single shared helper
  *    (`requireActiveSubscription`) exists for exactly this.
  *
- * 4. Stripe billing (PHASE 4): sets `subscriptionStatus='active'` (and
- *    `plan` to starter/growth/pro) on successful payment; sets
- *    `past_due`/`canceled` on failure/cancellation. Until then, trials are
- *    the only path and `/billing` shows truthful status with no fake
- *    checkout.
+ * 4. Stripe billing (PHASE 4 — WIRED): `checkout.session.completed` sets
+ *    `subscriptionStatus='active'` (and `plan` to starter/growth/pro);
+ *    `invoice.payment_succeeded` lifts past_due → active;
+ *    `invoice.payment_failed` sets past_due (Stripe Smart Retries handle
+ *    dunning); `customer.subscription.deleted` sets 'suspended'. Webhook
+ *    handlers are idempotent; all are fail-closed (unknown business → no
+ *    write), so the Phase 3 402 hard-stop stays airtight (decision 16).
+ *    Until Stripe keys exist, `/billing` says so honestly and trials are
+ *    the only path — no fake checkout.
  * ---------------------------------------------------------------------------
  */
 
@@ -59,7 +63,10 @@ export type SubscriptionStatus =
   | "active"
   | "past_due"
   | "canceled"
-  | "expired";
+  | "expired"
+  // Phase 4: set by the Stripe `customer.subscription.deleted` webhook.
+  // Like every other non-active status, fail-closed (no AI replies).
+  | "suspended";
 
 export interface SubscriptionInfo {
   /** null = Super Admin (no business row needed, always active). */

@@ -5,11 +5,12 @@ import { cookies } from "next/headers";
 import { verifySessionToken } from "@/lib/auth";
 import { getUnscopedPrisma } from "@/lib/prisma";
 import { getSubscription, TRIAL_DAYS } from "@/lib/subscription";
+import { isBillingConfigured } from "@/lib/stripe";
+import BillingActions from "./BillingActions";
 import {
   AlertTriangle,
   BadgeCheck,
   CalendarClock,
-  CreditCard,
   Crown,
   Hourglass,
 } from "lucide-react";
@@ -53,12 +54,16 @@ export default async function BillingPage() {
 
   const admin = await getUnscopedPrisma().admin.findUnique({
     where: { id: payload.userId },
-    select: { businessId: true, name: true, email: true },
+    select: { businessId: true, name: true, email: true, role: true },
   });
   if (!admin) redirect("/login");
 
   const sub = await getSubscription(admin.businessId);
   const isSuperAdmin = admin.businessId === null;
+  // Money moves only for tenant admins (mirrors the "settings:update"
+  // permission required by /api/billing/checkout and /api/billing/portal).
+  const canPay = admin.role === "admin";
+  const billingConfigured = isBillingConfigured();
 
   return (
     <div className="min-h-screen bg-rbai-bg">
@@ -182,36 +187,18 @@ export default async function BillingPage() {
               )}
             </div>
 
-            {/* Payments — Stripe wiring lands in Phase 4 */}
+            {/* Payments — real Stripe wiring (Phase 4). The client
+                component calls /api/billing/checkout and /api/billing/portal;
+                when Stripe keys are absent it says so honestly instead of
+                rendering fake buttons. */}
             <div className="mt-6 bg-rbai-surface border border-rbai-border rounded-2xl p-6 sm:p-8">
-              <div className="flex items-start gap-4">
-                <span className="p-3 rounded-xl bg-rbai-primary-50 text-rbai-primary shrink-0">
-                  <CreditCard className="h-6 w-6" />
-                </span>
-                <div className="flex-1">
-                  <h2 className="text-lg font-semibold text-rbai-text">
-                    {sub.isActive ? "Upgrade or manage payment" : "Reactivate your subscription"}
-                  </h2>
-                  <p className="text-sm text-rbai-text-light mt-1">
-                    Online checkout is being connected right now. Once it is
-                    live you&apos;ll be able to pay securely by card and pick
-                    Starter ($19), Growth ($49) or Pro ($99) per month.
-                  </p>
-                  {/* Honest placeholder: disabled until Phase 4 wires Stripe.
-                      No fake checkout — the button does nothing by design. */}
-                  <button
-                    disabled
-                    className="mt-4 rounded-lg bg-rbai-primary text-white font-medium py-2.5 px-6 text-sm opacity-40 cursor-not-allowed"
-                    title="Online payment is being connected"
-                  >
-                    {sub.isActive ? "Manage payment" : "Pay to reactivate"}
-                  </button>
-                  <p className="text-xs text-rbai-text-light mt-2">
-                    Payments are not available yet — this button will activate
-                    automatically when checkout goes live.
-                  </p>
-                </div>
-              </div>
+              <BillingActions
+                subscriptionStatus={sub.subscriptionStatus}
+                plan={sub.plan}
+                isActive={sub.isActive}
+                billingConfigured={billingConfigured}
+                canPay={canPay}
+              />
             </div>
 
             <p className="text-xs text-rbai-text-light mt-6 text-center">
