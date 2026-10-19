@@ -170,6 +170,9 @@ const MODEL_META: Record<string, ModelMeta> = {
       welcomeMessage: "Hello! How can I help you today?",
       tone: "friendly",
       language: "auto",
+      // Per-business AI behavior instructions, injected into the system
+      // prompt as "Business Behavior Instructions" ("" = none).
+      agentBehavior: "",
       aiProvider: "openai",
       aiModel: "gpt-4o-mini",
       aiApiKey: "",

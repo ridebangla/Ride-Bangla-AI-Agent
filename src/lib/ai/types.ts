@@ -48,6 +48,13 @@ export interface ConversationContext {
   welcomeMessage: string;
   tone: string;
   language: string;
+  /**
+   * Per-business behavior instructions (settings.agentBehavior). Injected
+   * verbatim into the system prompt as "Business Behavior Instructions".
+   * Lets each business define addressing style, convince/retain rules and
+   * honesty guardrails without code changes.
+   */
+  agentBehavior: string;
   knowledgeBase: KnowledgeItem[];
   customerName: string;
   customerHistory: string[];

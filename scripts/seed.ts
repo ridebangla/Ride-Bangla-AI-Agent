@@ -51,6 +51,26 @@ async function main() {
   });
 
   // Per-business settings
+  // The agent's behavior for Ride Bangla: polite Sir/Ma'am addressing,
+  // convince-and-retain (never a dead end), and strict honesty rules
+  // (only quotable fares, Faridpur-only coverage, roadmap = coming soon).
+  const RIDE_BANGLA_AGENT_BEHAVIOR = [
+    "CUSTOMER ADDRESS — MANDATORY:",
+    "- Address EVERY customer as স্যার (Sir) / ম্যাডাম (Ma'am) in every reply. Never use casual or familiar forms.",
+    "- Be মার্জিত: polite, warm, respectful and human — like the company's best customer representative.",
+    "- Match the customer's language: Bengali (বাংলা) → natural polished Bengali; English → natural English. Never mix languages in one reply unless the customer does.",
+    "",
+    "CONVINCE & RETAIN — NEVER A DEAD END:",
+    "- Never end with \"নেই / পারবো না / can't help\". If the exact request cannot be fulfilled, ALWAYS: (1) acknowledge warmly, (2) offer the closest available alternative service, or present the relevant roadmap item as \"শীঘ্রই আসছে\" (coming soon), (3) offer to note their interest and phone number so the team can notify them at launch.",
+    "- Your goal: the customer always leaves with interest and a clear next step — never empty-handed.",
+    "",
+    "HONESTY — NEVER HALLUCINATE:",
+    "- Fares you may quote: delivery/courier 0–5 km = ৳50, 5–7 km = ৳70. For distances ABOVE 7 km, say the team calculates the fare manually for each order — NEVER invent a per-km rate or any other number.",
+    "- Coverage: Faridpur district ONLY right now. Shariatpur and nationwide expansion are roadmap (coming soon) — never present them as live.",
+    "- Roadmap items (Studio, expansions, new modules) are ALWAYS \"coming soon / শীঘ্রই আসছে\" — never live, never with a launch date.",
+    "- If you do not know something, say the team will confirm — never guess.",
+  ].join("\n");
+
   await prisma.settings.upsert({
     where: { businessId: bid },
     update: {},
@@ -58,11 +78,12 @@ async function main() {
       businessId: bid,
       businessName: "Ride Bangla",
       businessDesc:
-        "Ride Bangla is a Bangladesh multi-service platform offering ride sharing (bike/car), food delivery, courier/parcel delivery, and grocery/marketplace. Currently serving Faridpur district, expanding nationwide.",
+        "Ride Bangla is a Bangladesh multi-service platform offering ride sharing (bike/car), food delivery, courier/parcel delivery, and marketplace (food, grocery, medicine from licensed pharmacies with prescription verification). Currently serving Faridpur district only; expanding to Shariatpur and nationwide.",
       welcomeMessage:
         "Hello! Welcome to Ride Bangla support. How can I help you today? / আসসালামু আলাইকুম! Ride Bangla সাপোর্টে স্বাগতম। আমি কীভাবে সাহায্য করতে পারি?",
       tone: "friendly",
       language: "auto",
+      agentBehavior: RIDE_BANGLA_AGENT_BEHAVIOR,
     },
   });
 
@@ -141,6 +162,8 @@ async function main() {
     { id: "cat-coverage", name: "Coverage", description: "Service areas", icon: "map-pin", color: "#3B82F6", sortOrder: 1 },
     { id: "cat-fares", name: "Fares", description: "Pricing and fare table", icon: "tag", color: "#F59E0B", sortOrder: 2 },
     { id: "cat-contact", name: "Contact", description: "How to reach the team", icon: "phone", color: "#4A7C9B", sortOrder: 3 },
+    { id: "cat-roadmap", name: "Roadmap", description: "Coming soon — never present as live", icon: "rocket", color: "#8B5CF6", sortOrder: 4 },
+    { id: "cat-about", name: "About", description: "Company facts", icon: "building", color: "#0EA5E9", sortOrder: 5 },
   ];
 
   for (const c of categories) {
@@ -153,7 +176,7 @@ async function main() {
       categoryId: "cat-services",
       title: "Our Services",
       content:
-        "Ride Bangla offers: (1) Ride sharing — bike rides and car rentals; (2) Food delivery — order from local restaurants; (3) Courier/parcel delivery — send parcels and documents; (4) Grocery & marketplace — shop groceries and products online. All services are booked through the Ride Bangla customer app.",
+        "Ride Bangla Limited — Faridpur's multi-service platform. CURRENT services (all live now, Faridpur district only): (1) Food delivery — order from local restaurants; (2) Ride sharing — bike rides and car rentals (all transport follows Bangladesh road and BRTA rules); (3) Courier/parcel delivery — send parcels and documents; (4) Marketplace — food, grocery, and medicine from licensed pharmacies (a valid prescription is verified for every medicine order). Everything is booked through the Ride Bangla customer app. / রাইড বাংলা লিমিটেড — ফরিদপুরের মাল্টি-সার্ভিস প্ল্যাটফর্ম। বর্তমান সার্ভিস (শুধু ফরিদপুর জেলায়): (১) ফুড ডেলিভারি; (২) রাইড শেয়ারিং — বাইক ও কার; (৩) কুরিয়ার/পার্সেল ডেলিভারি; (৪) মার্কেটপ্লেস — খাবার, গ্রোসারি ও লাইসেন্সপ্রাপ্ত ফার্মেসির ঔষধ (প্রেসক্রিপশন যাচাই বাধ্যতামূলক)।",
       priority: 10,
     },
     {
@@ -161,24 +184,40 @@ async function main() {
       categoryId: "cat-coverage",
       title: "Service Coverage",
       content:
-        "Ride Bangla currently serves Faridpur district (launch area) and is expanding nationwide across Bangladesh, starting with nearby districts. If you are outside Faridpur, ask the team about availability in your area.",
+        "HONEST coverage: Ride Bangla currently serves FARIDPUR DISTRICT ONLY (launch area). If a customer is outside Faridpur (for example Dhaka or anywhere else), say so honestly and warmly — never claim we serve there — and offer to note their area and phone number so the team can notify them when we launch there.",
       priority: 9,
     },
     {
       id: "entry-fares",
       categoryId: "cat-fares",
-      title: "Courier Fare Table",
+      title: "Fares — what the agent may quote",
       content:
-        "Courier delivery charges: 0–5 km = ৳50, 5–7 km = ৳70. For distances above 7 km, please contact the team for a quote. Fares are confirmed before payment in the app.",
+        "Delivery/courier fare the AGENT MAY QUOTE: 0–5 km = ৳50, 5–7 km = ৳70. ABOVE 7 km: the team calculates the fare manually for each order — the agent must NEVER invent a per-km rate or any other number. COURIER rule: the CUSTOMER declares the product's value — Ride Bangla NEVER sets the product's price; the company only charges the carrying (delivery) fare. MARKETPLACE rule: the PARTNER sets the product price; the customer pays product price + delivery fare. The fare is always confirmed with the customer before payment.",
       priority: 9,
+    },
+    {
+      id: "entry-roadmap",
+      categoryId: "cat-roadmap",
+      title: "Coming soon (roadmap — NEVER live)",
+      content:
+        "COMING SOON — always presented as \"শীঘ্রই আসছে / coming soon\", NEVER as live, NEVER with a launch date: (1) Area expansion — Shariatpur next, then nationwide across Bangladesh gradually; (2) Ride Bangla Studio — AI video + picture ad creation for businesses (product ads, company ads); (3) More AI platform modules over time. When a customer asks about any of these: present it warmly as coming soon, offer to note their interest and phone number so the team notifies them at launch.",
+      priority: 8,
     },
     {
       id: "entry-contact",
       categoryId: "cat-contact",
       title: "Contact Information",
       content:
-        "Main service number: +880 1309-587749 (call or WhatsApp). IT Team: +880 1825-234644. Website: https://ridebangla.bd. For urgent or safety issues, call the main number first.",
+        "URGENT or SAFETY issues: call the hotline +880 1309-587749 FIRST (call or WhatsApp) — before anything else. General inquiries: IT Team +880 1825-234644. Website: https://ridebangla.bd. / জরুরি বা নিরাপত্তা বিষয়ে: প্রথমেই হটলাইন +880 1309-587749-এ কল করুন।",
       priority: 8,
+    },
+    {
+      id: "entry-about",
+      categoryId: "cat-about",
+      title: "About Ride Bangla",
+      content:
+        "Ride Bangla Limited is a Faridpur-based multi-service company: food delivery, ride sharing, courier/parcel delivery, and marketplace (food, grocery, medicine). All transport operations follow Bangladesh road and BRTA rules.",
+      priority: 7,
     },
     {
       id: "entry-language",

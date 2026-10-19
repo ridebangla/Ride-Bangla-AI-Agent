@@ -53,7 +53,7 @@ function toProductCard(p: CatalogProduct): ProductCard {
   };
 }
 
-function buildSystemPrompt(
+export function buildSystemPrompt(
   context: ConversationContext,
   extras?: { intentGuidance?: string; catalogBrief?: string }
 ): string {
@@ -86,6 +86,7 @@ ${context.businessDesc ? `About the business: ${context.businessDesc}` : ""}
 ## Communication Style
 ${toneGuide[context.tone] || toneGuide.friendly}
 ${context.language !== "auto" ? `Always respond in: ${context.language}` : "Respond in the same language the customer uses. If the customer writes in Bengali (বাংলা), reply in Bengali. If they write in English, reply in English. Never mix languages in one reply unless the customer does."}
+${context.agentBehavior ? `\n## Business Behavior Instructions\nThe business owner has defined how you must behave. Follow these instructions exactly — they override the general style above where they differ:\n\n${context.agentBehavior}\n` : ""}
 
 ## Your Knowledge Base
 Use the following information to answer customer questions accurately:
@@ -154,6 +155,8 @@ export async function getAIConfig(): Promise<AIConfig & ConversationContext> {
     welcomeMessage: settings.welcomeMessage,
     tone: settings.tone,
     language: settings.language,
+    // Per-business behavior instructions (settings.agentBehavior, "" = none).
+    agentBehavior: (settings.agentBehavior as string) || "",
     knowledgeBase: [],
     customerName: "",
     customerHistory: [],
