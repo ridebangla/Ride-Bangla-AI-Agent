@@ -300,7 +300,7 @@ export default function LeadEnginePage() {
   if (loading) {
     return (
       <>
-        <Header title="Lead Engine" subtitle="Outbound prospecting, powered by Harvey" />
+        <Header title="Lead Engine" description="Outbound prospecting, powered by Harvey" />
         <div className="p-6 text-sm text-rbai-text-light">Loading Lead Engine…</div>
       </>
     );
@@ -308,7 +308,7 @@ export default function LeadEnginePage() {
 
   return (
     <>
-      <Header title="Lead Engine" subtitle="Outbound prospecting, powered by Harvey" />
+      <Header title="Lead Engine" description="Outbound prospecting, powered by Harvey" />
       <div className="p-6 space-y-6 overflow-y-auto">
         {error && (
           <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">

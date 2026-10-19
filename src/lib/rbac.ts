@@ -27,6 +27,10 @@ export const PERMISSIONS = {
   "tickets:update": ["agent", "supervisor", "admin"],
   "tickets:delete": ["supervisor", "admin"],
 
+  // Lead Engine (Harvey outbound)
+  "leads:read": ["viewer", "agent", "supervisor", "admin"],
+  "leads:write": ["supervisor", "admin"],
+
   // Customers
   "customers:read": ["viewer", "agent", "supervisor", "admin"],
   "customers:create": ["agent", "supervisor", "admin"],
