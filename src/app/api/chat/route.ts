@@ -3,6 +3,10 @@ import { chat, createNewConversation } from "@/lib/ai/engine";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 import { runWithBusiness } from "@/lib/prisma";
+import {
+  requireActiveSubscription,
+  SubscriptionInactiveError,
+} from "@/lib/subscription";
 
 export async function POST(request: NextRequest) {
   // C-07: /api/chat previously had no auth — anyone could burn LLM tokens
@@ -11,12 +15,19 @@ export async function POST(request: NextRequest) {
   const auth = await requireAuth(request, "messages:create");
   if (!isAuthenticated(auth)) return auth;
 
-  // PHASE 3 ENFORCEMENT POINT (SaaS trial rule): before any LLM tokens are
-  // spent, call `requireActiveSubscription(auth.businessId)` from
-  // `@/lib/subscription` and HARD-STOP with HTTP 402 + a friendly
-  // "subscription expired" message when it throws SubscriptionInactiveError.
-  // Same rule must be wired in `/api/chat/widget` and every channel/social
-  // inbound handler (see the enforcement map in src/lib/subscription.ts).
+  // PHASE 3 (user decision 16 — airtight): subscription hard-stop BEFORE any
+  // LLM tokens are spent or conversations are created. Inactive trial /
+  // subscription => HTTP 402 + { error: "subscription_paused" }; the caller
+  // renders its own "paused" state. No AI reply, no spend, no exceptions.
+  try {
+    await requireActiveSubscription(auth.businessId);
+  } catch (err) {
+    if (err instanceof SubscriptionInactiveError) {
+      logger.warn(`[billing] blocked /api/chat for business ${auth.businessId}: subscription inactive`);
+      return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
+    }
+    throw err;
+  }
 
   return runWithBusiness(auth.businessId, async () => {
 
@@ -43,11 +54,13 @@ export async function POST(request: NextRequest) {
         convId = conversation.id;
       }
 
-      const response = await chat(convId, message.trim());
+      const result = await chat(convId, message.trim());
 
       return NextResponse.json({
         conversationId: convId,
-        response,
+        response: result.response,
+        products: result.products,
+        silent: result.silent,
       });
     } catch (error) {
       logger.error("Failed to process chat message:", error);
@@ -59,4 +72,5 @@ export async function POST(request: NextRequest) {
 
   });
 }
+
 

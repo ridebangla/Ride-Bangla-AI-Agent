@@ -188,7 +188,14 @@ export async function handleSpeechInput(
   // Get AI response
   let aiResponse: string;
   try {
-    aiResponse = await chat(conversationId, speechResult);
+    // Phase 3: chat() returns { response, products, silent }. On human
+    // takeover the pipeline stored the message in silence — a live call
+    // still needs a TwiML answer, so use a static handoff line (never an
+    // AI-generated reply).
+    const chatResult = await chat(conversationId, speechResult);
+    aiResponse = chatResult.silent
+      ? "Let me connect you with someone from the team."
+      : chatResult.response;
   } catch {
     return generateTwiMLSay("I'm sorry, I'm having trouble right now. Please try again or hold for an agent.");
   }
@@ -220,3 +227,4 @@ export function getPhoneStatus() {
     status: "disconnected" as const,
   };
 }
+

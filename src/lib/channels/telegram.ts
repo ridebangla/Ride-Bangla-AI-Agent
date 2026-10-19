@@ -143,14 +143,18 @@ export async function handleTelegramUpdate(
 
     if (!text && !media) return null;
 
-    const aiResponse = await chat(conversation.id, text, media ? { media } : undefined);
+    // Phase 3: chat() returns { response, products, silent }. On human
+    // takeover (silent) the pipeline stored the message — send nothing.
+    const chatResult = await chat(conversation.id, text, media ? { media } : undefined);
 
     // Send reply via Telegram API
-    if (token) {
-      await sendTelegramMessage(token, message.chat.id, aiResponse);
+    if (!chatResult.silent) {
+      if (token) {
+        await sendTelegramMessage(token, message.chat.id, chatResult.response);
+      }
+      return chatResult.response;
     }
-
-    return aiResponse;
+    return null;
   } catch (error) {
     logger.error("[Telegram] Failed to process update:", error);
     return null;
@@ -221,3 +225,4 @@ export async function setupTelegramWebhook(
     return false;
   }
 }
+

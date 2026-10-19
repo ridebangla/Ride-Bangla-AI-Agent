@@ -101,7 +101,15 @@ async function processEmail(parsed: ParsedMail, config: EmailConfig) {
 
   // Get AI response
   const messageContent = `Subject: ${subject}\n\n${textBody}`;
-  const aiResponse = await chat(conversation.id, messageContent);
+  // Phase 3: chat() returns { response, products, silent }. On human
+  // takeover (silent) the pipeline stored the inbound email - send no AI
+  // reply email at all (pure silence).
+  const chatResult = await chat(conversation.id, messageContent);
+  if (chatResult.silent) {
+    logger.info("[Email] human takeover: stored inbound email silently, no reply sent");
+    return;
+  }
+  const aiResponse = chatResult.response;
 
   // Send reply with branding
   const branding = await getEmailBranding();
@@ -254,3 +262,4 @@ export function getEmailStatus() {
     status: isListening ? "connected" : "disconnected",
   };
 }
+

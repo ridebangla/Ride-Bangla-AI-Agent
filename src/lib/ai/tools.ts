@@ -222,13 +222,36 @@ export const agentTools: ToolDefinition[] = [
     function: {
       name: "recommend_alternative",
       description:
-        "When the customer asks for something NOT available, get graceful alternatives: available products/services closest to their request. Use this to redirect gracefully instead of just saying no.",
+        "When the customer asks for something NOT available or matching nothing in the catalog, get budget-aware alternatives: exact match first, then items in a SIMILAR BUDGET (within 30% of any budget they mentioned), then the closest category's items. RETAIN DOCTRINE: never just say 'not available' — acknowledge warmly ('Great choice — that one isn\'t available right now'), then present these alternatives. Match the customer's language (Bengali pattern: 'এই মুহূর্তে এই প্রোডাক্টটা এভেলেবেল নেই, কিন্তু আমাদের কাছে এই প্রোডাক্টগুলো আছে'). Always ask which alternative interests them.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
             description: "What the customer originally asked for.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "show_products",
+      description:
+        "Show the customer rich product cards for catalog items matching what they are asking about. Call this when the customer is browsing, comparing, or asking about products or services — the matches render as beautiful cards (photo, name, price, short description, Order button) right in their chat. Do NOT paste the product list as plain text; the cards carry it.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "What the customer is looking for (product name, category, or need).",
+          },
+          limit: {
+            type: "number",
+            description: "How many cards to show (1-3, default 3).",
           },
         },
         required: ["query"],
@@ -281,6 +304,8 @@ export async function executeToolCall(
       return await searchCatalogTool(args);
     case "recommend_alternative":
       return await recommendAlternativeTool(args);
+    case "show_products":
+      return await showProductsTool(args);
     case "trigger_webhook":
       return await triggerWebhook(args);
     default:
@@ -648,14 +673,55 @@ async function searchCatalogTool(args: Record<string, unknown>): Promise<string>
   return JSON.stringify({ success: true, results });
 }
 
+/**
+ * Phase 3 refinement (b): budget-aware alternatives (100% retain).
+ * Delegates to findAlternatives: exact match -> budget band (+/-30%) ->
+ * closest category -> anything available. Never a bare "not available".
+ */
 async function recommendAlternativeTool(args: Record<string, unknown>): Promise<string> {
-  const { recommendAlternatives } = await import("../catalog");
-  const { alternatives, reason } = await recommendAlternatives(String(args.query ?? ""), 3);
-  return JSON.stringify({ success: true, reason, alternatives });
+  const { findAlternatives } = await import("../catalog");
+  const { products, reason } = await findAlternatives(String(args.query ?? ""), 3);
+  return JSON.stringify({
+    success: true,
+    reason,
+    alternatives: products,
+    retainGuidance:
+      reason === "direct_match"
+        ? "Direct match found — present it."
+        : "Acknowledge the request warmly, be honest it is not available right now (one short sentence), then present these alternatives as the next-best options and ask which interests them. Never let the customer walk away empty-handed.",
+  });
 }
 
-async function triggerWebhook(args: Record<string, unknown>): Promise<string> {
-  const webhook = await prisma.webhook.findFirst({
+/**
+ * Phase 3 (user decision 10): product-card tool. Matched products are
+ * returned to the model as JSON AND collected by the chat engine into the
+ * response payload, so the widget renders them as rich cards with an Order
+ * button. Never invent products: everything comes from the tenant's own
+ * catalog, matched deterministically (see matchProductsInMessage).
+ */
+async function showProductsTool(args: Record<string, unknown>): Promise<string> {
+  const { matchProductsInMessage } = await import("../catalog");
+  const query = String(args.query ?? "").trim();
+  const limit = Math.min(3, Math.max(1, Number(args.limit) || 3));
+  if (!query) {
+    return JSON.stringify({ success: false, message: "query is required." });
+  }
+  const products = await matchProductsInMessage(query, limit);
+  return JSON.stringify({
+    success: true,
+    shown_to_customer: products.length > 0,
+    products: products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      price: p.price,
+      currency: p.currency,
+      imageUrl: p.imageUrl,
+      description: p.description,
+    })),
+  });
+}
+
+async function triggerWebhook(args: Record<string, unknown>): Promise<string> {  const webhook = await prisma.webhook.findFirst({
     where: {
       name: { contains: args.webhookName as string, mode: "insensitive" },
       isActive: true,
@@ -700,3 +766,4 @@ async function triggerWebhook(args: Record<string, unknown>): Promise<string> {
       : `Webhook failed with status ${response.status}`,
   });
 }
+

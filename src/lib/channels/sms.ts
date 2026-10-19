@@ -48,8 +48,11 @@ export async function handleIncomingSms(
       conversation = await createNewConversation("sms", "SMS User", from, customerId);
     }
 
-    const aiResponse = await chat(conversation.id, body.trim());
-    return aiResponse;
+    // Phase 3: chat() returns { response, products, silent }. On human
+    // takeover (silent) the pipeline stored the message — the route answers
+    // with empty TwiML so no reply SMS goes out (pure silence).
+    const chatResult = await chat(conversation.id, body.trim());
+    return chatResult.silent ? "" : chatResult.response;
   } catch (error) {
     logger.error("[SMS] Failed to process incoming message:", error);
     return "Sorry, we're experiencing issues. Please try again later.";
@@ -85,3 +88,4 @@ export async function sendSms(
     return false;
   }
 }
+

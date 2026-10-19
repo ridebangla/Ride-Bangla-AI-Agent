@@ -78,18 +78,21 @@ describe("AI Engine", () => {
     });
 
     const { chat } = await import("@/lib/ai/engine");
-    const response = await chat("conv-1", "Hello");
+    const result = await chat("conv-1", "Hello");
 
-    expect(response).toContain("AI is not configured");
+    expect(result.response).toContain("AI brain isn't connected");
+    expect(result.silent).toBe(false);
+    expect(result.products).toEqual([]);
   });
 
   it("should return error when conversation not found", async () => {
     mockPrisma.conversation.findUnique.mockResolvedValue(null);
 
     const { chat } = await import("@/lib/ai/engine");
-    const response = await chat("nonexistent", "Hello");
+    const result = await chat("nonexistent", "Hello");
 
-    expect(response).toBe("Conversation not found.");
+    expect(result.response).toBe("Conversation not found.");
+    expect(result.silent).toBe(false);
   });
 
   it("should call OpenAI with correct parameters", async () => {
@@ -103,9 +106,11 @@ describe("AI Engine", () => {
     });
 
     const { chat } = await import("@/lib/ai/engine");
-    const response = await chat("conv-1", "I need help");
+    const result = await chat("conv-1", "I need help");
 
-    expect(response).toBe("Hello! How can I help?");
+    expect(result.response).toBe("Hello! How can I help?");
+    expect(result.products).toEqual([]);
+    expect(result.silent).toBe(false);
     expect(mockOpenAICreateFn).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "gpt-4",
@@ -218,9 +223,9 @@ describe("AI Engine", () => {
     mockPrisma.conversation.findMany.mockResolvedValue([]);
 
     const { chat } = await import("@/lib/ai/engine");
-    const response = await chat("conv-1", "Do you know me?");
+    const result = await chat("conv-1", "Do you know me?");
 
-    expect(response).toBe("Based on your history, I can see...");
+    expect(result.response).toBe("Based on your history, I can see...");
     expect(mockOpenAICreateFn).toHaveBeenCalledTimes(2);
   });
 
@@ -235,8 +240,9 @@ describe("AI Engine", () => {
     });
 
     const { chat } = await import("@/lib/ai/engine");
-    const response = await chat("conv-1", "Hello");
+    const result = await chat("conv-1", "Hello");
 
-    expect(response).toContain("could not generate a response");
+    expect(result.response).toContain("could not generate a response");
   });
 });
+

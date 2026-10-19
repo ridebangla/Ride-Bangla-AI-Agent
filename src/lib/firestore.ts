@@ -223,6 +223,9 @@ const MODEL_META: Record<string, ModelMeta> = {
       status: "active",
       summary: "",
       metadata: {},
+      // Phase 3 (user decision 17): AI replies ON by default; the Phase 5
+      // dashboard switch flips this to false for human takeover.
+      aiEnabled: true,
     },
   }),
   message: M("messages"),
@@ -1652,3 +1655,4 @@ if (process.env.NODE_ENV !== "production") {
   globalForDb.rawDb = rawDb;
   globalForDb.prisma = prisma;
 }
+

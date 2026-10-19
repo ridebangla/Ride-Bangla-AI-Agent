@@ -21,6 +21,16 @@ export async function POST(request: NextRequest) {
 
     const response = await handleIncomingSms(from, body);
 
+    // Phase 3 (user decision 17): human takeover — the pipeline stored the
+    // message in pure silence. Answer with empty TwiML so Twilio sends no
+    // reply SMS at all.
+    if (!response) {
+      return new NextResponse(
+        '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+        { headers: { "Content-Type": "text/xml" } }
+      );
+    }
+
     // Return TwiML response
     const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${response}</Message></Response>`;
 
@@ -35,3 +45,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

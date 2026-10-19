@@ -114,7 +114,7 @@ function Logo({ name, logoUrl, brandColor }: { name: string; logoUrl: string | n
 export default async function LandingPage({ params }: PageProps) {
   const { slug } = await params;
   const data = await load(slug);
-  const { business, copy, products, hours, contact } = data;
+  const { business, copy, products, productGroups, hours, contact } = data;
   const brand = business.brandColor;
   const brandDark = shade(brand, -0.25);
   const brandLight = shade(brand, 0.88);
@@ -153,6 +153,11 @@ export default async function LandingPage({ params }: PageProps) {
           .lp-card-body p { margin: 0 0 10px; font-size: 14px; color: #555; line-height: 1.5; }
           .lp-price { font-weight: 800; font-size: 16px; }
           .lp-cat { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; padding: 3px 10px; border-radius: 999px; margin-bottom: 8px; }
+          .lp-cathead { display: flex; align-items: center; gap: 12px; margin: 34px 0 18px; }
+          .lp-cathead:first-child { margin-top: 0; }
+          .lp-cathead h3 { margin: 0; font-size: 21px; letter-spacing: -0.2px; white-space: nowrap; }
+          .lp-cathead .lp-count { font-size: 12px; font-weight: 700; padding: 2px 10px; border-radius: 999px; white-space: nowrap; }
+          .lp-cathead .lp-rule { flex: 1; height: 1px; background: #eee; }
           .lp-about { border-radius: 20px; padding: 40px; line-height: 1.7; font-size: 16px; color: #333; }
           .lp-contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
           .lp-panel { border: 1px solid #e8e8e8; border-radius: 16px; padding: 28px; background: #fff; }
@@ -193,34 +198,42 @@ export default async function LandingPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* Products */}
+          {/* Products — grouped under (auto-)categories */}
           {products.length > 0 && (
             <div className="lp-section">
               <div className="lp-wrap">
                 <h2>{copy.productsHeading}</h2>
                 <p className="lede">Everything we offer right now — tap &ldquo;Chat with us&rdquo; to order or ask about any item.</p>
-                <div className="lp-grid">
-                  {products.map((p, i) => (
-                    <div className="lp-card" key={i}>
-                      {p.imageUrl && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={p.imageUrl} alt={p.name} loading="lazy" />
-                      )}
-                      <div className="lp-card-body">
-                        {p.categoryName && (
-                          <span className="lp-cat" style={{ background: brandLight, color: brandDark }}>
-                            {p.categoryName}
-                          </span>
-                        )}
-                        <h3>{p.name}</h3>
-                        {p.description && <p>{p.description.slice(0, 140)}{p.description.length > 140 ? "…" : ""}</p>}
-                        {formatPrice(p) && (
-                          <div className="lp-price" style={{ color: brandDark }}>{formatPrice(p)}</div>
-                        )}
+                {(productGroups.length > 0 ? productGroups : [{ categoryName: "", products }]).map((g, gi) => (
+                  <div key={gi}>
+                    {g.categoryName && (
+                      <div className="lp-cathead">
+                        <h3>{g.categoryName}</h3>
+                        <span className="lp-count" style={{ background: brandLight, color: brandDark }}>
+                          {g.products.length} {g.products.length === 1 ? "item" : "items"}
+                        </span>
+                        <span className="lp-rule" />
                       </div>
+                    )}
+                    <div className="lp-grid">
+                      {g.products.map((p, i) => (
+                        <div className="lp-card" key={i}>
+                          {p.imageUrl && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={p.imageUrl} alt={p.name} loading="lazy" />
+                          )}
+                          <div className="lp-card-body">
+                            <h3>{p.name}</h3>
+                            {p.description && <p>{p.description.slice(0, 140)}{p.description.length > 140 ? "…" : ""}</p>}
+                            {formatPrice(p) && (
+                              <div className="lp-price" style={{ color: brandDark }}>{formatPrice(p)}</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -311,3 +324,4 @@ export default async function LandingPage({ params }: PageProps) {
     </>
   );
 }
+

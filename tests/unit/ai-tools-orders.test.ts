@@ -10,6 +10,8 @@ describe("AI tools: take_order + schedule_followup (real persistence)", () => {
 
   it("take_order persists a ticket with order metadata", async () => {
     mockPrisma.ticket.create.mockResolvedValue({ id: "ticket-123" });
+    // Phase 2: take_order also writes the order doc (orders collection).
+    mockPrisma.order.create.mockResolvedValue({ id: "order-456" });
     const { executeToolCall } = await import("@/lib/ai/tools");
 
     const raw = await executeToolCall(
@@ -26,7 +28,8 @@ describe("AI tools: take_order + schedule_followup (real persistence)", () => {
     );
     const result = JSON.parse(raw);
     expect(result.success).toBe(true);
-    expect(result.orderId).toBe("ticket-123");
+    expect(result.orderId).toBe("order-456");
+    expect(result.ticketId).toBe("ticket-123");
     expect(mockPrisma.ticket.create).toHaveBeenCalledOnce();
     const data = mockPrisma.ticket.create.mock.calls[0][0].data;
     expect(data.businessId).toBe("test-business");
@@ -77,3 +80,4 @@ describe("AI tools: take_order + schedule_followup (real persistence)", () => {
     expect(mockPrisma.followUp.create).not.toHaveBeenCalled();
   });
 });
+

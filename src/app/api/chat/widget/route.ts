@@ -3,6 +3,7 @@ import { chat } from "@/lib/ai/engine";
 import { logger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getBusinessBySiteKey, enterBusinessContext } from "@/lib/tenant";
+import { getSubscription } from "@/lib/subscription";
 import { prisma, withBusinessId } from "@/lib/prisma";
 import type { MediaInput } from "@/lib/ai/media";
 
@@ -38,11 +39,18 @@ export async function POST(request: NextRequest) {
     if (!business) {
       return NextResponse.json({ error: "Invalid site key" }, { status: 401 });
     }
-    // PHASE 3 ENFORCEMENT POINT (SaaS trial rule): call
-    // `isSubscriptionActive(business)` from `@/lib/subscription` here and
-    // HARD-STOP the AI reply with HTTP 402 + a friendly "subscription
-    // expired — contact the business owner" message when inactive. Do this
-    // BEFORE any LLM tokens are spent or conversations are created.
+    // PHASE 3 (user decision 16 — airtight): subscription hard-stop BEFORE
+    // any LLM tokens are spent, conversations are created, or media is
+    // processed. Inactive trial/subscription => HTTP 402 +
+    // { error: "subscription_paused" }; the widget renders a beautiful
+    // "Subscription paused" state and sends nothing further.
+    const sub = await getSubscription(business.id);
+    if (!sub.isActive) {
+      logger.warn(
+        `[billing] blocked widget chat for business ${business.id}: subscription inactive`
+      );
+      return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
+    }
     enterBusinessContext(business.id);
 
     const visitor = typeof visitorId === "string" && visitorId.trim() ? visitorId.trim().slice(0, 64) : "anonymous";
@@ -96,17 +104,26 @@ export async function POST(request: NextRequest) {
           customerName: "Website Visitor",
           customerContact: visitor,
           status: "open",
+          // Phase 3 (user decision 17): AI replies ON by default; the Phase
+          // 5 dashboard switch flips this to false for human takeover.
+          aiEnabled: true,
         }),
       });
       convId = conv.id;
     }
 
-    const response = await chat(convId, text || "(sent a photo)", { media });
+    const result = await chat(convId, text || "(sent a photo)", { media });
 
-    return NextResponse.json({ conversationId: convId, response });
+    return NextResponse.json({
+      conversationId: convId,
+      response: result.response,
+      products: result.products,
+      silent: result.silent,
+    });
   } catch (error) {
     logger.error("Widget chat failed:", error);
     return NextResponse.json({ error: "Failed to process message" }, { status: 500 });
   }
 }
+
 

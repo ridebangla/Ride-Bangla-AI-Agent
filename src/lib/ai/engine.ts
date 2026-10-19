@@ -4,7 +4,7 @@ import { agentTools, executeToolCall } from "./tools";
 import { emitNewMessage } from "@/lib/realtime";
 import { analyzeSentiment, detectIntent, estimateConfidence, requiresHumanApproval } from "./guardrails";
 import { classifyIntent, getIntentGuidance, RETENTION_DOCTRINE, UNAVAILABLE_PRODUCT_RULE } from "./intent";
-import { getCatalogBrief } from "../catalog";
+import { getCatalogBrief, matchProductsInMessage, matchCategoryProducts, findAlternatives, looksLikeProductInquiry, retainLineFor, type CatalogProduct } from "../catalog";
 import { perceiveMedia, type MediaInput } from "./media";
 import { logger } from "../logger";
 import type {
@@ -13,6 +13,44 @@ import type {
   ConversationContext,
   KnowledgeItem,
 } from "./types";
+
+/**
+ * Phase 3 (user decision 10): a product card the widget renders in-chat —
+ * photo, name, price, short description, Order button. Structured data only;
+ * the widget owns the presentation.
+ */
+export interface ProductCard {
+  id: string;
+  name: string;
+  price: number | null;
+  currency: string;
+  imageUrl: string;
+  description: string;
+}
+
+/**
+ * Phase 3: the chat pipeline's result. `products` carries the product cards
+ * for this turn (AI tool-chosen + deterministically name-matched, deduped,
+ * max 3). `silent` is true only on the human-takeover path (user decision
+ * 17): the customer message was stored and NO AI reply was generated — the
+ * caller must render nothing.
+ */
+export interface ChatResult {
+  response: string;
+  products: ProductCard[];
+  silent: boolean;
+}
+
+function toProductCard(p: CatalogProduct): ProductCard {
+  return {
+    id: p.id,
+    name: p.name,
+    price: p.price,
+    currency: p.currency,
+    imageUrl: p.imageUrl,
+    description: p.description,
+  };
+}
 
 function buildSystemPrompt(
   context: ConversationContext,
@@ -94,7 +132,8 @@ async function getKnowledgeBase(): Promise<KnowledgeItem[]> {
   }));
 }
 
-async function getAIConfig(): Promise<AIConfig & ConversationContext> {
+/** Exported for the Phase 3 media endpoints (/api/chat/vision, /api/chat/voice). */
+export async function getAIConfig(): Promise<AIConfig & ConversationContext> {
   let settings = await prisma.settings.findFirst();
   if (!settings) {
     settings = await prisma.settings.create({ data: withBusinessId({}) });
@@ -122,12 +161,8 @@ export async function chat(
   conversationId: string,
   userMessage: string,
   opts?: { media?: MediaInput }
-): Promise<string> {
+): Promise<ChatResult> {
   const config = await getAIConfig();
-
-  if (!config.apiKey) {
-    return "AI is not configured. Please add your API key in Settings > AI Configuration.";
-  }
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
@@ -137,7 +172,33 @@ export async function chat(
   });
 
   if (!conversation) {
-    return "Conversation not found.";
+    return { response: "Conversation not found.", products: [], silent: false };
+  }
+
+  // ---- Phase 5 hook: HUMAN TAKEOVER (user decision 17) ----
+  // When the business owner flips the dashboard AI switch OFF, the
+  // conversation's `aiEnabled` becomes false. From then on this pipeline
+  // stores the customer's message and returns in PURE SILENCE — no AI
+  // reply, no tool calls, no realtime assistant event, zero interjection.
+  // The customer talks directly to the owner; flipping the switch back ON
+  // resumes the AI with full history intact. Missing/true = AI enabled
+  // (all pre-Phase-3 conversations keep working).
+  if (conversation.aiEnabled === false) {
+    await prisma.message.create({
+      data: withBusinessId({
+        conversationId,
+        role: "customer",
+        content: userMessage,
+      }),
+    });
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { updatedAt: new Date() },
+    });
+    logger.info(
+      `[brain] human takeover: stored customer message silently for conversation ${conversationId}`
+    );
+    return { response: "", products: [], silent: true };
   }
 
   // ---- Multimodal perception (real path, not a stub) ----
@@ -146,18 +207,54 @@ export async function chat(
   // Voice  -> Whisper transcription.
   let effectiveMessage = userMessage;
   if (opts?.media) {
-    try {
-      const perception = await perceiveMedia(config.apiKey, config.model, opts.media);
-      effectiveMessage = `${perception.description}\n${userMessage}`.trim();
-      logger.info(`[brain] perceived ${opts.media.kind} for conversation ${conversationId}`);
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      logger.warn("[brain] media perception failed", { kind: opts.media.kind, reason });
-      const kindLabel =
-        opts.media.kind === "audio" ? "a voice message" : `a ${opts.media.kind}`;
-      effectiveMessage =
-        `[The customer sent ${kindLabel}, but I could not process it: ${reason}]\n${userMessage}`.trim();
+    if (!config.apiKey) {
+      // Graceful: no brain connected — keep the message, skip perception.
+      logger.info(
+        `[brain] media received but no API key; skipping perception (${opts.media.kind})`
+      );
+    } else {
+      try {
+        const perception = await perceiveMedia(config.apiKey, config.model, opts.media);
+        effectiveMessage = `${perception.description}\n${userMessage}`.trim();
+        logger.info(`[brain] perceived ${opts.media.kind} for conversation ${conversationId}`);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        logger.warn("[brain] media perception failed", { kind: opts.media.kind, reason });
+        const kindLabel =
+          opts.media.kind === "audio" ? "a voice message" : `a ${opts.media.kind}`;
+        effectiveMessage =
+          `[The customer sent ${kindLabel}, but I could not process it: ${reason}]\n${userMessage}`.trim();
+      }
     }
+  }
+
+  // Save user message — always. The dashboard (and a human who took over)
+  // must see what the customer said even when the AI brain is offline.
+  await prisma.message.create({
+    data: withBusinessId({
+      conversationId,
+      role: "customer",
+      content: effectiveMessage,
+    }),
+  });
+
+  if (!config.apiKey) {
+    // Graceful degradation: an honest message, never a faked AI reply.
+    // Deterministic product cards still attach when the customer names a
+    // catalog item — real catalog data, no AI involved. When nothing
+    // matched but this looks like a product inquiry, the retain path
+    // offers budget/category alternatives with the retain phrasing.
+    const attached = await attachMentionedProducts(effectiveMessage, []);
+    let fallbackResponse =
+      "The AI brain isn't connected yet — the business owner still needs to add the AI API key in Settings. Your message has been saved and the team can see it.";
+    if (attached.retain) {
+      fallbackResponse += `\n\n${retainLineFor(effectiveMessage)}`;
+    }
+    return {
+      response: fallbackResponse,
+      products: attached.products,
+      silent: false,
+    };
   }
 
   const knowledgeBase = await getKnowledgeBase();
@@ -209,24 +306,25 @@ export async function chat(
     });
   }
 
-  // Save user message
-  await prisma.message.create({
-    data: withBusinessId({
-      conversationId,
-      role: "customer",
-      content: effectiveMessage,
-    }),
-  });
+  // Call AI (collects show_products tool cards along the way)
+  const aiResult = await callAI(config, messages, conversationId);
 
-  // Call AI
-  const response = await callAI(config, messages, conversationId);
+  // Phase 3: deterministic product cards. Merge the AI's tool-chosen cards
+  // with name-matched cards from the conversation text (the customer may
+  // name a product the model didn't card, or vice versa), then category-
+  // intent matches, then the budget-aware retain path. Deduped, max 3.
+  const attached = await attachMentionedProducts(
+    `${effectiveMessage}\n${aiResult.response}`,
+    aiResult.products
+  );
+  const products = attached.products;
 
   // Save assistant message
   const savedMessage = await prisma.message.create({
     data: withBusinessId({
       conversationId,
       role: "assistant",
-      content: response,
+      content: aiResult.response,
     }),
   });
 
@@ -237,7 +335,7 @@ export async function chat(
   });
 
   // Confidence scoring
-  const confidence = estimateConfidence(response, knowledgeBase.length, false);
+  const confidence = estimateConfidence(aiResult.response, knowledgeBase.length, false);
   if (confidence.shouldEscalate) {
     await prisma.conversation.update({
       where: { id: conversationId },
@@ -245,19 +343,108 @@ export async function chat(
     });
   }
 
-  emitNewMessage(conversationId, { id: savedMessage.id, role: "assistant", content: response });
+  emitNewMessage(conversationId, { id: savedMessage.id, role: "assistant", content: aiResult.response });
 
-  return response;
+  return { response: aiResult.response, products, silent: false };
+}
+
+/**
+ * Phase 3: merge AI tool-chosen product cards with deterministic matches.
+ * Layers, in order:
+ *  1. seed — cards the AI chose via the show_products tool
+ *  2. name/tag match — matchProductsInMessage over the conversation text
+ *  3. (a) category intent — "I want X type" -> that category's products
+ *  4. (b) retain — product inquiry matched NOTHING -> budget-band / closest
+ *     category / available alternatives (100% retain: never walk away).
+ * Deduped by product id, capped at 3. `retain` is true when layer 4 fired,
+ * so the caller can add the retain phrasing. Never throws — a matching
+ * failure must not break the chat turn.
+ */
+async function attachMentionedProducts(
+  text: string,
+  seed: ProductCard[]
+): Promise<{ products: ProductCard[]; retain: boolean }> {
+  const merged: ProductCard[] = [...seed];
+  let retain = false;
+  const pushUnique = (p: ProductCard) => {
+    if (merged.length < 3 && !merged.some((e) => e.id === p.id)) merged.push(p);
+  };
+  try {
+    for (const p of (await matchProductsInMessage(text, 3)).map(toProductCard)) {
+      pushUnique(p);
+    }
+    // (a) category intent fill
+    if (merged.length < 3) {
+      for (const p of (await matchCategoryProducts(text, 3)).map(toProductCard)) {
+        pushUnique(p);
+      }
+    }
+    // (b) budget-aware retain
+    if (merged.length === 0 && looksLikeProductInquiry(text)) {
+      const alt = await findAlternatives(text, 3);
+      if (alt.products.length > 0 && alt.reason !== "direct_match") {
+        for (const p of alt.products.map(toProductCard)) pushUnique(p);
+        retain = merged.length > 0;
+      }
+    }
+  } catch (err) {
+    logger.warn("[brain] product matching failed", {
+      reason: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return { products: merged.slice(0, 3), retain };
+}
+
+/**
+ * Pull the product cards out of a show_products tool result so the widget
+ * can render them. Validates shape — never trusts the model blindly.
+ */
+function collectShownProducts(
+  toolName: string,
+  resultJson: string,
+  into: ProductCard[]
+): void {
+  if (toolName !== "show_products") return;
+  try {
+    const parsed = JSON.parse(resultJson) as {
+      products?: Array<Record<string, unknown>>;
+    };
+    const list = Array.isArray(parsed.products) ? parsed.products : [];
+    for (const p of list) {
+      if (
+        p &&
+        typeof p.id === "string" &&
+        typeof p.name === "string" &&
+        !into.some((e) => e.id === p.id)
+      ) {
+        into.push({
+          id: p.id,
+          name: p.name,
+          price: typeof p.price === "number" ? p.price : null,
+          currency: typeof p.currency === "string" ? p.currency : "",
+          imageUrl: typeof p.imageUrl === "string" ? p.imageUrl : "",
+          description: typeof p.description === "string" ? p.description : "",
+        });
+      }
+    }
+  } catch {
+    /* malformed tool JSON: cards simply don't attach */
+  }
 }
 
 async function callAI(
   config: AIConfig,
   messages: AIMessage[],
   conversationId: string,
-  depth = 0
-): Promise<string> {
+  depth = 0,
+  collectedProducts: ProductCard[] = []
+): Promise<{ response: string; products: ProductCard[] }> {
   if (depth > 5) {
-    return "I apologize, but I'm having trouble processing your request. Let me connect you with a team member.";
+    return {
+      response:
+        "I apologize, but I'm having trouble processing your request. Let me connect you with a team member.",
+      products: collectedProducts,
+    };
   }
 
   const openai = new OpenAI({ apiKey: config.apiKey });
@@ -272,7 +459,11 @@ async function callAI(
       temperature: config.temperature,
     });
   } catch {
-    return "I'm temporarily unable to process your request. Please try again in a moment, or I can connect you with a team member.";
+    return {
+      response:
+        "I'm temporarily unable to process your request. Please try again in a moment, or I can connect you with a team member.",
+      products: collectedProducts,
+    };
   }
 
   const choice = response.choices[0];
@@ -308,6 +499,9 @@ async function callAI(
         args,
         conversationId
       );
+      // Phase 3: harvest product cards from show_products tool results so
+      // the widget can render them.
+      collectShownProducts(toolCall.function.name, result, collectedProducts);
 
       messages.push({
         role: "tool",
@@ -317,10 +511,14 @@ async function callAI(
     }
 
     // Continue the conversation with tool results
-    return callAI(config, messages, conversationId, depth + 1);
+    return callAI(config, messages, conversationId, depth + 1, collectedProducts);
   }
 
-  return choice.message.content || "I apologize, I could not generate a response.";
+  return {
+    response:
+      choice.message.content || "I apologize, I could not generate a response.",
+    products: collectedProducts,
+  };
 }
 
 export async function createNewConversation(
@@ -334,7 +532,11 @@ export async function createNewConversation(
       channel,
       customerName,
       customerContact,
+      // Phase 3 (user decision 17): AI replies ON by default. The Phase 5
+      // dashboard switch flips this to false for human takeover.
+      aiEnabled: true,
       ...(customerId && { customerId }),
     }),
   });
 }
+

@@ -20,6 +20,7 @@ import {
   Loader2,
   FolderPlus,
   Tag,
+  Wand2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -95,6 +96,7 @@ export default function CatalogPage() {
   const [prodModal, setProdModal] = useState<null | ({ id?: string } & typeof emptyProduct)>(null);
   const [deleteTarget, setDeleteTarget] = useState<null | { kind: "category" | "product"; id: string; name: string }>(null);
   const [busy, setBusy] = useState(false);
+  const [autoBusy, setAutoBusy] = useState(false);
 
   const toast = (type: "success" | "error", message: string) => {
     const id = Date.now() + Math.random();
@@ -218,6 +220,37 @@ export default function CatalogPage() {
     }
   };
 
+  // Phase 3 refinement (a): one click builds beautiful categories from the
+  // product list — rule-based grouping (AI-refined names when the business
+  // has an OpenAI key). Only uncategorized products are touched.
+  const autoBuildCategories = async () => {
+    if (allProducts.length === 0) {
+      toast("error", "Add some products first.");
+      return;
+    }
+    setAutoBusy(true);
+    try {
+      const res = await fetch("/api/catalog/auto-categorize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "fill" }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to build categories");
+      const parts = [
+        `${json.groups?.length ?? 0} categories`,
+        `${json.assigned ?? 0} products assigned`,
+      ];
+      if ((json.created?.length ?? 0) > 0) parts.push(`${json.created.length} new`);
+      toast("success", `Categories built: ${parts.join(", ")}.`);
+      await reload();
+    } catch (e) {
+      toast("error", e instanceof Error ? e.message : "Failed.");
+    } finally {
+      setAutoBusy(false);
+    }
+  };
+
   const openEditProduct = (p: Product) => {
     const cat = categories.find((c) => c.id === p.categoryId);
     setProdModal({
@@ -240,6 +273,19 @@ export default function CatalogPage() {
         description="Products and services your AI can recommend and sell"
         actions={
           <div className="flex items-center gap-2">
+            <button
+              onClick={autoBuildCategories}
+              disabled={autoBusy}
+              title="Automatically build categories from your products"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-rbai-border text-rbai-text hover:bg-rbai-bg transition-colors disabled:opacity-50"
+            >
+              {autoBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Wand2 className="h-4 w-4" />
+              )}
+              Auto-build categories
+            </button>
             <button
               onClick={() => setCatModal({ name: "", description: "" })}
               className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-rbai-border text-rbai-text hover:bg-rbai-bg transition-colors"
@@ -600,3 +646,4 @@ export default function CatalogPage() {
     </div>
   );
 }
+

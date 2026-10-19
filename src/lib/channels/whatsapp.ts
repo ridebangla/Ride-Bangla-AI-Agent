@@ -158,11 +158,17 @@ export async function initWhatsApp(): Promise<void> {
         }
       }
 
-      // Get AI response (with media perception when an attachment was sent)
-      const aiResponse = await chat(conversation.id, messageContent, media ? { media } : undefined);
+      // Get AI response (with media perception when an attachment was sent).
+      // Phase 3: chat() returns { response, products, silent }. On human
+      // takeover (silent) the pipeline stored the message — send nothing.
+      const chatResult = await chat(conversation.id, messageContent, media ? { media } : undefined);
 
       // Send response back via WhatsApp
-      await message.reply(aiResponse);
+      if (!chatResult.silent) {
+        await message.reply(chatResult.response);
+      } else {
+        logger.info("[WhatsApp] human takeover: stored message silently, no reply sent");
+      }
     } catch (error) {
       logger.error("[WhatsApp] Failed to process message:", error);
     }
@@ -194,3 +200,4 @@ export async function sendWhatsAppMessage(
   await whatsappClient.sendMessage(chatId, message);
   return true;
 }
+

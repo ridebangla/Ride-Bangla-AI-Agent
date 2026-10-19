@@ -33,6 +33,8 @@ export interface PublicLandingData {
   };
   copy: LandingCopy;
   products: LandingProduct[];
+  /** Phase 3 refinement (a): products grouped for beautiful category sections. */
+  productGroups: { categoryName: string; products: LandingProduct[] }[];
   aboutEntries: LandingKnowledge[];
   hours: Record<string, string> | null;
   contact: {
@@ -83,7 +85,7 @@ export async function getLandingData(slug: string): Promise<PublicLandingData | 
   };
   if (!business || !business.isActive) return null;
 
-  const [settings, categories, knowledgeEntries, hours] = await Promise.all([
+  const [settings, categories, uncategorized, knowledgeEntries, hours] = await Promise.all([
     db.settings.findFirst({
       where: { businessId: business.id },
       select: { businessDesc: true, welcomeMessage: true, whatsappPhone: true, smtpFrom: true },
@@ -98,6 +100,10 @@ export async function getLandingData(slug: string): Promise<PublicLandingData | 
       },
       orderBy: { name: "asc" },
     }),
+    db.product.findMany({
+      where: { businessId: business.id, categoryId: null, isAvailable: true },
+      orderBy: { name: "asc" },
+    }),
     db.knowledgeEntry.findMany({
       where: { businessId: business.id, isActive: true },
       include: { category: { select: { name: true } } },
@@ -108,6 +114,7 @@ export async function getLandingData(slug: string): Promise<PublicLandingData | 
   ]);
 
   const products: LandingProduct[] = [];
+  const productGroups: { categoryName: string; products: LandingProduct[] }[] = [];
   for (const cat of categories as Array<{
     name: string;
     products: Array<{
@@ -118,17 +125,41 @@ export async function getLandingData(slug: string): Promise<PublicLandingData | 
       imageUrl?: string | null;
     }>;
   }>) {
+    const group: LandingProduct[] = [];
     for (const p of cat.products ?? []) {
-      products.push({
+      const item: LandingProduct = {
         name: p.name,
         description: p.description ?? null,
         price: p.price ?? null,
         currency: p.currency ?? "BDT",
         imageUrl: p.imageUrl || null,
         categoryName: cat.name,
-      });
+      };
+      products.push(item);
+      group.push(item);
     }
+    if (group.length > 0) productGroups.push({ categoryName: cat.name, products: group });
   }
+  // Phase 3 refinement (a): products without a category still deserve a
+  // shelf — grouped under "More items" instead of being invisible.
+  const loose = (
+    uncategorized as Array<{
+      name: string;
+      description?: string | null;
+      price?: number | null;
+      currency?: string | null;
+      imageUrl?: string | null;
+    }>
+  ).map((p) => ({
+    name: p.name,
+    description: p.description ?? null,
+    price: p.price ?? null,
+    currency: p.currency ?? "BDT",
+    imageUrl: p.imageUrl || null,
+    categoryName: null,
+  }));
+  for (const item of loose) products.push(item);
+  if (loose.length > 0) productGroups.push({ categoryName: "More items", products: loose });
 
   const aboutEntries: LandingKnowledge[] = (
     knowledgeEntries as Array<{
@@ -188,6 +219,7 @@ export async function getLandingData(slug: string): Promise<PublicLandingData | 
     },
     copy,
     products,
+    productGroups,
     aboutEntries,
     hours: hoursMap,
     contact: {
@@ -197,3 +229,4 @@ export async function getLandingData(slug: string): Promise<PublicLandingData | 
     },
   };
 }
+

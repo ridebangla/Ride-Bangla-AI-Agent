@@ -118,6 +118,7 @@ function createMockPrismaClient() {
     "agentCommand",
     "productCategory",
     "product",
+    "order",
   ];
 
   const client: Record<string, unknown> = {
@@ -138,3 +139,4 @@ function createMockPrismaClient() {
 
   return client;
 }
+

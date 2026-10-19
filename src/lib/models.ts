@@ -174,6 +174,12 @@ export interface Conversation {
   satisfaction: number | null;
   summary: string;
   metadata: JsonValue;
+  /**
+   * Phase 3 (user decision 17): human-takeover switch. true (default) = the
+   * AI replies; false = pipeline stores customer messages in pure silence.
+   * Flipped by the Phase 5 dashboard switch + live-chat view.
+   */
+  aiEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
   messages: Message[];
@@ -604,3 +610,4 @@ export interface Order {
   createdAt: Date;
   updatedAt: Date;
 }
+
