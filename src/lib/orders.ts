@@ -143,7 +143,7 @@ export function normalizeItems(input: unknown): OrderItem[] {
   if (!Array.isArray(input)) return [];
   return input
     .slice(0, 50)
-    .map((raw) => {
+    .map((raw): OrderItem | null => {
       if (!raw || typeof raw !== "object") return null;
       const it = raw as Record<string, unknown>;
       const name = String(it.name ?? "").trim().slice(0, 200);
@@ -153,13 +153,14 @@ export function normalizeItems(input: unknown): OrderItem[] {
         it.price === null || it.price === undefined || it.price === ""
           ? null
           : Number(it.price);
-      return {
+      const item: OrderItem = {
         productId:
           typeof it.productId === "string" && it.productId ? it.productId : null,
         name,
         qty: Number.isFinite(qty) && qty > 0 ? Math.floor(qty) : 1,
         price: price !== null && Number.isFinite(price) && price >= 0 ? price : null,
       };
+      return item;
     })
     .filter((it): it is OrderItem => it !== null);
 }

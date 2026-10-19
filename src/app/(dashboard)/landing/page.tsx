@@ -66,6 +66,7 @@ interface PreviewProduct {
 interface PreviewData {
   business: {
     name: string;
+    slug: string;
     tagline: string;
     brandColor: string;
     logoUrl: string;

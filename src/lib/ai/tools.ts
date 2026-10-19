@@ -531,7 +531,7 @@ async function takeOrder(
   // be collected before the order is created. When something is missing we
   // return the exact list so the AI can ask the customer conversationally
   // and call take_order again — no deep slot-filling machinery needed yet.
-  let orderFields;
+  let orderFields: import("../orders").OrderField[];
   try {
     orderFields = await getOrderFields(businessId);
   } catch {
