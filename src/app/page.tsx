@@ -9,14 +9,14 @@ import {
   ArrowRight,
   Bot,
   Check,
+  Camera,
   Clock,
   Globe,
-  Instagram,
-  Facebook,
   MessageCircle,
   MessagesSquare,
   Phone,
   Send,
+  Share2,
   ShoppingBag,
   Sparkles,
   UserCheck,
@@ -283,8 +283,8 @@ function MarketingLanding() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-wrap items-center justify-center gap-x-10 gap-y-4 text-slate-500 text-sm font-medium">
           <span className="flex items-center gap-2"><Globe className="h-4 w-4" /> Your website</span>
           <span className="flex items-center gap-2"><MessageCircle className="h-4 w-4" /> WhatsApp</span>
-          <span className="flex items-center gap-2"><Facebook className="h-4 w-4" /> Facebook</span>
-          <span className="flex items-center gap-2"><Instagram className="h-4 w-4" /> Instagram</span>
+          <span className="flex items-center gap-2"><Share2 className="h-4 w-4" /> Facebook</span>
+          <span className="flex items-center gap-2"><Camera className="h-4 w-4" /> Instagram</span>
           <span className="flex items-center gap-2"><Send className="h-4 w-4" /> Telegram</span>
         </div>
       </section>
