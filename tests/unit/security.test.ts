@@ -94,6 +94,7 @@ describe("Security Utilities", () => {
         imapPass: "imap-pass",
         twilioToken: "twilio-token",
         elevenLabsKey: "el-key",
+        aiKeys: { groq: "gsk-secret", gemini: "", openai: null },
         whatsappApiKey: "wa-key",
         telegramBotToken: "tg-bot-token",
         telegramWebhookSecret: "tg-webhook-secret",
@@ -104,6 +105,11 @@ describe("Security Utilities", () => {
       expect(masked.businessName).toBe("TestCo");
       expect(masked.id).toBe("default");
       for (const field of SECRET_FIELDS) {
+        if (field === "aiKeys") {
+          // Per-site provider keys deep-mask per provider.
+          expect(masked[field]).toEqual({ groq: "***", gemini: "", openai: "" });
+          continue;
+        }
         expect(masked[field]).toBe("***");
       }
     });

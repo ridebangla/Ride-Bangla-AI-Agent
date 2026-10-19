@@ -23,6 +23,12 @@ describe("GET /api/settings", () => {
 
     // All secret fields must be masked
     for (const field of SECRET_FIELDS) {
+      if (field === "aiKeys") {
+        // Per-site provider keys are deep-masked per provider (object,
+        // not a flat "***") — key material must never appear raw.
+        expect(data[field]).toEqual({ groq: "***", gemini: "***", openai: "" });
+        continue;
+      }
       expect(data[field]).toBe("***");
     }
   });
@@ -42,6 +48,8 @@ describe("GET /api/settings", () => {
     expect(jsonString).not.toContain("twilio-auth-token");
     expect(jsonString).not.toContain("el-key-12345");
     expect(jsonString).not.toContain("wa-key-12345");
+    expect(jsonString).not.toContain("gsk-test-fixture");
+    expect(jsonString).not.toContain("AIza-test-fixture");
   });
 
   it("should create default settings if none exist", async () => {
@@ -128,6 +136,12 @@ describe("PUT /api/settings", () => {
     const data = await parseJsonResponse(response);
 
     for (const field of SECRET_FIELDS) {
+      if (field === "aiKeys") {
+        // Per-site provider keys are deep-masked per provider (object,
+        // not a flat "***") — key material must never appear raw.
+        expect(data[field]).toEqual({ groq: "***", gemini: "***", openai: "" });
+        continue;
+      }
       expect(data[field]).toBe("***");
     }
   });

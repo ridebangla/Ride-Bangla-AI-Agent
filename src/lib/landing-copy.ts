@@ -8,9 +8,11 @@
  * honest generic phrasing ("Contact us for details").
  *
  * LLM REFINEMENT (premium polish): `refineCopyWithAI()` calls the model
- * when `process.env.OPENAI_API_KEY` is present and gracefully returns the
- * rule-based input unchanged when it is absent (or when the call fails) —
- * never hardcode keys; the key lives only in the environment.
+ * when any provider key resolves (per-site `settings.aiKeys` first, then
+ * GROQ_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY from the environment) and
+ * gracefully returns the rule-based input unchanged when no key resolves
+ * (or when the call fails) — never hardcode keys; keys live only in the
+ * environment or the Admin-SDK-read settings doc, never client-side.
  */
 
 import { LANDING_THEME_IDS, type LandingThemeId } from "./landing-themes";
@@ -258,23 +260,31 @@ function buildAiUserPrompt(copy: LandingCopy, ctx: AICopyContext): string {
 }
 
 /**
- * LLM refinement seam. When `OPENAI_API_KEY` is set, the model rewrites
- * the rule-based copy, picks the best-fitting theme, and tailors section
- * headings — all grounded strictly in the business's own data. When the
- * key is missing (or anything fails), the input is returned unchanged so
- * the page always renders beautifully from the premium template.
+ * LLM refinement seam. When any AI provider key resolves (the site's own
+ * dedicated keys first, shared env keys as fallback — see
+ * src/lib/ai/providers.ts resolveSiteKeys), the model rewrites the
+ * rule-based copy, picks the best-fitting theme, and tailors section
+ * headings — all grounded strictly in the business's own data. When no key
+ * resolves (or anything fails), the input is returned unchanged so the
+ * page always renders beautifully from the premium template.
  *
- * The second argument accepts the legacy `businessName: string` form for
- * backwards compatibility.
+ * Providers are tried in AI_PROVIDER_PRIORITY order (default
+ * groq,gemini,openai) with failover. The second argument accepts the
+ * legacy `businessName: string` form for backwards compatibility.
  *
- * NOTE: no key is ever hardcoded. `process.env.OPENAI_API_KEY` only.
+ * NOTE: no key is ever hardcoded. Keys come only from the environment or
+ * the business's Firestore settings (Admin-SDK read, never client-side).
  */
 export async function refineCopyWithAI(
   copy: LandingCopy,
   context?: AICopyContext | string
 ): Promise<AIRefineResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  // Dynamic import keeps this module's static graph client-safe (it is
+  // also imported by the public theme renderer).
+  const { completeWithFallback, hasAnyProviderKey, resolveSiteKeys } =
+    await import("./ai/providers");
+  const keys = await resolveSiteKeys().catch(() => null);
+  if (!hasAnyProviderKey(keys)) {
     // Graceful fallback: rule-based copy + template is the production path.
     return { copy, suggestedTheme: null, aiEnhanced: false, note: "no-key" };
   }
@@ -284,28 +294,30 @@ export async function refineCopyWithAI(
       : (context ?? { businessName: "", products: [], categories: [], knowledgeTitles: [] });
 
   try {
-    const { default: OpenAI } = await import("openai");
-    const client = new OpenAI({ apiKey, timeout: 25000, maxRetries: 1 });
-    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-    const completion = await client.chat.completions.create({
-      model,
-      temperature: 0.7,
-      max_tokens: 1000,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: AI_SYSTEM_PROMPT },
-        { role: "user", content: buildAiUserPrompt(copy, ctx) },
-      ],
-    });
-    const text = completion.choices[0]?.message?.content ?? "";
-    const parsed = JSON.parse(text) as unknown;
+    const completion = await completeWithFallback(
+      {
+        messages: [
+          { role: "system", content: AI_SYSTEM_PROMPT },
+          { role: "user", content: buildAiUserPrompt(copy, ctx) },
+        ],
+        temperature: 0.7,
+        maxTokens: 1000,
+        jsonMode: true,
+      },
+      { keys: keys ?? undefined, label: "landing-refine" }
+    );
+    if (!completion) {
+      return { copy, suggestedTheme: null, aiEnhanced: false, note: "no-key" };
+    }
+    const parsed = JSON.parse(completion.text) as unknown;
     const sane = sanitizeAiCopyResult(parsed, copy);
     if (!sane) {
       return { copy, suggestedTheme: null, aiEnhanced: false, note: "invalid" };
     }
     return { copy: sane.copy, suggestedTheme: sane.suggestedTheme, aiEnhanced: true };
   } catch {
-    // Any failure (network, timeout, bad JSON, SDK error) -> graceful fallback.
+    // Any failure (network, timeout, bad JSON, all providers down) ->
+    // graceful fallback.
     return { copy, suggestedTheme: null, aiEnhanced: false, note: "error" };
   }
 }

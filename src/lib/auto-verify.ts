@@ -28,8 +28,8 @@ import admin from "firebase-admin";
 import { getAdminDb } from "./admin-db";
 import { getAdapterForMethod } from "./exchanges";
 import { isValidRefCode } from "./ref-codes";
-import { getUnscopedPrisma } from "./prisma";
 import { perceiveMedia } from "./ai/media";
+import { hasAnyProviderKey, resolveSiteKeys, type ProviderKeys } from "./ai/providers";
 import { isPaidPlanId, isBillingInterval } from "./plans";
 import { logger } from "./logger";
 
@@ -318,20 +318,11 @@ async function visionPreRead(claimId: string): Promise<void> {
   const claim = snap.data() as Record<string, unknown>;
   const businessId = String(claim.businessId ?? "");
 
-  // The "AI backend" is the business's own configured AI key (honest
+  // The "AI backend" is the business's resolved provider keys — its own
+  // dedicated keys first, shared env keys as fallback (honest
   // 'unavailable' when the business never connected one).
-  let apiKey: string | undefined;
-  try {
-    const settings = (await getUnscopedPrisma().settings.findFirst({
-      where: { businessId },
-    })) as unknown as { aiApiKey?: unknown } | null;
-    if (typeof settings?.aiApiKey === "string" && settings.aiApiKey.trim()) {
-      apiKey = settings.aiApiKey.trim();
-    }
-  } catch {
-    // fall through to 'unavailable'
-  }
-  if (!apiKey) {
+  const keys = await resolveSiteKeys(businessId).catch(() => ({} as ProviderKeys));
+  if (!hasAnyProviderKey(keys)) {
     await setPreRead({
       status: "unavailable",
       note: "AI backend not configured for this business.",
@@ -351,7 +342,7 @@ async function visionPreRead(claimId: string): Promise<void> {
   }
 
   try {
-    const seen = await perceiveMedia(apiKey, "gpt-4o-mini", {
+    const seen = await perceiveMedia(keys, "gpt-4o-mini", {
       kind: "image",
       mimeType: "image/jpeg",
       bytes: Buffer.from(parts[1], "base64"),

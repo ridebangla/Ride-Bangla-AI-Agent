@@ -436,6 +436,15 @@ function AISection({
       { value: "gpt-4o-mini", label: "GPT-4o Mini" },
       { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
     ],
+    groq: [
+      { value: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Versatile)" },
+      { value: "meta-llama/llama-4-scout-17b-16e-instruct", label: "Llama 4 Scout (Vision)" },
+      { value: "qwen-qwq-32b", label: "Qwen QwQ 32B" },
+    ],
+    gemini: [
+      { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
+      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+    ],
     claude: [
       { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
       { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet" },
@@ -507,6 +516,8 @@ function AISection({
           }}
           options={[
             { value: "openai", label: "OpenAI" },
+            { value: "groq", label: "Groq" },
+            { value: "gemini", label: "Gemini (Google)" },
             { value: "claude", label: "Claude (Anthropic)" },
             { value: "ollama", label: "Ollama (Local)" },
           ]}

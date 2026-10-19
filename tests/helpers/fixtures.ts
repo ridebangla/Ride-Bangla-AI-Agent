@@ -19,6 +19,11 @@ export const fixtures = {
     aiProvider: "openai",
     aiModel: "gpt-4",
     aiApiKey: "sk-test-key-12345",
+    aiKeys: {
+      groq: "gsk-test-fixture",
+      gemini: "AIza-test-fixture",
+      openai: "",
+    },
     maxTokens: 1000,
     temperature: 0.7,
     smtpHost: "smtp.test.com",

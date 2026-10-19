@@ -31,12 +31,44 @@ const spec = {
     { name: "Automation", description: "Automation rules engine" },
     { name: "Webhooks", description: "Webhook management and delivery" },
     { name: "Chat", description: "AI chat inference" },
+    { name: "Public AI", description: "First-party AI endpoint for sibling sites (site-key auth)" },
     { name: "Settings", description: "System configuration" },
     { name: "Admin", description: "User and API key management" },
     { name: "Analytics", description: "Statistics and analytics" },
     { name: "System", description: "Health check and system info" },
   ],
   paths: {
+    "/public/ai/generate": {
+      post: {
+        tags: ["Public AI"],
+        summary: "First-party AI generation for sibling sites (site-key auth)",
+        requestBody: {
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["siteKey", "task", "input"],
+                properties: {
+                  siteKey: { type: "string" },
+                  task: { type: "string", enum: ["chat", "generate"] },
+                  provider: { type: "string", enum: ["auto", "groq", "gemini", "openai"], default: "auto" },
+                  callerId: { type: "string" },
+                  input: { type: "object" },
+                  maxTokens: { type: "integer", maximum: 4000 },
+                  temperature: { type: "number" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "AI text, or honest aiConfigured:false when no provider key resolves" },
+          "401": { description: "Missing/invalid site key" },
+          "402": { description: "Subscription paused" },
+          "429": { description: "Rate limited (30 req/min per site+caller)" },
+        },
+      },
+    },
     "/auth": {
       get: {
         tags: ["Auth"],

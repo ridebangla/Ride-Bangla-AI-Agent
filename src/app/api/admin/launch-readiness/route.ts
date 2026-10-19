@@ -155,6 +155,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return withCors(
       NextResponse.json({
         openai: { present: present("OPENAI_API_KEY") },
+        groq: { present: present("GROQ_API_KEY") },
+        gemini: { present: present("GEMINI_API_KEY") },
+        aiPriority: process.env.AI_PROVIDER_PRIORITY || "groq,gemini,openai (default)",
         stripe: {
           secretPresent: present("STRIPE_SECRET_KEY"),
           webhookSecretPresent: present("STRIPE_WEBHOOK_SECRET"),

@@ -1,5 +1,12 @@
-import OpenAI from "openai";
 import { prisma, withBusinessId, getBusinessId } from "@/lib/prisma";
+import {
+  completeWithFallback,
+  hasAnyProviderKey,
+  normalizePreferredProvider,
+  resolveSiteKeys,
+  type ChatMessage as ProviderChatMessage,
+  type ProviderKeys,
+} from "./providers";
 import { recordAiMessage } from "@/lib/billing-usage";
 import { agentTools, executeToolCall } from "./tools";
 import { emitNewMessage } from "@/lib/realtime";
@@ -214,20 +221,26 @@ export async function chat(
     return { response: "", products: [], silent: true };
   }
 
+  // ---- Resolve AI keys (per-site dedicated keys first, shared env keys
+  // as fallback). Every AI path below degrades honestly when nothing
+  // resolves — never a faked reply.
+  const keys = await resolveSiteKeys();
+  const brainOnline = hasAnyProviderKey(keys);
+
   // ---- Multimodal perception (real path, not a stub) ----
   // Photo -> vision identifies what it shows (product/category).
   // Video  -> frame extraction + vision synthesis.
   // Voice  -> Whisper transcription.
   let effectiveMessage = userMessage;
   if (opts?.media) {
-    if (!config.apiKey) {
+    if (!brainOnline) {
       // Graceful: no brain connected — keep the message, skip perception.
       logger.info(
         `[brain] media received but no API key; skipping perception (${opts.media.kind})`
       );
     } else {
       try {
-        const perception = await perceiveMedia(config.apiKey, config.model, opts.media);
+        const perception = await perceiveMedia(keys, config.model, opts.media);
         effectiveMessage = `${perception.description}\n${userMessage}`.trim();
         logger.info(`[brain] perceived ${opts.media.kind} for conversation ${conversationId}`);
       } catch (err) {
@@ -251,7 +264,7 @@ export async function chat(
     }),
   });
 
-  if (!config.apiKey) {
+  if (!brainOnline) {
     // Graceful degradation: an honest message, never a faked AI reply.
     // Deterministic product cards still attach when the customer names a
     // catalog item — real catalog data, no AI involved. When nothing
@@ -320,7 +333,7 @@ export async function chat(
   }
 
   // Call AI (collects show_products tool cards along the way)
-  const aiResult = await callAI(config, messages, conversationId);
+  const aiResult = await callAI(config, messages, conversationId, keys);
 
   // Phase 3: deterministic product cards. Merge the AI's tool-chosen cards
   // with name-matched cards from the conversation text (the customer may
@@ -458,6 +471,7 @@ async function callAI(
   config: AIConfig,
   messages: AIMessage[],
   conversationId: string,
+  keys: ProviderKeys,
   depth = 0,
   collectedProducts: ProductCard[] = []
 ): Promise<{ response: string; products: ProductCard[] }> {
@@ -469,18 +483,36 @@ async function callAI(
     };
   }
 
-  const openai = new OpenAI({ apiKey: config.apiKey });
-
-  let response;
+  // Multi-provider brain: the business's preferred provider
+  // (settings.aiProvider) is tried first, then the AI_PROVIDER_PRIORITY
+  // chain with failover. No keys at all → honest degradation (the caller
+  // guarantees this path never runs without a key).
+  let completion;
   try {
-    response = await openai.chat.completions.create({
-      model: config.model,
-      messages: messages as OpenAI.ChatCompletionMessageParam[],
-      tools: agentTools as OpenAI.ChatCompletionTool[],
-      max_tokens: config.maxTokens,
-      temperature: config.temperature,
-    });
-  } catch {
+    completion = await completeWithFallback(
+      {
+        messages: messages as ProviderChatMessage[],
+        model: config.model,
+        tools: agentTools,
+        maxTokens: config.maxTokens,
+        temperature: config.temperature,
+      },
+      {
+        keys,
+        preferredProvider: normalizePreferredProvider(config.provider),
+        label: "chat",
+      }
+    );
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    logger.warn("[brain] all AI providers failed", { reason });
+    return {
+      response:
+        "I'm temporarily unable to process your request. Please try again in a moment, or I can connect you with a team member.",
+      products: collectedProducts,
+    };
+  }
+  if (!completion) {
     return {
       response:
         "I'm temporarily unable to process your request. Please try again in a moment, or I can connect you with a team member.",
@@ -488,7 +520,13 @@ async function callAI(
     };
   }
 
-  const choice = response.choices[0];
+  const choice = {
+    finish_reason: completion.toolCalls?.length ? "tool_calls" : "stop",
+    message: {
+      content: completion.text,
+      tool_calls: completion.toolCalls,
+    },
+  };
 
   if (
     choice.finish_reason === "tool_calls" &&
@@ -533,7 +571,7 @@ async function callAI(
     }
 
     // Continue the conversation with tool results
-    return callAI(config, messages, conversationId, depth + 1, collectedProducts);
+    return callAI(config, messages, conversationId, keys, depth + 1, collectedProducts);
   }
 
   return {

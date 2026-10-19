@@ -2,10 +2,11 @@
  * POST /api/landing/enhance — "Enhance with AI" for the landing page editor.
  *
  * Runs the rule-based landing copy through the LLM seam
- * (`refineCopyWithAI()` in src/lib/landing-copy.ts): when
- * `process.env.OPENAI_API_KEY` is present the model rewrites the copy and
- * suggests the best-fitting theme; otherwise the endpoint reports
- * { enhanced: false } gracefully — the premium template path always works.
+ * (`refineCopyWithAI()` in src/lib/landing-copy.ts): when any provider key
+ * resolves (per-site keys first, then GROQ_API_KEY / GEMINI_API_KEY /
+ * OPENAI_API_KEY) the model rewrites the copy and suggests the best-fitting
+ * theme; otherwise the endpoint reports { enhanced: false } gracefully —
+ * the premium template path always works.
  *
  * On success the refined copy (+ suggested theme + timestamp) is persisted
  * to `businesses.landingAiCopy`. The public page merges these overrides

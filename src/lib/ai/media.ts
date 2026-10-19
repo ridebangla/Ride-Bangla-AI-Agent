@@ -1,4 +1,3 @@
-import OpenAI, { toFile } from "openai";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { writeFile, readFile, unlink, mkdir } from "fs/promises";
@@ -6,6 +5,12 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { logger } from "../logger";
+import {
+  completeTextWithFallback,
+  describeImageWithFallback,
+  transcribeAudioWithFallback,
+  type ProviderKeys,
+} from "./providers";
 
 const execFileAsync = promisify(execFile);
 
@@ -29,64 +34,37 @@ export interface Perception {
   description: string;
 }
 
-function visionModelFor(configuredModel: string): string {
-  // Use the business's own model when it can see; otherwise a capable,
-  // inexpensive vision default. Same OpenAI API key is reused.
-  if (/^(gpt-4o|gpt-4\.1|o1|o3|gpt-5)/.test(configuredModel)) return configuredModel;
-  return "gpt-4o-mini";
-}
-
-function dataUri(bytes: Buffer, mimeType: string): string {
-  return `data:${mimeType};base64,${bytes.toString("base64")}`;
-}
-
-async function describeImageWithVision(
-  apiKey: string,
+/**
+ * Describe one image with the provider chain (OpenAI / Groq vision /
+ * Gemini). `keys` are the site's resolved ProviderKeys — never a bare key
+ * string, so callers can't accidentally leak one.
+ */
+export async function describeImageWithVision(
+  keys: ProviderKeys,
   model: string,
   bytes: Buffer,
   mimeType: string,
   question: string
 ): Promise<string> {
-  const client = new OpenAI({ apiKey });
-  const response = await client.chat.completions.create({
-    model: visionModelFor(model),
-    max_tokens: 600,
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: question },
-          { type: "image_url", image_url: { url: dataUri(bytes, mimeType) } },
-        ],
-      },
-    ],
-  });
-  const text = response.choices[0]?.message?.content?.trim();
-  if (!text) throw new Error("Vision model returned no description");
-  return text;
+  const result = await describeImageWithFallback(
+    keys,
+    { bytes, mimeType },
+    question,
+    { model, label: "vision" }
+  );
+  if (!result) throw new Error("No AI provider key configured");
+  return result.text;
 }
 
-/** Best-effort audio transcription via OpenAI Whisper. */
+/** Best-effort audio transcription with provider failover (Whisper on
+ *  OpenAI/Groq, native transcription on Gemini). */
 export async function transcribeAudio(
-  apiKey: string,
+  keys: ProviderKeys,
   bytes: Buffer,
   mimeType: string
 ): Promise<string> {
-  const ext = mimeType.includes("mp3")
-    ? "mp3"
-    : mimeType.includes("wav")
-      ? "wav"
-      : mimeType.includes("webm")
-        ? "webm"
-        : "ogg";
-  const client = new OpenAI({ apiKey });
-  const file = await toFile(bytes, `voice-${randomUUID()}.${ext}`, { type: mimeType });
-  const result = await client.audio.transcriptions.create({
-    file,
-    model: "whisper-1",
-  });
-  const text = (result.text ?? "").trim();
-  if (!text) throw new Error("Transcription came back empty");
+  const text = await transcribeAudioWithFallback(keys, { bytes, mimeType }, { label: "voice" });
+  if (!text) throw new Error("No AI provider key configured");
   return text;
 }
 
@@ -96,7 +74,7 @@ export async function transcribeAudio(
  * Frames at ~10%, 50%, 90% give start/middle/end coverage of short clips.
  */
 export async function describeVideo(
-  apiKey: string,
+  keys: ProviderKeys,
   model: string,
   bytes: Buffer,
   mimeType: string
@@ -146,7 +124,7 @@ export async function describeVideo(
         ]);
         const frameBytes = await readFile(framePath);
         const desc = await describeImageWithVision(
-          apiKey,
+          keys,
           model,
           frameBytes,
           "image/jpeg",
@@ -163,26 +141,16 @@ export async function describeVideo(
       throw new Error("Could not extract any viewable frame from the video");
     }
 
-    // Synthesize the frame notes into one understanding.
-    const client = new OpenAI({ apiKey });
-    const synthesis = await client.chat.completions.create({
-      model: visionModelFor(model),
-      max_tokens: 400,
-      messages: [
-        {
-          role: "user",
-          content:
-            "These are descriptions of 3 frames (start/middle/end) from a customer's video message to a business support agent. " +
-            "Summarize what the video shows in 2-4 sentences, focusing on anything the customer might be asking about " +
-            "(a product, a problem, a place, a person). If the frames suggest a product category, name it.\n\n" +
-            frameDescriptions.join("\n"),
-        },
-      ],
-    });
-    return (
-      synthesis.choices[0]?.message?.content?.trim() ??
-      frameDescriptions.join("\n")
+    // Synthesize the frame notes into one understanding (provider chain).
+    const synthesis = await completeTextWithFallback(
+      keys,
+      "These are descriptions of 3 frames (start/middle/end) from a customer's video message to a business support agent. " +
+        "Summarize what the video shows in 2-4 sentences, focusing on anything the customer might be asking about " +
+        "(a product, a problem, a place, a person). If the frames suggest a product category, name it.\n\n" +
+        frameDescriptions.join("\n"),
+      { maxTokens: 400, model, label: "video-synthesis" }
     );
+    return synthesis?.text ?? frameDescriptions.join("\n");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("ffprobe") || msg.includes("ffmpeg") || /ENOENT/.test(msg)) {
@@ -214,13 +182,13 @@ export async function describeVideo(
  * VOICE -> Whisper transcription.
  */
 export async function perceiveMedia(
-  apiKey: string,
+  keys: ProviderKeys,
   model: string,
   media: MediaInput,
   catalogHint?: string
 ): Promise<Perception> {
   if (media.kind === "audio") {
-    const transcript = await transcribeAudio(apiKey, media.bytes, media.mimeType);
+    const transcript = await transcribeAudio(keys, media.bytes, media.mimeType);
     return {
       kind: "audio",
       description: `[Voice message transcript]: "${transcript}"`,
@@ -229,7 +197,7 @@ export async function perceiveMedia(
 
   if (media.kind === "image") {
     const seen = await describeImageWithVision(
-      apiKey,
+      keys,
       model,
       media.bytes,
       media.mimeType,
@@ -241,6 +209,6 @@ export async function perceiveMedia(
     return { kind: "image", description: `[Photo]: ${seen}` };
   }
 
-  const understood = await describeVideo(apiKey, model, media.bytes, media.mimeType);
+  const understood = await describeVideo(keys, model, media.bytes, media.mimeType);
   return { kind: "video", description: `[Video]: ${understood}` };
 }

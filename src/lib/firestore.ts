@@ -186,6 +186,11 @@ const MODEL_META: Record<string, ModelMeta> = {
       aiProvider: "openai",
       aiModel: "gpt-4o-mini",
       aiApiKey: "",
+      // Per-site dedicated AI provider keys ({ groq?, gemini?, openai? }).
+      // Admin-SDK-only reads (server code); never client-readable —
+      // see docs/FIRST_PARTY_AI_API.md "Firestore rules requirement".
+      // Missing providers fall back to the shared env keys.
+      aiKeys: {},
       maxTokens: 2048,
       temperature: 0.7,
       elevenLabsKey: "",

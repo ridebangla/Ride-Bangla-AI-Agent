@@ -152,6 +152,17 @@ export const updateSettingsSchema = z.object({
   aiProvider: z.string().max(50).optional(),
   aiModel: z.string().max(100).optional(),
   aiApiKey: z.string().max(500).optional(),
+  // Per-site dedicated provider keys. Settable via the Settings API so a
+  // business can later plug in its own keys with zero code changes; each
+  // provider falls back to the shared env key when absent. Masked on GET
+  // (see maskSettingsSecrets) and never readable client-side.
+  aiKeys: z
+    .object({
+      openai: z.string().max(500).optional(),
+      groq: z.string().max(500).optional(),
+      gemini: z.string().max(500).optional(),
+    })
+    .optional(),
   maxTokens: z.number().int().min(100).max(128000).optional(),
   temperature: z.number().min(0).max(2).optional(),
   smtpHost: z.string().max(500).optional(),

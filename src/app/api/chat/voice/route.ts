@@ -3,7 +3,11 @@ import { getBusinessBySiteKey } from "@/lib/tenant";
 import { getSubscription } from "@/lib/subscription";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { prisma, runWithBusiness, withBusinessId } from "@/lib/prisma";
-import { chat, getAIConfig } from "@/lib/ai/engine";
+import { chat } from "@/lib/ai/engine";
+import {
+  hasAnyProviderKey,
+  resolveSiteKeys,
+} from "@/lib/ai/providers";
 import { transcribeAudio } from "@/lib/ai/media";
 import { logger } from "@/lib/logger";
 
@@ -135,9 +139,9 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const config = await getAIConfig();
+      const keys = await resolveSiteKeys();
 
-      if (!config.apiKey) {
+      if (!hasAnyProviderKey(keys)) {
         // Graceful: no Whisper without a key. The chat pipeline stores the
         // customer note and returns the honest message (never a fake reply).
         const result = await chat(convId, "(sent a voice message)");
@@ -154,7 +158,7 @@ export async function POST(request: NextRequest) {
 
       let transcript: string;
       try {
-        transcript = await transcribeAudio(config.apiKey, bytes, mimeType);
+        transcript = await transcribeAudio(keys, bytes, mimeType);
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         logger.warn("[voice] transcription failed", { reason });

@@ -4,6 +4,10 @@ import { getSubscription } from "@/lib/subscription";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { prisma, runWithBusiness, withBusinessId } from "@/lib/prisma";
 import { getAIConfig, type ProductCard } from "@/lib/ai/engine";
+import {
+  hasAnyProviderKey,
+  resolveSiteKeys,
+} from "@/lib/ai/providers";
 import { perceiveMedia, type MediaInput } from "@/lib/ai/media";
 import {
   getCatalogBrief,
@@ -192,8 +196,9 @@ export async function POST(request: NextRequest) {
       }
 
       const config = await getAIConfig();
+      const keys = await resolveSiteKeys();
 
-      if (!config.apiKey) {
+      if (!hasAnyProviderKey(keys)) {
         // Graceful: the AI brain isn't connected — honest message, no crash.
         const label = media.kind === "image" ? "photos" : "videos";
         const reply =
@@ -218,7 +223,7 @@ export async function POST(request: NextRequest) {
       try {
         const catalogHint = await getCatalogBrief().catch(() => "");
         const perception = await perceiveMedia(
-          config.apiKey,
+          keys,
           config.model,
           media,
           catalogHint || undefined

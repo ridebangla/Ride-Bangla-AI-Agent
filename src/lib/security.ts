@@ -12,6 +12,9 @@ export function maskSecret(value: string | null | undefined): string {
  */
 export const SECRET_FIELDS = [
   "aiApiKey",
+  // Per-site dedicated provider keys (object { groq?, gemini?, openai? }) —
+  // deep-masked by maskSettingsSecrets, never returned raw.
+  "aiKeys",
   "smtpPass",
   "imapPass",
   "twilioToken",
@@ -31,6 +34,18 @@ export function maskSettingsSecrets<T extends Record<string, unknown>>(
   const masked = { ...settings };
   for (const field of SECRET_FIELDS) {
     if (field in masked) {
+      // Per-site provider keys are an object — mask each provider's key
+      // individually so the shape (which providers are set) stays visible
+      // while key material never leaves the server.
+      if (field === "aiKeys" && typeof masked[field] === "object" && masked[field] !== null) {
+        const keyed = masked[field] as Record<string, unknown>;
+        const deep: Record<string, unknown> = {};
+        for (const [provider, value] of Object.entries(keyed)) {
+          deep[provider] = maskSecret(value as string);
+        }
+        masked[field as keyof T] = deep as T[keyof T];
+        continue;
+      }
       masked[field as keyof T] = maskSecret(
         masked[field as keyof T] as string
       ) as T[keyof T];
