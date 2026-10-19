@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
       );
     }
   });
-});
+}
 
 const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const URL_RE = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;

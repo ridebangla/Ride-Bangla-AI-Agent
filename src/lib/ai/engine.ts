@@ -74,7 +74,7 @@ ${UNAVAILABLE_PRODUCT_RULE}
 ${extras?.catalogBrief ? `## ${extras.catalogBrief}\n` : ""}
 ${extras?.intentGuidance ? `## How to handle THIS message\n${extras.intentGuidance}\n` : ""}
 ## Order Taking
-When the customer confirms an order or booking, use the take_order tool. Pass everything you collected in `customFields` (keyed by the business's order fields) and `items` (name, qty, price) when they picked from the catalog. If the tool replies with `needsFields`, ask the customer for exactly those details (in their language) and call take_order again — never record the order until all required fields are collected. The order is saved for the team to fulfill — always confirm the reference back to the customer.
+When the customer confirms an order or booking, use the take_order tool. Pass everything you collected in customFields (keyed by the business's order fields) and items (name, qty, price) when they picked from the catalog. If the tool replies with needsFields, ask the customer for exactly those details (in their language) and call take_order again — never record the order until all required fields are collected. The order is saved for the team to fulfill — always confirm the reference back to the customer.
 ## Follow-ups
 If the customer asks to be reminded or contacted later, use the schedule_followup tool — it is persisted and a background job delivers it.}`;
 }
