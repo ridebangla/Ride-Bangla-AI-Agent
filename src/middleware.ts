@@ -94,7 +94,12 @@ export async function middleware(request: NextRequest) {
   // Phase 3: /api/chat/vision and /api/chat/voice are the widget's photo /
   // voice upload endpoints — same public siteKey auth model as the widget
   // chat endpoint, so they must be public here too.
-  const publicPaths = ["/login", "/setup", "/signup", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/p/"];
+  // Premium polish: /api/landing/quality is the public visual quality gate
+  // for landing pages (GET ?slug=). It is read-only, fail-closed on the
+  // slug (same scoping as /p/[slug]), rate-limited per IP in its handler,
+  // and every check is derived from public page data (image URLs, copy,
+  // theme, SEO meta) — nothing tenant-private is exposed.
+  const publicPaths = ["/login", "/setup", "/signup", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/landing/quality", "/p/"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   // The SaaS marketing landing page lives at `/` — EXACT match only (a
