@@ -87,7 +87,11 @@ export async function middleware(request: NextRequest) {
   // Public paths that don't require auth. NOTE: /api/openapi.json is NOT
   // public (M-59 — admin-gated in its route); /api/health stays public but
   // returns only `{ status }` to non-admins (M-59).
-  const publicPaths = ["/login", "/setup", "/api/auth", "/api/health"];
+  // NOTE: /api/chat/widget is the PUBLIC website-widget chat endpoint — its
+  // auth is the business's public siteKey (validated in the route handler,
+  // rate-limited per siteKey+visitor). It must stay in this list or the
+  // embeddable widget can never reach the chat API (401 for all visitors).
+  const publicPaths = ["/login", "/setup", "/api/auth", "/api/health", "/api/chat/widget"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   // Channel webhook endpoints (authenticated via provider signatures, not JWT)
