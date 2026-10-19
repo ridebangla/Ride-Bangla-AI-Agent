@@ -316,6 +316,17 @@ export default function SignupPage() {
                 Log in
               </Link>
             </p>
+            <p className="text-rbai-text-light text-xs mt-4 text-center">
+              By creating an account, you agree to our{" "}
+              <Link href="/terms" className="text-rbai-primary hover:underline">
+                Terms &amp; Conditions
+              </Link>{" "}
+              and{" "}
+              <Link href="/privacy" className="text-rbai-primary hover:underline">
+                Privacy Policy
+              </Link>
+              .
+            </p>
           </div>
         </div>
       </div>

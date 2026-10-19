@@ -420,6 +420,7 @@ export function structureFreeText(
 /** Structure the guided Q&A answers (onboarding option c). */
 export function structureGuidedAnswers(fields: {
   businessName?: string;
+  category?: string;
   whatYouSell?: string;
   hours?: string;
   location?: string;
@@ -432,6 +433,7 @@ export function structureGuidedAnswers(fields: {
     const answer = (a || "").trim();
     if (answer.length >= 3) qa.push({ question: q, answer: answer.slice(0, 2000) });
   };
+  push("What category is your business in?", fields.category);
   push(`What does ${name || "your business"} do?`, fields.whatYouSell);
   push("What are your business hours?", fields.hours);
   push("Where are you located?", fields.location);

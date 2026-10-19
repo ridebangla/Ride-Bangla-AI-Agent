@@ -13,7 +13,7 @@ import { logger } from "@/lib/logger";
 // Body (exactly one of):
 //   { url: string }                                    — scrape the website
 //   { text: string, sourceName?: string }               — pasted/uploaded text
-//   { fields: { businessName, whatYouSell, hours, location, contact, policies } }
+//   { fields: { businessName, category, whatYouSell, hours, location, contact, policies } }
 //                                                       — guided Q&A answers
 export async function POST(request: NextRequest) {
   const auth = await requireAuth(request);
@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
         typeof v === "string" ? v.slice(0, 5000) : "";
       const structured = structureGuidedAnswers({
         businessName: str(f.businessName),
+        category: str(f.category),
         whatYouSell: str(f.whatYouSell),
         hours: str(f.hours),
         location: str(f.location),

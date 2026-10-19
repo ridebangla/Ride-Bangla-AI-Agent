@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import Link from "next/link";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase-client";
 
@@ -189,6 +190,17 @@ export default function LoginPage() {
       </form>
       <p className="text-rbai-text-light text-xs mt-5 text-center">
         The same email and password you use for the Admin Console.
+      </p>
+      <p className="text-rbai-text-light text-xs mt-3 text-center">
+        By signing in, you agree to our{" "}
+        <Link href="/terms" className="text-rbai-primary hover:underline">
+          Terms &amp; Conditions
+        </Link>{" "}
+        and{" "}
+        <Link href="/privacy" className="text-rbai-primary hover:underline">
+          Privacy Policy
+        </Link>
+        .
       </p>
     </div>
     </div>

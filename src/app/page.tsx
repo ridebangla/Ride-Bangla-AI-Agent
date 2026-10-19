@@ -452,6 +452,8 @@ function MarketingLanding() {
           <div className="flex items-center gap-6 text-sm text-slate-500">
             <Link href="/signup" className="hover:text-slate-900">Sign up</Link>
             <Link href="/login" className="hover:text-slate-900">Log in</Link>
+            <Link href="/privacy" className="hover:text-slate-900">Privacy</Link>
+            <Link href="/terms" className="hover:text-slate-900">Terms</Link>
             <a href="https://ridebangla.bd" className="hover:text-slate-900">
               ridebangla.bd
             </a>

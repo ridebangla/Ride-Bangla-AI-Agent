@@ -132,6 +132,8 @@ export default function PricingPage() {
             <Link href="/" className="hover:text-slate-900">Home</Link>
             <Link href="/signup" className="hover:text-slate-900">Sign up</Link>
             <Link href="/login" className="hover:text-slate-900">Sign in</Link>
+            <Link href="/privacy" className="hover:text-slate-900">Privacy</Link>
+            <Link href="/terms" className="hover:text-slate-900">Terms</Link>
           </div>
         </div>
       </footer>

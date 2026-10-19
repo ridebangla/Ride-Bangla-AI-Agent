@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -11,13 +11,13 @@ import {
   FileText,
   Globe,
   Loader2,
-  MessageCircleQuestion,
   PencilLine,
   Plus,
   Trash2,
   Upload,
   X,
 } from "lucide-react";
+import { LANDING_THEMES, type LandingThemeId } from "@/lib/landing-themes";
 
 interface QAPair {
   question: string;
@@ -37,37 +37,37 @@ interface AnalyzeResult {
   note: string;
 }
 
-type Method = "url" | "text" | "guided" | "file";
+// Two explicit paths: a business either HAS a website (we scrape it) or it
+// does NOT (we build its knowledge + landing page from a guided description).
+type Method = "url" | "guided";
+// Inside the "no website" path the owner can still paste text or upload a
+// file instead of filling the form — same analysis pipeline.
+type GuidedInput = "form" | "text" | "file";
 
 const METHODS: { id: Method; icon: React.ElementType; title: string; desc: string }[] = [
   {
     id: "url",
     icon: Globe,
-    title: "From my website",
-    desc: "We fetch your homepage and key pages and learn your business automatically.",
-  },
-  {
-    id: "text",
-    icon: FileText,
-    title: "Paste text",
-    desc: "Paste anything: your menu, price list, about-us text, FAQs.",
+    title: "I have a website",
+    desc: "Enter your website URL — we fetch your pages and the AI learns your business automatically.",
   },
   {
     id: "guided",
-    icon: MessageCircleQuestion,
-    title: "Answer a few questions",
-    desc: "A short guided Q&A: what you sell, hours, location, contact, policies.",
-  },
-  {
-    id: "file",
-    icon: Upload,
-    title: "Upload a text file",
-    desc: "Upload a .txt or .md file with your business information.",
+    icon: PencilLine,
+    title: "No website",
+    desc: "Describe your business in a short form — we build your landing page and product catalog from it.",
   },
 ];
 
 const inputClass =
   "w-full rounded-lg border border-rbai-border bg-rbai-bg px-3.5 py-2.5 text-sm text-rbai-text placeholder:text-rbai-text-light focus:outline-none focus:ring-2 focus:ring-rbai-primary focus:border-transparent transition-shadow";
+
+function suggestTagline(fields: { businessName: string; whatYouSell: string }): string {
+  const sell = fields.whatYouSell.trim();
+  const name = fields.businessName.trim();
+  const base = sell || name;
+  return base.slice(0, 160);
+}
 
 export default function OnboardingWizard() {
   const router = useRouter();
@@ -75,6 +75,7 @@ export default function OnboardingWizard() {
 
   const [step, setStep] = useState<"method" | "input" | "review">("method");
   const [method, setMethod] = useState<Method | null>(null);
+  const [guidedInput, setGuidedInput] = useState<GuidedInput>("form");
 
   const [url, setUrl] = useState("");
   const [pastedText, setPastedText] = useState("");
@@ -82,10 +83,11 @@ export default function OnboardingWizard() {
   const [fileText, setFileText] = useState("");
   const [fields, setFields] = useState({
     businessName: "",
+    category: "",
     whatYouSell: "",
-    hours: "",
     location: "",
     contact: "",
+    hours: "",
     policies: "",
   });
 
@@ -96,11 +98,59 @@ export default function OnboardingWizard() {
   const [products, setProducts] = useState<ProductDraft[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // Landing-page draft (only for the "no website" path): generated from the
+  // description, reviewed and approved by the owner before anything goes live.
+  const [landingTagline, setLandingTagline] = useState("");
+  const [landingTheme, setLandingTheme] = useState<LandingThemeId>("modern-minimal");
+  const [landingPublish, setLandingPublish] = useState(false);
+  const [landingUrl, setLandingUrl] = useState("");
+  const [landingReady, setLandingReady] = useState(false);
+
   function pickMethod(m: Method) {
     setMethod(m);
+    setGuidedInput("form");
     setError("");
     setStep("input");
   }
+
+  // When the review step opens for the "no website" path, load the current
+  // landing settings (to prefill + show the public URL) and suggest a tagline
+  // from the description. Nothing is published until the owner approves.
+  useEffect(() => {
+    if (step !== "review" || method !== "guided") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/landing");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const b = data.business || {};
+        if (!landingReady) {
+          setLandingTagline(
+            typeof b.tagline === "string" && b.tagline.trim()
+              ? b.tagline
+              : suggestTagline(fields)
+          );
+          if (typeof b.landingTheme === "string" && b.landingTheme) {
+            setLandingTheme(b.landingTheme as LandingThemeId);
+          }
+          setLandingReady(true);
+        }
+        if (typeof data.publicUrl === "string") setLandingUrl(data.publicUrl);
+      } catch {
+        // Landing preview is a bonus — the knowledge/catalog review still works.
+        if (!landingReady) {
+          setLandingTagline(suggestTagline(fields));
+          setLandingReady(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, method]);
 
   async function analyze(payload: Record<string, unknown>) {
     setAnalyzing(true);
@@ -154,18 +204,23 @@ export default function OnboardingWizard() {
     if (method === "url") {
       if (!url.trim()) return setError("Please enter your website URL.");
       analyze({ url: url.trim() });
-    } else if (method === "text") {
+      return;
+    }
+    // "No website" path — form, pasted text, or uploaded file.
+    if (guidedInput === "text") {
       if (pastedText.trim().length < 20)
         return setError("Please paste at least a few sentences about your business.");
       analyze({ text: pastedText, sourceName: "Pasted text" });
-    } else if (method === "file") {
+    } else if (guidedInput === "file") {
       if (fileText.trim().length < 20)
         return setError("Please choose a text file first.");
       analyze({ text: fileText, sourceName: fileName || "Uploaded file" });
     } else {
-      const answered = Object.values(fields).some((v) => v.trim().length >= 3);
+      const answered = [fields.businessName, fields.whatYouSell].some(
+        (v) => v.trim().length >= 3
+      );
       if (!answered)
-        return setError("Please answer at least one question.");
+        return setError("Please tell us at least your business name and what you sell.");
       analyze({ fields });
     }
   }
@@ -184,6 +239,28 @@ export default function OnboardingWizard() {
         setError(data.error || "Couldn't save. Please try again.");
         setSaving(false);
         return;
+      }
+      // "No website" path: publish the landing page only if the owner
+      // approved it on the review screen. Nothing goes live by default.
+      if (method === "guided" && landingPublish) {
+        const landingRes = await fetch("/api/landing", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tagline: landingTagline.trim(),
+            landingTheme,
+            landingPublished: true,
+          }),
+        });
+        if (!landingRes.ok) {
+          const ldata = await landingRes.json().catch(() => ({}));
+          setError(
+            (ldata as { error?: string }).error ||
+              "Business info saved, but the landing page could not be published. You can publish it later from the dashboard."
+          );
+          setSaving(false);
+          return;
+        }
       }
       router.replace("/dashboard");
     } catch {
@@ -227,13 +304,12 @@ export default function OnboardingWizard() {
         {step === "method" && (
           <div className="animate-fade-in">
             <h1 className="text-2xl font-bold text-rbai-text text-center">
-              How do you want to give us your business info?
+              Does your business have a website?
             </h1>
             <p className="text-rbai-text-light text-center mt-2 mb-8">
-              Pick whichever is easiest — the AI learns from it and starts
-              answering your customers.
+              Pick one — the AI learns from it and starts answering your customers.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
               {METHODS.map((m) => (
                 <button
                   key={m.id}
@@ -270,8 +346,8 @@ export default function OnboardingWizard() {
                   Your website URL
                 </h2>
                 <p className="text-sm text-rbai-text-light mt-1 mb-4">
-                  We&apos;ll fetch your homepage and key pages (about, services,
-                  pricing, contact…) on the same site.
+                  That&apos;s all we need — we&apos;ll fetch your homepage and key
+                  pages (about, services, pricing, contact…) on the same site.
                 </p>
                 <input
                   value={url}
@@ -283,7 +359,62 @@ export default function OnboardingWizard() {
               </div>
             )}
 
-            {method === "text" && (
+            {method === "guided" && guidedInput === "form" && (
+              <div className="bg-rbai-surface border border-rbai-border rounded-2xl p-6 space-y-4">
+                <div>
+                  <h2 className="font-semibold text-rbai-text text-lg">
+                    Describe your business
+                  </h2>
+                  <p className="text-sm text-rbai-text-light mt-1">
+                    From this we build your AI knowledge, your product catalog,
+                    and your landing page.
+                  </p>
+                </div>
+                {(
+                  [
+                    ["businessName", "Business name", "e.g. Dhaka Cake House", 1],
+                    ["category", "Business category", "e.g. Bakery, Fashion, Restaurant, Electronics", 1],
+                    ["whatYouSell", "What do you sell or offer?", "e.g. Custom cakes, pastries, party orders", 2],
+                    ["location", "Location / delivery area", "e.g. Mirpur, Dhaka — delivery all over Dhaka", 2],
+                    ["contact", "Contact / WhatsApp", "e.g. 01XXXXXXXXX, WhatsApp, Facebook page", 2],
+                    ["hours", "Business hours", "e.g. Open daily 9am – 10pm", 2],
+                    ["policies", "Policies (returns, refunds, delivery)", "e.g. 50% advance for custom orders", 2],
+                  ] as const
+                ).map(([key, label, ph, rows]) => (
+                  <div key={key}>
+                    <label className="block text-sm font-medium text-rbai-text mb-1.5">
+                      {label}
+                    </label>
+                    <textarea
+                      value={fields[key]}
+                      onChange={(e) =>
+                        setFields({ ...fields, [key]: e.target.value })
+                      }
+                      rows={rows}
+                      placeholder={ph}
+                      className={`${inputClass} resize-y`}
+                    />
+                  </div>
+                ))}
+                <div className="pt-1 flex items-center gap-4 text-sm">
+                  <span className="text-rbai-text-light">Prefer another way?</span>
+                  <button
+                    onClick={() => { setGuidedInput("text"); setError(""); }}
+                    className="flex items-center gap-1.5 text-rbai-primary font-medium hover:underline"
+                  >
+                    <FileText className="h-4 w-4" /> Paste text
+                  </button>
+                  <button
+                    onClick={() => { setGuidedInput("file"); setError(""); }}
+                    className="flex items-center gap-1.5 text-rbai-primary font-medium hover:underline"
+                  >
+                    <Upload className="h-4 w-4" /> Upload file
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {method === "guided" && guidedInput === "text" && (
               <div className="bg-rbai-surface border border-rbai-border rounded-2xl p-6">
                 <h2 className="font-semibold text-rbai-text text-lg">
                   Paste your business info
@@ -299,10 +430,16 @@ export default function OnboardingWizard() {
                   placeholder={"e.g.\nChocolate Cake — Tk 850\nOpen daily 9am–10pm\nDelivery inside Dhaka, charge Tk 60…"}
                   className={`${inputClass} resize-y`}
                 />
+                <button
+                  onClick={() => { setGuidedInput("form"); setError(""); }}
+                  className="mt-3 text-sm text-rbai-primary font-medium hover:underline"
+                >
+                  Back to the guided form
+                </button>
               </div>
             )}
 
-            {method === "file" && (
+            {method === "guided" && guidedInput === "file" && (
               <div className="bg-rbai-surface border border-rbai-border rounded-2xl p-6">
                 <h2 className="font-semibold text-rbai-text text-lg">
                   Upload a text file
@@ -330,39 +467,12 @@ export default function OnboardingWizard() {
                     <span className="text-sm">Click to choose a file</span>
                   )}
                 </button>
-              </div>
-            )}
-
-            {method === "guided" && (
-              <div className="bg-rbai-surface border border-rbai-border rounded-2xl p-6 space-y-4">
-                <h2 className="font-semibold text-rbai-text text-lg">
-                  Tell us about your business
-                </h2>
-                {(
-                  [
-                    ["businessName", "Business name", "e.g. Dhaka Cake House"],
-                    ["whatYouSell", "What do you sell or offer?", "e.g. Custom cakes, pastries, party orders"],
-                    ["hours", "Business hours", "e.g. Open daily 9am – 10pm"],
-                    ["location", "Location / delivery area", "e.g. Mirpur, Dhaka — delivery all over Dhaka"],
-                    ["contact", "Contact info", "e.g. Phone, WhatsApp, Facebook page"],
-                    ["policies", "Policies (returns, refunds, delivery)", "e.g. 50% advance for custom orders"],
-                  ] as const
-                ).map(([key, label, ph]) => (
-                  <div key={key}>
-                    <label className="block text-sm font-medium text-rbai-text mb-1.5">
-                      {label}
-                    </label>
-                    <textarea
-                      value={fields[key]}
-                      onChange={(e) =>
-                        setFields({ ...fields, [key]: e.target.value })
-                      }
-                      rows={key === "businessName" ? 1 : 2}
-                      placeholder={ph}
-                      className={`${inputClass} resize-y`}
-                    />
-                  </div>
-                ))}
+                <button
+                  onClick={() => { setGuidedInput("form"); setError(""); }}
+                  className="mt-3 text-sm text-rbai-primary font-medium hover:underline"
+                >
+                  Back to the guided form
+                </button>
               </div>
             )}
 
@@ -382,7 +492,7 @@ export default function OnboardingWizard() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {method === "url"
                     ? "Fetching your website…"
-                    : "Structuring your info…"}
+                    : "Building your business profile…"}
                 </span>
               ) : (
                 <span className="flex items-center justify-center gap-2">
@@ -412,6 +522,70 @@ export default function OnboardingWizard() {
                 <ArrowLeft className="h-4 w-4" /> Back
               </button>
             </div>
+
+            {/* Landing page preview + approval (only for the "no website" path).
+                Nothing goes live unless the owner approves it here. */}
+            {method === "guided" && (
+              <div className="mt-8 bg-rbai-surface border border-rbai-border rounded-2xl p-6">
+                <h2 className="font-semibold text-rbai-text text-lg">
+                  Your new landing page
+                </h2>
+                <p className="text-sm text-rbai-text-light mt-1 mb-4">
+                  We drafted this from your description. Review it, pick a
+                  design, and approve it — it goes live only with your approval.
+                </p>
+                <label className="block text-sm font-medium text-rbai-text mb-1.5">
+                  Tagline
+                </label>
+                <input
+                  value={landingTagline}
+                  onChange={(e) => setLandingTagline(e.target.value)}
+                  placeholder="e.g. Fresh custom cakes, delivered across Dhaka"
+                  maxLength={160}
+                  className={inputClass}
+                />
+                <p className="block text-sm font-medium text-rbai-text mt-4 mb-2">
+                  Design
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {LANDING_THEMES.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => setLandingTheme(t.id)}
+                      className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                        landingTheme === t.id
+                          ? "border-rbai-primary bg-rbai-primary-50"
+                          : "border-rbai-border hover:border-rbai-primary"
+                      }`}
+                    >
+                      <span className="block text-sm font-semibold text-rbai-text">
+                        {t.name}
+                      </span>
+                      <span className="block text-xs text-rbai-text-light mt-0.5">
+                        {t.description}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <label className="mt-5 flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={landingPublish}
+                    onChange={(e) => setLandingPublish(e.target.checked)}
+                    className="mt-1 h-4 w-4 accent-[#4A7C9B]"
+                  />
+                  <span className="text-sm text-rbai-text">
+                    <span className="font-medium">Publish my landing page</span>
+                    <span className="block text-rbai-text-light mt-0.5">
+                      {landingUrl
+                        ? `It will go live at ${landingUrl} — customers can visit it right away.`
+                        : "It will go live at your public page address — customers can visit it right away."}{" "}
+                      The AI also answers customers from this page.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            )}
 
             {/* Q&A editor */}
             <h2 className="font-semibold text-rbai-text mt-8 mb-3">
@@ -578,7 +752,10 @@ export default function OnboardingWizard() {
                   </span>
                 ) : (
                   <span className="flex items-center justify-center gap-2">
-                    <Check className="h-4 w-4" /> Save and go to dashboard
+                    <Check className="h-4 w-4" />
+                    {method === "guided" && landingPublish
+                      ? "Approve and publish"
+                      : "Save and go to dashboard"}
                   </span>
                 )}
               </button>
