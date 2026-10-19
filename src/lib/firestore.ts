@@ -1228,7 +1228,14 @@ function makeDelegate(model: string): ModelDelegate {
       const where = normalizeWhere(model, (args.where as Where) ?? undefined);
       const existing = await findFirstRaw({ where, select: { id: true } });
       if (existing) {
-        return updateRaw({ ...args, where: { id: existing.id }, data: args.data });
+        // Prisma's upsert takes `update:` for the existing-row branch; the
+        // shim historically also accepted `data:`. Honor `update:` (falling
+        // back to `data:`) so Prisma-style callers actually persist.
+        return updateRaw({
+          ...args,
+          where: { id: existing.id },
+          data: args.data ?? args.update,
+        });
       }
       return createRaw({ ...args, data: args.create });
     },

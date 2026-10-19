@@ -495,7 +495,7 @@ function MarketingLanding() {
             </a>
           </div>
           <p className="text-xs text-slate-400">
-            © {new Date().getFullYear()} Ride Bangla. All rights reserved.
+            © {new Date().getFullYear()} Ride Bangla Limited. All rights reserved.
           </p>
         </div>
       </footer>
