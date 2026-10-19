@@ -33,19 +33,53 @@ export default function BillingActions({
   const [notice, setNotice] = useState<"success" | "cancelled" | null>(null);
   // The plan the visitor picked on /pricing before signing up (if any).
   const [chosenPlan, setChosenPlan] = useState<string | null>(null);
+  // Billing interval picked on /pricing ("monthly" | "yearly"); monthly default.
+  const [chosenInterval, setChosenInterval] = useState<"monthly" | "yearly">(
+    "monthly"
+  );
 
   // Stripe redirects back here with ?checkout=success|cancelled.
+  // /pricing links here with ?plan=<id>&interval=<monthly|yearly>; the URL
+  // wins, localStorage (set by /pricing before the login/signup redirect)
+  // is the fallback.
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get("checkout");
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("checkout");
     if (q === "success") setNotice("success");
     else if (q === "cancelled") setNotice("cancelled");
-    try {
-      const stored = localStorage.getItem("rbai-chosen-plan");
-      if (stored && (PAID_PLANS as readonly string[]).includes(stored)) {
-        setChosenPlan(stored);
+    const save = (k: string, v: string) => {
+      try {
+        localStorage.setItem(k, v);
+      } catch {
+        /* storage unavailable */
       }
-    } catch {
-      /* storage unavailable */
+    };
+    const qp = params.get("plan");
+    if (qp && (PAID_PLANS as readonly string[]).includes(qp)) {
+      setChosenPlan(qp);
+      save("rbai-chosen-plan", qp);
+    } else {
+      try {
+        const stored = localStorage.getItem("rbai-chosen-plan");
+        if (stored && (PAID_PLANS as readonly string[]).includes(stored)) {
+          setChosenPlan(stored);
+        }
+      } catch {
+        /* storage unavailable */
+      }
+    }
+    const qi = params.get("interval");
+    if (qi === "yearly" || qi === "monthly") {
+      setChosenInterval(qi);
+      save("rbai-chosen-interval", qi);
+    } else {
+      try {
+        if (localStorage.getItem("rbai-chosen-interval") === "yearly") {
+          setChosenInterval("yearly");
+        }
+      } catch {
+        /* storage unavailable */
+      }
     }
   }, []);
 
@@ -56,7 +90,7 @@ export default function BillingActions({
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: selected }),
+        body: JSON.stringify({ plan: selected, interval: chosenInterval }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -242,12 +276,20 @@ export default function BillingActions({
                             ) : null}
                           </span>
                           <span className="block mt-1 text-lg font-bold text-rbai-text">
-                            ${PLAN_META[p].priceUsd}
+                            $
+                            {chosenInterval === "yearly"
+                              ? PLAN_META[p].yearlyPriceUsd
+                              : PLAN_META[p].priceUsd}
                             <span className="text-xs font-normal text-rbai-text-light">
                               {" "}
-                              / month
+                              {chosenInterval === "yearly" ? "/ year" : "/ month"}
                             </span>
                           </span>
+                          {chosenInterval === "yearly" && (
+                            <span className="block mt-0.5 text-[11px] font-medium text-emerald-700">
+                              2 months free
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>

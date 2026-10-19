@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TRIAL_DAYS } from "@/lib/plans";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -15,7 +16,7 @@ import {
 } from "lucide-react";
 
 const TRIAL_POINTS = [
-  "10-day free trial — no credit card required",
+  `${TRIAL_DAYS}-day free trial — no credit card required`,
   "AI learns your business from your website or a short Q&A",
   "Chat widget for your website + WhatsApp, Facebook, Instagram, Telegram",
   "Product catalog, order handling and 24/7 customer replies",
@@ -28,6 +29,11 @@ const PLAN_INFO: Record<string, { name: string; price: string }> = {
   growth: { name: "Growth", price: "$49/month" },
   pro: { name: "Pro", price: "$99/month" },
 };
+const PLAN_INFO_YEARLY: Record<string, { name: string; price: string }> = {
+  starter: { name: "Starter", price: "$190/year (2 months free)" },
+  growth: { name: "Growth", price: "$490/year (2 months free)" },
+  pro: { name: "Pro", price: "$990/year (2 months free)" },
+};
 
 export default function SignupPage() {
   const router = useRouter();
@@ -38,14 +44,23 @@ export default function SignupPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [chosenPlan, setChosenPlan] = useState<string | null>(null);
+  const [chosenInterval, setChosenInterval] = useState<"monthly" | "yearly">(
+    "monthly"
+  );
 
   useEffect(() => {
-    const plan = new URLSearchParams(window.location.search).get("plan");
+    const params = new URLSearchParams(window.location.search);
+    const plan = params.get("plan");
+    const interval = params.get("interval");
     if (plan && PLAN_INFO[plan]) {
+      const yearly = interval === "yearly";
       setChosenPlan(plan);
+      setChosenInterval(yearly ? "yearly" : "monthly");
       // Remember the pick so /billing can highlight it after signup.
       try {
         localStorage.setItem("rbai-chosen-plan", plan);
+        if (yearly) localStorage.setItem("rbai-chosen-interval", "yearly");
+        else localStorage.removeItem("rbai-chosen-interval");
       } catch {
         /* storage unavailable — the signup note already showed the plan */
       }
@@ -105,8 +120,9 @@ export default function SignupPage() {
             <span className="text-[#A8D0E6]"> working 24/7</span>
           </h1>
           <p className="text-slate-300 mt-4 max-w-md">
-            Start your free 10-day trial today. Connect your website, let the
-            AI learn your business, and never miss a customer message again.
+            Start your free {TRIAL_DAYS}-day trial today. Connect your
+            website, let the AI learn your business, and never miss a customer
+            message again.
           </p>
           <ul className="mt-8 space-y-3.5">
             {TRIAL_POINTS.map((point) => (
@@ -121,7 +137,7 @@ export default function SignupPage() {
         </div>
         <div className="relative flex items-center gap-6 text-xs text-slate-400">
           <span className="flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5" /> 10-day free trial
+            <Clock className="h-3.5 w-3.5" /> {TRIAL_DAYS}-day free trial
           </span>
           <span className="flex items-center gap-1.5">
             <ShieldCheck className="h-3.5 w-3.5" /> No credit card needed
@@ -154,16 +170,17 @@ export default function SignupPage() {
                 Start your free trial
               </h2>
               <p className="text-rbai-text-light text-sm mt-1">
-                10 days free. No credit card. Set up in minutes.
+                {TRIAL_DAYS} days free. No credit card. Set up in minutes.
               </p>
               {chosenPlan && (
                 <p className="mt-3 rounded-lg bg-rbai-primary-50 border border-rbai-primary/20 px-3.5 py-2.5 text-sm text-rbai-text">
                   You picked the{" "}
                   <span className="font-semibold">
-                    {PLAN_INFO[chosenPlan].name} plan ({PLAN_INFO[chosenPlan].price})
+                    {PLAN_INFO[chosenPlan].name} plan (
+                    {(chosenInterval === "yearly" ? PLAN_INFO_YEARLY : PLAN_INFO)[chosenPlan].price})
                   </span>
-                  . Your 10-day free trial starts now — the plan applies when
-                  you subscribe from Billing.
+                  . Your {TRIAL_DAYS}-day free trial starts now — the plan
+                  applies when you subscribe from Billing.
                 </p>
               )}
             </div>

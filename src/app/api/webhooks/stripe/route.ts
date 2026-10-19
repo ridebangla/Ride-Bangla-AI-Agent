@@ -6,9 +6,11 @@ import {
   constructWebhookEvent,
   getPlanForPriceId,
   isPaidPlanId,
+  isBillingInterval,
   WebhookNotConfiguredError,
   WebhookSignatureError,
   type PaidPlanId,
+  type BillingInterval,
 } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +28,7 @@ export const runtime = "nodejs";
  *
  * Events handled (idempotent — each handler checks the current status
  * before writing, so Stripe retries are harmless):
- *  checkout.session.completed → { plan, subscriptionStatus:'active',
+ *  checkout.session.completed → { plan, billingInterval, subscriptionStatus:'active',
  *                                 stripeCustomerId, stripeSubscriptionId }
  *  invoice.payment_succeeded → past_due → active
  *  invoice.payment_failed    → active → past_due (Stripe Smart Retries
@@ -99,6 +101,7 @@ type BusinessRow = {
   isActive: boolean;
   plan?: string;
   subscriptionStatus?: string;
+  billingInterval?: string;
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
 };
@@ -113,6 +116,7 @@ async function findBusinessById(businessId: string): Promise<BusinessRow | null>
       isActive: true,
       plan: true,
       subscriptionStatus: true,
+      billingInterval: true,
       stripeCustomerId: true,
       stripeSubscriptionId: true,
     },
@@ -149,6 +153,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const businessId = session.client_reference_id || session.metadata?.businessId;
   const metaPlan = session.metadata?.plan;
   const subMetaPlan = (session.subscription as Stripe.Subscription | null)?.metadata?.plan;
+  // Billing interval travels in the same metadata (set by /api/billing/checkout).
+  // Anything unexpected falls back to 'monthly' — never trust client input blindly.
+  const metaInterval = session.metadata?.interval;
+  const subMetaInterval = (session.subscription as Stripe.Subscription | null)?.metadata?.interval;
+  const interval: BillingInterval = isBillingInterval(metaInterval)
+    ? metaInterval
+    : isBillingInterval(subMetaInterval)
+      ? subMetaInterval
+      : "monthly";
 
   let plan: PaidPlanId | null = isPaidPlanId(metaPlan) ? metaPlan : null;
   if (!plan && isPaidPlanId(subMetaPlan)) plan = subMetaPlan;
@@ -196,12 +209,13 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     data: {
       plan,
       subscriptionStatus: "active",
+      billingInterval: interval,
       ...(customerId ? { stripeCustomerId: customerId } : {}),
       ...(subscriptionId ? { stripeSubscriptionId: subscriptionId } : {}),
     },
   });
   logger.info(
-    `[billing] business ${biz.id} ("${biz.name}") ACTIVATED on plan ${plan} ` +
+    `[billing] business ${biz.id} ("${biz.name}") ACTIVATED on plan ${plan} (${interval}) ` +
       `(checkout ${session.id}, customer ${customerId ?? "?"}, subscription ${subscriptionId ?? "?"})`
   );
 }

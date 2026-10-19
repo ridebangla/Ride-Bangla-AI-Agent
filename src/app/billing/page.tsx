@@ -5,8 +5,10 @@ import { cookies } from "next/headers";
 import { verifySessionToken } from "@/lib/auth";
 import { getUnscopedPrisma } from "@/lib/prisma";
 import { getSubscription, TRIAL_DAYS } from "@/lib/subscription";
-import { isBillingConfigured } from "@/lib/stripe";
+import { isBillingConfigured, PLAN_META, isPaidPlanId } from "@/lib/stripe";
 import BillingActions from "./BillingActions";
+import ManualPay from "./ManualPay";
+import { getPublicManualPaymentMethods } from "@/lib/manual-payments";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -30,12 +32,21 @@ const PLAN_LABEL: Record<string, string> = {
   unknown: "—",
 };
 
-const PLAN_PRICE: Record<string, string> = {
+const PLAN_PRICE_MONTHLY: Record<string, string> = {
   trial: `$0 for ${TRIAL_DAYS} days`,
   starter: "$19 / month",
   growth: "$49 / month",
   pro: "$99 / month",
 };
+
+/** Price line for the current plan + billing interval (yearly = 2 months free). */
+function planPriceLine(plan: string, billingInterval: string | null): string {
+  if (plan === "trial") return PLAN_PRICE_MONTHLY.trial;
+  if (isPaidPlanId(plan) && billingInterval === "yearly") {
+    return `$${PLAN_META[plan].yearlyPriceUsd} / year · 2 months free`;
+  }
+  return PLAN_PRICE_MONTHLY[plan] ?? "";
+}
 
 function formatDate(d: Date | null): string {
   if (!d) return "—";
@@ -64,6 +75,20 @@ export default async function BillingPage() {
   // permission required by /api/billing/checkout and /api/billing/portal).
   const canPay = admin.role === "admin";
   const billingConfigured = isBillingConfigured();
+  // Manual payment methods (Phase 4b) — read via the Admin SDK (server
+  // side, bypasses Firestore rules); only ENABLED methods are returned.
+  // The reference code lets the team match an incoming bank/crypto
+  transfer to this claim: business slug + timestamp.
+  const manualMethods = !isSuperAdmin ? await getPublicManualPaymentMethods() : [];
+  let manualReference = "";
+  if (!isSuperAdmin && admin.businessId) {
+    const biz = await getUnscopedPrisma().business.findUnique({
+      where: { id: admin.businessId },
+      select: { slug: true },
+    });
+    const slug = biz?.slug || admin.businessId.slice(0, 8);
+    manualReference = `${slug}-${Date.now().toString(36)}`;
+  }
 
   return (
     <div className="min-h-screen bg-rbai-bg">
@@ -129,7 +154,7 @@ export default async function BillingPage() {
                     {PLAN_LABEL[sub.plan] ?? sub.plan}
                   </h2>
                   <p className="text-sm text-rbai-text-light mt-1">
-                    {PLAN_PRICE[sub.plan] ?? ""}
+                    {planPriceLine(sub.plan, sub.billingInterval)}
                   </p>
                 </div>
                 {sub.isActive ? (
@@ -197,6 +222,18 @@ export default async function BillingPage() {
                 plan={sub.plan}
                 isActive={sub.isActive}
                 billingConfigured={billingConfigured}
+                canPay={canPay}
+              />
+            </div>
+
+            {/* Manual payments — bank transfer / crypto / WeChat Pay
+                (Phase 4b). Rendered from the user-configured methods; when
+                none are enabled it says so honestly. */}
+            <div className="mt-6">
+              <ManualPay
+                methods={manualMethods}
+                defaultPlan={isPaidPlanId(sub.plan) ? sub.plan : "growth"}
+                reference={manualReference}
                 canPay={canPay}
               />
             </div>

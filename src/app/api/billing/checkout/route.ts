@@ -5,13 +5,15 @@ import { logger } from "@/lib/logger";
 import {
   getStripe,
   getAppUrl,
-  getPriceIdForPlan,
+  getPriceIdForPlanInterval,
   isBillingConfigured,
   isPaidPlanId,
+  isBillingInterval,
   PLAN_META,
   StripeNotConfiguredError,
   StripePriceMissingError,
   type PaidPlanId,
+  type BillingInterval,
 } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +25,7 @@ export const runtime = "nodejs";
  * client_reference_id is the caller's own businessId, so the webhook can
  * only ever activate the business that paid.
  *
- * Body: { plan: "starter" | "growth" | "pro" }
+ * Body: { plan: "starter" | "growth" | "pro", interval?: "monthly" | "yearly" }
  * Success: 200 { url } — the frontend redirects the browser there.
  *
  * Honest failures (never a fake checkout):
@@ -32,6 +34,8 @@ export const runtime = "nodejs";
  *  409      business already has an active paid subscription (use the
  *           customer portal to change/cancel instead — avoids double billing)
  *  503      billing_not_configured — no Stripe keys yet
+ *  503      yearly_not_configured — yearly price ids not set yet (yearly
+ *           billing is coming soon; contact us)
  */
 export async function POST(request: NextRequest) {
   // Money moves only for tenant admins (settings:update = ["admin"]).
@@ -48,7 +52,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { plan?: unknown };
+  let body: { plan?: unknown; interval?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -68,11 +72,16 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
+  // Monthly is the default — existing callers send no interval and keep
+  // working exactly as before.
+  const interval: BillingInterval = isBillingInterval(body.interval)
+    ? body.interval
+    : "monthly";
 
   try {
     if (!isBillingConfigured()) throw new StripeNotConfiguredError();
-    const priceId = getPriceIdForPlan(plan);
-    if (!priceId) throw new StripePriceMissingError(plan);
+    const priceId = getPriceIdForPlanInterval(plan, interval);
+    if (!priceId) throw new StripePriceMissingError(plan, interval);
     const stripe = getStripe();
     if (!stripe) throw new StripeNotConfiguredError();
 
@@ -155,8 +164,10 @@ export async function POST(request: NextRequest) {
       customer: customerId,
       client_reference_id: business.id,
       line_items: [{ price: priceId, quantity: 1 }],
-      metadata: { businessId: business.id, plan },
-      subscription_data: { metadata: { businessId: business.id, plan } },
+      metadata: { businessId: business.id, plan, interval },
+      subscription_data: {
+        metadata: { businessId: business.id, plan, interval },
+      },
       success_url: `${appUrl}/billing?checkout=success`,
       cancel_url: `${appUrl}/billing?checkout=cancelled`,
     });
@@ -170,7 +181,7 @@ export async function POST(request: NextRequest) {
     }
 
     logger.info(
-      `[billing] checkout session ${session.id} created for business ${business.id} (plan ${plan} / ${PLAN_META[plan].priceUsd}$)`
+      `[billing] checkout session ${session.id} created for business ${business.id} (plan ${plan} / ${interval} / ${interval === "yearly" ? PLAN_META[plan].yearlyPriceUsd : PLAN_META[plan].priceUsd}$)`
     );
     return NextResponse.json({ url: session.url });
   } catch (err) {
@@ -186,6 +197,18 @@ export async function POST(request: NextRequest) {
     }
     if (err instanceof StripePriceMissingError) {
       logger.error(`[billing] ${err.message}`);
+      // Yearly price ids are optional until the user creates the yearly
+      // products — answer honestly instead of faking a checkout.
+      if (err.interval === "yearly") {
+        return NextResponse.json(
+          {
+            error: "yearly_not_configured",
+            message:
+              "Yearly billing is coming soon — contact us and we'll set up your annual plan (2 months free) manually.",
+          },
+          { status: 503 }
+        );
+      }
       return NextResponse.json(
         {
           error: "billing_not_configured",

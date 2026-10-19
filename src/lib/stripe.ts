@@ -22,6 +22,16 @@
  *      STRIPE_PRICE_GROWTH=price_...
  *      STRIPE_PRICE_PRO=price_...
  *
+ *    Then create 3 more recurring products (YEARLY, USD — 2 months free,
+ *    i.e. 10x the monthly price):
+ *      Starter $190/yr, Growth $490/yr, Pro $990/yr
+ *    Copy each yearly PRICE id and add:
+ *      STRIPE_PRICE_STARTER_YR=price_...
+ *      STRIPE_PRICE_GROWTH_YR=price_...
+ *      STRIPE_PRICE_PRO_YR=price_...
+ *    (Until the _YR ids exist, /pricing still shows yearly prices, but
+ *    yearly checkout answers honestly that yearly billing is coming soon.)
+ *
  * 3. Stripe dashboard → Developers → Webhooks → Add endpoint:
  *      https://ai.ridebangla.bd/api/webhooks/stripe
  *    Subscribe to EXACTLY these events:
@@ -46,11 +56,20 @@ import {
   PAID_PLANS,
   PLAN_META,
   isPaidPlanId,
+  isBillingInterval,
   type PaidPlanId,
+  type BillingInterval,
 } from "./plans";
 
 // Re-exported so server billing code can import everything from here.
-export { PAID_PLANS, PLAN_META, isPaidPlanId, type PaidPlanId };
+export {
+  PAID_PLANS,
+  PLAN_META,
+  isPaidPlanId,
+  isBillingInterval,
+  type PaidPlanId,
+  type BillingInterval,
+};
 
 /**
  * True only when a real Stripe secret key is configured. Everything billing
@@ -83,9 +102,10 @@ export function __resetStripeClientForTests(): void {
 }
 
 /**
- * Stripe Price id for a plan, from STRIPE_PRICE_STARTER / _GROWTH / _PRO.
- * Null when the env var is missing — the checkout route treats that as
- * "billing not fully connected" (honest 503, never a fake session).
+ * Stripe Price id for a plan's MONTHLY price, from STRIPE_PRICE_STARTER /
+ * _GROWTH / _PRO. Null when the env var is missing — the checkout route
+ * treats that as "billing not fully connected" (honest 503, never a fake
+ * session).
  */
 export function getPriceIdForPlan(plan: PaidPlanId): string | null {
   const raw =
@@ -97,10 +117,39 @@ export function getPriceIdForPlan(plan: PaidPlanId): string | null {
   return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
 }
 
+/**
+ * Stripe Price id for a plan's YEARLY price, from STRIPE_PRICE_STARTER_YR /
+ * _GROWTH_YR / _PRO_YR. Null when missing — yearly checkout then answers
+ * honestly ("yearly billing coming soon"), never a fake session.
+ */
+export function getYearlyPriceIdForPlan(plan: PaidPlanId): string | null {
+  const raw =
+    plan === "starter"
+      ? process.env.STRIPE_PRICE_STARTER_YR
+      : plan === "growth"
+        ? process.env.STRIPE_PRICE_GROWTH_YR
+        : process.env.STRIPE_PRICE_PRO_YR;
+  return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
+}
+
+/**
+ * Price id for a plan + billing interval. Null when the matching env var
+ * is missing.
+ */
+export function getPriceIdForPlanInterval(
+  plan: PaidPlanId,
+  interval: BillingInterval
+): string | null {
+  return interval === "yearly"
+    ? getYearlyPriceIdForPlan(plan)
+    : getPriceIdForPlan(plan);
+}
+
 /** Reverse map: a Stripe Price id back to our plan id (used by webhooks). */
 export function getPlanForPriceId(priceId: string): PaidPlanId | null {
   for (const plan of PAID_PLANS) {
     if (getPriceIdForPlan(plan) === priceId) return plan;
+    if (getYearlyPriceIdForPlan(plan) === priceId) return plan;
   }
   return null;
 }
@@ -127,11 +176,15 @@ export class StripeNotConfiguredError extends Error {
 
 /** Thrown when a plan has no Stripe Price id configured. */
 export class StripePriceMissingError extends Error {
-  constructor(plan: PaidPlanId) {
+  /** 'monthly' | 'yearly' — which price id is missing (for honest messaging). */
+  readonly interval: BillingInterval;
+  constructor(plan: PaidPlanId, interval: BillingInterval = "monthly") {
     super(
-      `No Stripe Price configured for the ${plan} plan (missing STRIPE_PRICE_${plan.toUpperCase()}).`
+      `No Stripe Price configured for the ${plan} plan (${interval}) ` +
+        `(missing ${interval === "yearly" ? `STRIPE_PRICE_${plan.toUpperCase()}_YR` : `STRIPE_PRICE_${plan.toUpperCase()}`}).`
     );
     this.name = "StripePriceMissingError";
+    this.interval = interval;
   }
 }
 

@@ -34,6 +34,9 @@ export interface Business {
       customer portal to resolve tenancy without trusting client input. */
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
+  /** Phase 4 (yearly billing): 'monthly' | 'yearly' — set by the Stripe
+      webhook on checkout.session.completed. Absent = 'monthly'. */
+  billingInterval?: string;
   /** Phase 2: auto landing page (hosted at /p/[slug]). */
   tagline?: string;
   brandColor?: string;

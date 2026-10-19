@@ -58,7 +58,14 @@ export const metadata: Metadata = {
     images: [SITE_URL + "/agent-avatar.png"],
   },
   icons: {
-    icon: "/agent-avatar.png",
+    // New agent-mascot favicon (multi-size .ico + PNG fallbacks). Brand
+    // artwork (agent-avatar.png) is untouched elsewhere on purpose.
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
   },
 };
 

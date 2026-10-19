@@ -1,8 +1,8 @@
 /**
  * subscription.ts — SaaS trial/subscription enforcement foundation (Phase 1).
  *
- * Business rule (user decision 16, business-critical): the first 10 days are
- * free. After the trial ends, payment is MANDATORY — the AI must hard-stop
+ * Business rule (user decision 16, business-critical): the first 7 days are
+ * free (TRIAL_DAYS in ./plans; user decision 2026-10-19). After the trial ends, payment is MANDATORY — the AI must hard-stop
  * replying for that business until they pay ("নয়তো আমরা চলতে পারব না").
  *
  * Active = Super Admin (businessId null, always) OR
@@ -54,8 +54,10 @@ import { redirect } from "next/navigation";
 import { getUnscopedPrisma } from "@/lib/prisma";
 import type { Business } from "@/lib/models";
 
-/** Free trial length for every new SaaS signup. */
-export const TRIAL_DAYS = 10;
+// Trial length lives in ./plans (client-safe) so marketing pages can
+// render it too; re-exported here so existing server importers keep working.
+import { TRIAL_DAYS } from "./plans";
+export { TRIAL_DAYS };
 export const TRIAL_MS = TRIAL_DAYS * 24 * 60 * 60 * 1000;
 
 export type SubscriptionStatus =
@@ -78,6 +80,8 @@ export interface SubscriptionInfo {
   /** Whole days of trial left (0 when not trialing). */
   trialDaysRemaining: number;
   isActive: boolean;
+  /** 'monthly' | 'yearly' — from the business doc; null when not applicable. */
+  billingInterval: "monthly" | "yearly" | null;
 }
 
 function toDate(value: unknown): Date | null {
@@ -128,6 +132,7 @@ export async function getSubscription(
       trialEndsAt: null,
       trialDaysRemaining: 0,
       isActive: true,
+      billingInterval: null,
     };
   }
 
@@ -144,6 +149,7 @@ export async function getSubscription(
       trialEndsAt: null,
       trialDaysRemaining: 0,
       isActive: false,
+      billingInterval: null,
     };
   }
 
@@ -154,6 +160,8 @@ export async function getSubscription(
     status === "trialing" && trialEndsAt
       ? Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / 86400000))
       : 0;
+  const billingInterval =
+    biz.billingInterval === "yearly" ? "yearly" : "monthly";
 
   return {
     businessId,
@@ -168,6 +176,7 @@ export async function getSubscription(
     trialEndsAt,
     trialDaysRemaining,
     isActive: isSubscriptionActive(biz),
+    billingInterval,
   };
 }
 

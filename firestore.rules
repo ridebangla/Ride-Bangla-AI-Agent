@@ -308,6 +308,31 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
+    // Manual payment methods + claims (Phase 4b)
+    // ------------------------------------------------------------------
+    // One doc per method (us_bank, binance, bybit, okx, wechat_pay).
+    // Tenants may read ONLY enabled methods (display fields only — the doc
+    // holds no secrets); all writes are Super Admin only. The /billing page
+    // reads via the Admin SDK and renders enabled methods only.
+    match /payment_methods_config/{methodId} {
+      allow get: if isSuperAdmin() || (isSignedIn() && resource.data.enabled == true);
+      allow list: if isSuperAdmin();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Manual payment claims: tenant owners create and list their own claims;
+    // Super Admin has full access (verify / reject).
+    match /payment_claims/{claimId} {
+      allow get, list: if isSuperAdmin() || tenantRead();
+      allow create: if tenantCreate()
+        && request.resource.data.status == 'pending'
+        && request.resource.data.txnId is string
+        && request.resource.data.screenshotDataUrl is string;
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ------------------------------------------------------------------
     // Default deny: anything not listed above is inaccessible.
     // ------------------------------------------------------------------
     match /{document=**} {

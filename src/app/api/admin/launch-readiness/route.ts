@@ -162,6 +162,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             present("STRIPE_PRICE_STARTER") &&
             present("STRIPE_PRICE_GROWTH") &&
             present("STRIPE_PRICE_PRO"),
+          yearlyPricesConfigured:
+            present("STRIPE_PRICE_STARTER_YR") &&
+            present("STRIPE_PRICE_GROWTH_YR") &&
+            present("STRIPE_PRICE_PRO_YR"),
         },
         meta: {
           present: present("META_APP_ID") && present("META_APP_SECRET"),
