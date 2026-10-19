@@ -139,7 +139,12 @@ export async function middleware(request: NextRequest) {
   // no tenant data), and /api/contact is the public ticket + contacts API —
   // it validates every field itself, is rate-limited per IP, and writes
   // through the Admin SDK, so it is safe to expose here.
-  const publicPaths = ["/login", "/setup", "/signup", "/pricing", "/privacy", "/terms", "/contact", "/api/contact", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/landing/quality", "/api/webhooks/stripe", "/p/"];
+  // First-party AI (sibling sites): /api/public/ai/generate is the
+  // site-key-authenticated AI endpoint for the Tools site and other sibling
+  // sites — same public siteKey auth model as the widget chat endpoint
+  // (validated + rate-limited in the route handler), so it must be public
+  // here too.
+  const publicPaths = ["/login", "/setup", "/signup", "/pricing", "/privacy", "/terms", "/contact", "/api/contact", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/public/ai/generate", "/api/landing/quality", "/api/webhooks/stripe", "/p/"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   // The SaaS marketing landing page lives at `/` — EXACT match only (a
