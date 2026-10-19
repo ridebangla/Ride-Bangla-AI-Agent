@@ -6,6 +6,7 @@
  * replying for that business until they pay ("নয়তো আমরা চলতে পারব না").
  *
  * Active = Super Admin (businessId null, always) OR
+ *          manualActiveOverride == true (admin kept tenant active w/o payment) OR
  *          subscriptionStatus == 'active' OR
  *          (subscriptionStatus == 'trialing' AND trialEndsAt > now).
  * Everything else (past_due / canceled / expired / missing fields) = inactive.
@@ -101,6 +102,9 @@ export function isSubscriptionActive(biz: Business | null): boolean {
   // Super Admin (businessId null) — always active, never billed.
   if (biz === null) return true;
   if (!biz.isActive) return false;
+  // Manual override (Admin Console, Super Admin only, audit-logged):
+  // the admin chose to keep this tenant active even without payment.
+  if (biz.manualActiveOverride === true) return true;
 
   const status =
     typeof biz.subscriptionStatus === "string" ? biz.subscriptionStatus : "";

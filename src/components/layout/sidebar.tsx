@@ -29,6 +29,7 @@ import {
   ShoppingBag,
   ClipboardList,
   Inbox,
+  Target,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -77,6 +78,12 @@ const sections: NavSection[] = [
       { name: "Channels", href: "/channels", icon: Radio },
       { name: "Social Automation", href: "/social", icon: Share2 },
       { name: "Webhooks", href: "/webhooks", icon: Webhook },
+    ],
+  },
+  {
+    title: "Growth",
+    items: [
+      { name: "Lead Engine", href: "/leads", icon: Target },
     ],
   },
   {

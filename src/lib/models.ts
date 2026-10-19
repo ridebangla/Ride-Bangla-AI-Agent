@@ -37,6 +37,12 @@ export interface Business {
   /** Phase 4 (yearly billing): 'monthly' | 'yearly' — set by the Stripe
       webhook on checkout.session.completed. Absent = 'monthly'. */
   billingInterval?: string;
+  /** Manual override (Admin Console, Super Admin only, audit-logged):
+      keep this tenant ACTIVE even without payment. */
+  manualActiveOverride?: boolean;
+  manualActiveOverrideBy?: string;
+  manualActiveOverrideAt?: Date | null;
+  manualActiveOverrideReason?: string;
   /** Phase 2: auto landing page (hosted at /p/[slug]). */
   tagline?: string;
   brandColor?: string;
@@ -652,3 +658,105 @@ export interface Order {
   updatedAt: Date;
 }
 
+// ---------------------------------------------------------------------------
+// Harvey Lead Engine (outbound) — tenant-scoped collections.
+// The Harvey sidecar writes these; the dashboard reads them; humans approve
+// drafts. See src/lib/lead-engine.ts for the architecture contract.
+// ---------------------------------------------------------------------------
+
+export interface LeadScan {
+  [key: string]: unknown;
+  id: string;
+  businessId: string;
+  /** Human label for the scan, e.g. "Dhaka restaurants — Jan 2027". */
+  name: string;
+  /** ICP snapshot used for this scan. */
+  icp: JsonValue;
+  status: string; // 'draft' | 'requested' | 'running' | 'completed' | 'failed'
+  requestedAt: Date | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  stats: JsonValue; // { discovered, profiled, scored }
+  error: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Lead {
+  [key: string]: unknown;
+  id: string;
+  businessId: string;
+  scanId: string | null;
+  /** Business (Harvey Company model). */
+  name: string;
+  domain: string;
+  website: string;
+  description: string;
+  industry: string;
+  companySize: string;
+  location: string;
+  phone: string;
+  /** Contact (Harvey Prospect model, flattened). */
+  contactName: string;
+  contactTitle: string;
+  contactEmail: string;
+  /** 'verified' | 'risky' | 'guess' | 'invalid' — only 'verified' may be sent to. */
+  contactEmailStatus: string;
+  /** 0–100 ICP score from the scout pass. */
+  icpScore: number;
+  /** Buying signals: [{ type, detail, foundAt }]. */
+  signals: JsonValue;
+  techStack: JsonValue;
+  source: string;
+  sourceUrl: string;
+  /** Provider-stable dedup key (e.g. "osm:node/123"). */
+  externalId: string;
+  personalizationNotes: string;
+  status: string; // 'new' | 'contacted' | 'replied' | 'meeting' | 'closed' | 'lost'
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LeadDraft {
+  [key: string]: unknown;
+  id: string;
+  businessId: string;
+  leadId: string;
+  scanId: string | null;
+  channel: string; // 'email'
+  step: number;
+  delayDays: number;
+  toEmail: string;
+  subject: string;
+  body: string;
+  /** Result of preSendGateCheck() at draft/approve time. */
+  gateCheck: JsonValue; // { ok, reasons[] }
+  status: string; // 'draft' | 'approved' | 'rejected' | 'sent' | 'failed'
+  approvedBy: string;
+  approvedAt: Date | null;
+  sentAt: Date | null;
+  sendError: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface LeadSettings {
+  [key: string]: unknown;
+  id: string;
+  businessId: string;
+  /** ICP the tenant confirmed for discovery. */
+  icp: JsonValue;
+  /** Mailbox used by the sidecar sender. */
+  mailboxProvider: string; // 'gmail' | 'microsoft' | 'smtp' | 'none'
+  mailboxConnected: boolean;
+  mailboxUser: string;
+  /** Secret — same storage pattern as settings.smtpPass (see note there). */
+  mailboxSecret: string;
+  /** AI backend subscription the sidecar runs on. */
+  aiBackend: string; // 'claude' | 'codex' | 'none'
+  aiBackendConnected: boolean;
+  maxDailySends: number;
+  requireApproval: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}

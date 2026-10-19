@@ -78,6 +78,10 @@ import type {
   ProductCategory,
   Product,
   Order,
+  LeadScan,
+  Lead,
+  LeadDraft,
+  LeadSettings,
 } from "./models";
 
 // ---------------------------------------------------------------------------
@@ -309,6 +313,41 @@ const MODEL_META: Record<string, ModelMeta> = {
       sunday: "",
       offlineMessage:
         "We are currently offline. We will get back to you during business hours.",
+    },
+    uniques: ["businessId"],
+  }),
+  // Harvey Lead Engine (outbound) — tenant-scoped. The sidecar writes;
+  // the dashboard reads; humans approve drafts. See src/lib/lead-engine.ts.
+  leadScan: M("leadScans", {
+    hasUpdatedAt: true,
+    defaults: { status: "draft", stats: {}, error: "" },
+  }),
+  lead: M("leads", {
+    hasUpdatedAt: true,
+    defaults: {
+      scanId: null, description: "", industry: "", companySize: "",
+      location: "", phone: "", contactName: "", contactTitle: "",
+      contactEmail: "", contactEmailStatus: "guess", icpScore: 0,
+      signals: [], techStack: [], source: "", sourceUrl: "",
+      externalId: "", personalizationNotes: "", status: "new",
+    },
+    uniques: [["businessId", "externalId"]],
+    compoundKeys: { businessId_externalId: ["businessId", "externalId"] },
+  }),
+  leadDraft: M("leadDrafts", {
+    hasUpdatedAt: true,
+    defaults: {
+      scanId: null, channel: "email", step: 1, delayDays: 0,
+      gateCheck: {}, status: "draft", approvedBy: "",
+      approvedAt: null, sentAt: null, sendError: "",
+    },
+  }),
+  leadSettings: M("leadSettings", {
+    hasUpdatedAt: true,
+    defaults: {
+      icp: {}, mailboxProvider: "none", mailboxConnected: false,
+      mailboxUser: "", mailboxSecret: "", aiBackend: "none",
+      aiBackendConnected: false, maxDailySends: 50, requireApproval: true,
     },
     uniques: ["businessId"],
   }),
@@ -1316,6 +1355,10 @@ export interface DbClient {
   productCategory: ModelDelegate<ProductCategory>;
   product: ModelDelegate<Product>;
   order: ModelDelegate<Order>;
+  leadScan: ModelDelegate<LeadScan>;
+  lead: ModelDelegate<Lead>;
+  leadDraft: ModelDelegate<LeadDraft>;
+  leadSettings: ModelDelegate<LeadSettings>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   $queryRaw(...args: any[]): Promise<any>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1408,6 +1451,10 @@ const TENANT_MODELS = new Set([
   "socialInteraction",
   "audienceProfile",
   "agentCommand",
+  "leadScan",
+  "lead",
+  "leadDraft",
+  "leadSettings",
 ]);
 
 export class TenantContextError extends Error {

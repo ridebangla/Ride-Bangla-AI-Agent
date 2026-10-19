@@ -332,6 +332,34 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
+    // Harvey Lead Engine (outbound) — tenant-isolated. The sidecar writes
+    // via the Admin SDK (server-side); tenant dashboards read their own.
+    // Draft approval is a human action in the dashboard/Admin Console.
+    match /leadScans/{scanId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /leads/{leadId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /leadDrafts/{draftId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+    match /leadSettings/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
+
     // ------------------------------------------------------------------
     // Default deny: anything not listed above is inaccessible.
     // ------------------------------------------------------------------
