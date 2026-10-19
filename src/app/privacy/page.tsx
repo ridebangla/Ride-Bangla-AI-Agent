@@ -4,7 +4,7 @@ import Image from "next/image";
 export const metadata = {
   title: "Privacy Policy — Ride Bangla AI Agent",
   description:
-    "How Ride Bangla AI Agent collects, uses, and protects your data.",,
+    "How Ride Bangla AI Agent collects, uses, and protects your data.",
   alternates: { canonical: "https://ai.ridebangla.bd/privacy" },
 };
 
