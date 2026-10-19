@@ -24,7 +24,10 @@ export function isBillingInterval(value: unknown): value is BillingInterval {
   return value === "monthly" || value === "yearly";
 }
 
-/** Marketing metadata for the paid plans (USD). Yearly = 2 months free. */
+/** Marketing metadata for the paid plans (USD). Yearly = 2 months free.
+ *  `messagesPerMonth` is the AI-message allowance per 30-day usage period
+ *  (Billing Phase 2). Overages are not sold separately yet — at 100% the
+ *  dashboard shows an upgrade notice. */
 export const PLAN_META: Record<
   PaidPlanId,
   {
@@ -32,6 +35,7 @@ export const PLAN_META: Record<
     priceUsd: number;
     yearlyPriceUsd: number;
     tagline: string;
+    messagesPerMonth: number;
   }
 > = {
   starter: {
@@ -39,18 +43,21 @@ export const PLAN_META: Record<
     priceUsd: 19,
     yearlyPriceUsd: 190,
     tagline: "For small businesses getting started with AI support.",
+    messagesPerMonth: 1000,
   },
   growth: {
     name: "Growth",
     priceUsd: 49,
     yearlyPriceUsd: 490,
     tagline: "For growing businesses that live on customer chat.",
+    messagesPerMonth: 5000,
   },
   pro: {
     name: "Pro",
     priceUsd: 99,
     yearlyPriceUsd: 990,
     tagline: "For high-volume businesses and teams.",
+    messagesPerMonth: 15000,
   },
 };
 

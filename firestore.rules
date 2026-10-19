@@ -322,6 +322,10 @@ service cloud.firestore {
 
     // Manual payment claims: tenant owners create and list their own claims;
     // Super Admin has full access (verify / reject).
+    // Billing Phase 2 extends the claim shape with kind ('subscription' |
+    // 'wallet_deposit', default 'subscription' for older docs), refCode
+    // (RB-XXXXXXXX), autoVerify and visionPreRead — the same read/write
+    // rule covers the extended fields; all writes stay Super Admin only.
     match /payment_claims/{claimId} {
       allow get, list: if isSuperAdmin() || tenantRead();
       allow create: if tenantCreate()
@@ -330,6 +334,40 @@ service cloud.firestore {
         && request.resource.data.screenshotDataUrl is string;
       allow update: if isSuperAdmin();
       allow delete: if isSuperAdmin();
+    }
+
+    // ------------------------------------------------------------------
+    // Billing Phase 2: SaaS wallet + fraud signals + exchange config
+    // ------------------------------------------------------------------
+    // Tenant wallets: server (Admin SDK) is the ONLY writer — balance math
+    // must never be client-writable. Tenants read their own wallet;
+    // Super Admin sees all.
+    match /wallets/{businessId} {
+      allow get: if isSuperAdmin() || tenantMatch(businessId);
+      allow list: if isSuperAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Wallet transaction ledger: append-only server-side. Tenants read
+    // their own entries (defense-in-depth; the dashboard reads via the
+    // Admin SDK anyway).
+    match /wallet_transactions/{txnId} {
+      allow get, list: if isSuperAdmin() || tenantRead();
+      allow create, update, delete: if false;
+    }
+
+    // Fraud signals: written server-side by the fraud monitor at claim
+    // creation; tenants read their own signals, Super Admin manages them.
+    match /fraud_signals/{signalId} {
+      allow get, list: if isSuperAdmin() || tenantRead();
+      allow create, update, delete: if false;
+    }
+
+    // Exchange API config: server-only. API keys NEVER live in Firestore
+    // (they are environment variables); this doc only records which
+    // exchange is configured. No client access at all.
+    match /exchange_api_config/{exchange} {
+      allow read, write: if false;
     }
 
     // Harvey Lead Engine (outbound) — tenant-isolated. The sidecar writes

@@ -8,7 +8,9 @@ import { getSubscription, TRIAL_DAYS } from "@/lib/subscription";
 import { isBillingConfigured, PLAN_META, isPaidPlanId } from "@/lib/stripe";
 import BillingActions from "./BillingActions";
 import ManualPay from "./ManualPay";
+import WalletBilling from "./WalletBilling";
 import { getPublicManualPaymentMethods } from "@/lib/manual-payments";
+import { getWallet } from "@/lib/wallet";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -89,6 +91,12 @@ export default async function BillingPage() {
     const slug = biz?.slug || admin.businessId.slice(0, 8);
     manualReference = `${slug}-${Date.now().toString(36)}`;
   }
+  // Wallet balance (Billing Phase 2) — server-side read via the Admin SDK;
+  // getWallet never throws (zero-balance default on failure).
+  const wallet =
+    !isSuperAdmin && admin.businessId
+      ? await getWallet(admin.businessId)
+      : { balanceCents: 0 };
 
   return (
     <div className="min-h-screen bg-rbai-bg">
@@ -234,6 +242,20 @@ export default async function BillingPage() {
                 methods={manualMethods}
                 defaultPlan={isPaidPlanId(sub.plan) ? sub.plan : "growth"}
                 reference={manualReference}
+                canPay={canPay}
+              />
+            </div>
+
+            {/* Wallet — top up the balance, then pay for plans from it
+                (Billing Phase 2). */}
+            <div className="mt-6">
+              <WalletBilling
+                balanceCents={wallet.balanceCents}
+                defaultPlan={isPaidPlanId(sub.plan) ? sub.plan : "growth"}
+                defaultInterval={
+                  sub.billingInterval === "yearly" ? "yearly" : "monthly"
+                }
+                methods={manualMethods}
                 canPay={canPay}
               />
             </div>

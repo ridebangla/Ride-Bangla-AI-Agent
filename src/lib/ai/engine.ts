@@ -1,5 +1,6 @@
 import OpenAI from "openai";
-import { prisma, withBusinessId } from "@/lib/prisma";
+import { prisma, withBusinessId, getBusinessId } from "@/lib/prisma";
+import { recordAiMessage } from "@/lib/billing-usage";
 import { agentTools, executeToolCall } from "./tools";
 import { emitNewMessage } from "@/lib/realtime";
 import { analyzeSentiment, detectIntent, estimateConfidence, requiresHumanApproval } from "./guardrails";
@@ -353,6 +354,15 @@ export async function chat(
   }
 
   emitNewMessage(conversationId, { id: savedMessage.id, role: "assistant", content: aiResult.response });
+
+  // Billing Phase 2: meter the finalized AI reply (fire-and-forget — a
+  // metering failure must never break the reply). The 402 hard-stop runs
+  // before this pipeline is entered (route / channel layers), so every
+  // reply counted here was served to an active subscription/trial.
+  const meteredBusinessId = getBusinessId();
+  if (meteredBusinessId) {
+    void recordAiMessage(meteredBusinessId);
+  }
 
   return { response: aiResult.response, products, silent: false };
 }

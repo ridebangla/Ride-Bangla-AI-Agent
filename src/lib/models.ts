@@ -43,6 +43,20 @@ export interface Business {
   manualActiveOverrideBy?: string;
   manualActiveOverrideAt?: Date | null;
   manualActiveOverrideReason?: string;
+  /** Billing Phase 2: AI-message metering — count of finalized AI replies
+      in the current 30-day usage period (see usagePeriodStart). */
+  aiMessagesUsed?: number;
+  /** Billing Phase 2: start of the current 30-day usage period. */
+  usagePeriodStart?: Date | null;
+  /** Billing Phase 2: when the current paid subscription ends (set by
+      Stripe webhooks, wallet purchases, and claim approvals). */
+  subscriptionEndsAt?: Date | null;
+  /** Billing Phase 2: team-posted notice shown on the dashboard banner. */
+  adminNotice?: {
+    message: string;
+    createdAt?: Date | null;
+    createdBy?: string;
+  } | null;
   /** Phase 2: auto landing page (hosted at /p/[slug]). */
   tagline?: string;
   brandColor?: string;

@@ -77,19 +77,50 @@ export interface ManualPaymentMethod {
   note?: string;
 }
 
-export type ClaimStatus = "pending" | "approved" | "rejected";
+export type ClaimStatus = "pending" | "approved" | "rejected" | "fraud_rejected";
+
+/** Billing Phase 2: what the claim pays for. Old docs predate the field
+ *  and are treated as 'subscription'. */
+export type ClaimKind = "subscription" | "wallet_deposit";
+
+export function isClaimKind(value: unknown): value is ClaimKind {
+  return value === "subscription" || value === "wallet_deposit";
+}
 
 export interface PaymentClaim {
   id: string;
   businessId: string;
+  /** Billing Phase 2: 'subscription' (default for old docs) | 'wallet_deposit'. */
+  kind: ClaimKind;
+  /** Server-generated payment reference (RB-XXXXXXXX) — the customer is
+   *  asked to include it in their payment note/memo. */
+  refCode: string;
   plan: string;
   interval: string;
   method: ManualMethodId;
+  /** Legacy USD float (pre-Phase-2 docs). New claims store amountCents. */
   amount: number;
+  /** Integer cents — the money field of record (Billing Phase 2). */
+  amountCents?: number;
   reference: string;
   txnId: string;
   screenshotDataUrl: string;
   status: ClaimStatus;
+  /** Billing Phase 2: exchange auto-verification state (crypto methods). */
+  autoVerify?: {
+    status: "pending" | "matched" | "failed" | "not_configured";
+    exchange?: string;
+    checkedAt?: unknown;
+    note?: string;
+  };
+  /** Billing Phase 2: Tier-2 vision pre-read of the payment screenshot. */
+  visionPreRead?: {
+    status: "pending" | "done" | "unavailable";
+    extractedTxnId?: string;
+    extractedAmount?: string;
+    confidence?: "low" | "medium" | "high";
+    note?: string;
+  };
   rejectReason?: string;
   createdAt: unknown;
 }
@@ -188,23 +219,56 @@ export async function isMethodEnabled(id: ManualMethodId): Promise<boolean> {
   }
 }
 
-/** Server-only: create a pending payment claim (Admin SDK write). */
+/** Server-only: create a pending payment claim (Admin SDK write).
+ *
+ *  Billing Phase 2: every claim is created INSIDE a Firestore transaction
+ *  with a unique server-generated refCode (RB-XXXXXXXX) — the customer is
+ *  shown the code and asked to include it in their payment note/memo.
+ *  New claims always carry `kind` and `amountCents` (integer cents; the
+ *  legacy `amount` USD float is kept for backwards compatibility with the
+ *  /billing page). `autoVerify`/`visionPreRead` start as 'pending'.
+ *
+ *  Returns { claimId, refCode }.
+ */
 export async function createPaymentClaim(input: {
   businessId: string;
   plan: string;
   interval: string;
   method: ManualMethodId;
   amount: number;
+  amountCents?: number;
   reference: string;
   txnId: string;
   screenshotDataUrl: string;
-}): Promise<string> {
-  const ref = await getAdminDb()
-    .collection("payment_claims")
-    .add({
-      ...input,
+  kind?: ClaimKind;
+  createdBy?: string;
+}): Promise<{ claimId: string; refCode: string }> {
+  const { createWithUniqueRefCode } = await import("./ref-codes");
+  const { id, refCode } = await createWithUniqueRefCode(
+    getAdminDb(),
+    "payment_claims",
+    {
+      businessId: input.businessId,
+      kind: input.kind ?? "subscription",
+      plan: input.plan,
+      interval: input.interval,
+      method: input.method,
+      amount: input.amount,
+      // Integer cents is the money field of record; derive from the USD
+      // float when the caller only has dollars.
+      amountCents:
+        typeof input.amountCents === "number"
+          ? input.amountCents
+          : Math.round(input.amount * 100),
+      reference: input.reference,
+      txnId: input.txnId,
+      screenshotDataUrl: input.screenshotDataUrl,
       status: "pending" as ClaimStatus,
+      autoVerify: { status: "pending" as const },
+      visionPreRead: { status: "pending" as const },
+      createdBy: input.createdBy ?? `tenant:${input.businessId}`,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-  return ref.id;
+    }
+  );
+  return { claimId: id, refCode };
 }

@@ -167,6 +167,9 @@ export default function ManualPay({
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [claimId, setClaimId] = useState("");
+  // Billing Phase 2: the server-generated refCode (RB-XXXXXXXX) — shown
+  // with "include this reference in your payment note".
+  const [refCode, setRefCode] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Only tenant admins move money.
@@ -233,6 +236,7 @@ export default function ManualPay({
         return;
       }
       setClaimId(data.claimId || "");
+      setRefCode(typeof data.refCode === "string" ? data.refCode : "");
     } catch {
       setError("Network error. Check your connection and try again.");
       setSubmitting(false);
@@ -257,8 +261,20 @@ export default function ManualPay({
             Claim submitted — thank you.
           </p>
           <p className="text-sm text-emerald-700 mt-1">
-            Our team will verify your payment and activate your plan. Reference:{" "}
-            <span className="font-mono font-medium">{reference}</span>
+            Our team will verify your payment and activate your plan.{" "}
+            {refCode ? (
+              <>
+                Include this reference in your payment note:{" "}
+                <span className="font-mono font-bold text-emerald-900">
+                  {refCode}
+                </span>
+              </>
+            ) : (
+              <>
+                Reference:{" "}
+                <span className="font-mono font-medium">{reference}</span>
+              </>
+            )}
           </p>
         </div>
       ) : (
