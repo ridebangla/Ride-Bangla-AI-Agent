@@ -33,6 +33,8 @@ export const RATE_LIMITS = {
   claim: { maxRequests: 10, windowMs: 60 * 60 * 1000 } as RateLimitConfig,
   // Onboarding analyze/confirm: website scraping + DB writes — 30/hour/key.
   onboarding: { maxRequests: 30, windowMs: 60 * 60 * 1000 } as RateLimitConfig,
+  // Public contact form: spam-prone — 10/hour per IP.
+  contact: { maxRequests: 10, windowMs: 60 * 60 * 1000 } as RateLimitConfig,
 } as const;
 
 export interface RateLimitResult {

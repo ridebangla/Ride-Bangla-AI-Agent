@@ -276,6 +276,10 @@ export default function SignupPage() {
                 <p className="text-xs text-rbai-text-light mt-1.5">
                   The AI can learn your business from your website during setup.
                 </p>
+                <p className="text-xs text-rbai-text mt-1.5 font-semibold">
+                  ওয়েবসাইট না থাকলেও চলবে — আমরা আপনার জন্য তৈরি করে দেব। / No
+                  website? We&apos;ll build one for you.
+                </p>
               </div>
 
               {error && (

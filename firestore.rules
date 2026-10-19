@@ -399,6 +399,25 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
+    // Help Center (Phase 5): public contact forms + platform contacts
+    // ------------------------------------------------------------------
+    // support_tickets (Help Center, source "ai"/"studio"/"tools"): the ONLY
+    // writer is the server (Admin SDK) — public POST /api/contact validates
+    // every field itself and is rate-limited, so client writes stay closed.
+    // Super Admin reads for the Admin Console support inbox.
+    match /support_tickets/{ticketId} {
+      allow get, list: if isSuperAdmin();
+      allow create, update, delete: if false;
+    }
+    // site_contacts/platform: { email, phone, hotline } shown on the public
+    // contact page. Server-only writes; the Super Admin editor lives in the
+    // Admin Console. Read is Super Admin only (sites read via Admin SDK).
+    match /site_contacts/{docId} {
+      allow get, list: if isSuperAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // ------------------------------------------------------------------
     // Default deny: anything not listed above is inaccessible.
     // ------------------------------------------------------------------
     match /{document=**} {

@@ -135,7 +135,11 @@ export async function middleware(request: NextRequest) {
   // its handler (see src/app/api/webhooks/stripe/route.ts). Both must stay
   // public here or pricing 404-redirects to /login and Stripe can never
   // deliver billing events.
-  const publicPaths = ["/login", "/setup", "/signup", "/pricing", "/privacy", "/terms", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/landing/quality", "/api/webhooks/stripe", "/p/"];
+  // Help Center (Phase 5): /contact is the public contact page (marketing,
+  // no tenant data), and /api/contact is the public ticket + contacts API —
+  // it validates every field itself, is rate-limited per IP, and writes
+  // through the Admin SDK, so it is safe to expose here.
+  const publicPaths = ["/login", "/setup", "/signup", "/pricing", "/privacy", "/terms", "/contact", "/api/contact", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/landing/quality", "/api/webhooks/stripe", "/p/"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   // The SaaS marketing landing page lives at `/` — EXACT match only (a

@@ -114,6 +114,16 @@ function getDb(): admin.firestore.Firestore {
   return adminDb;
 }
 
+/**
+ * Raw Firebase Admin SDK Firestore for PLATFORM-level (non-tenant)
+ * collections (e.g. `support_tickets`, `site_contacts`, `payment_claims`).
+ * Bypasses all Firestore rules — the caller is responsible for authorization
+ * (public endpoints validate everything themselves; service layer only).
+ */
+export function getAdminDb(): admin.firestore.Firestore {
+  return getDb();
+}
+
 /** Close the Admin SDK (scripts/tests). */
 export async function closeDb(): Promise<void> {
   if (admin.apps.length > 0) {

@@ -48,15 +48,32 @@ const METHODS: { id: Method; icon: React.ElementType; title: string; desc: strin
   {
     id: "url",
     icon: Globe,
-    title: "I have a website",
-    desc: "Enter your website URL — we fetch your pages and the AI learns your business automatically.",
+    title: "আমার ওয়েবসাইট আছে / I have a website",
+    desc: "ওয়েবসাইটের ঠিকানা দিন — আমরা আপনার পেজগুলো পড়ে AI-কে ব্যবসা শিখিয়ে দেব। / Enter your website URL — we fetch your pages and the AI learns your business automatically.",
   },
   {
     id: "guided",
     icon: PencilLine,
-    title: "No website",
-    desc: "Describe your business in a short form — we build your landing page and product catalog from it.",
+    title: "আমার ওয়েবসাইট নেই / I don't have a website",
+    desc: "ব্যবসার ধরন বেছে নিয়ে সংক্ষেপে বর্ণনা দিন — AI আপনার জন্য একটি প্রিমিয়াম ল্যান্ডিং পেজ বানিয়ে দেবে; আপনি দেখে অনুমোদন দেবেন। / Choose your business category and describe it — the AI builds a premium landing page for you; you review and approve it.",
   },
+];
+
+// Common business categories (bilingual). "other" reveals a free-text input.
+const CATEGORIES = [
+  { value: "", label: "বেছে নিন / Choose…" },
+  { value: "Restaurant & Food", label: "রেস্টুরেন্ট ও খাবার / Restaurant & Food" },
+  { value: "Fashion & Clothing", label: "ফ্যাশন ও পোশাক / Fashion & Clothing" },
+  { value: "Grocery & Daily Needs", label: "মুদি ও নিত্যপ্রয়োজনীয় / Grocery & Daily Needs" },
+  { value: "Electronics & Gadgets", label: "ইলেকট্রনিক্স ও গ্যাজেট / Electronics & Gadgets" },
+  { value: "Beauty & Cosmetics", label: "বিউটি ও কসমেটিকস / Beauty & Cosmetics" },
+  { value: "Health & Pharmacy", label: "স্বাস্থ্য ও ফার্মেসি / Health & Pharmacy" },
+  { value: "Education & Training", label: "শিক্ষা ও প্রশিক্ষণ / Education & Training" },
+  { value: "Travel & Tourism", label: "ভ্রমণ ও পর্যটন / Travel & Tourism" },
+  { value: "Real Estate", label: "রিয়েল এস্টেট / Real Estate" },
+  { value: "Home Services", label: "হোম সার্ভিস / Home Services" },
+  { value: "Automotive", label: "অটোমোটিভ / Automotive" },
+  { value: "other", label: "অন্যান্য / Other…" },
 ];
 
 const inputClass =
@@ -84,6 +101,7 @@ export default function OnboardingWizard() {
   const [fields, setFields] = useState({
     businessName: "",
     category: "",
+    customCategory: "",
     whatYouSell: "",
     location: "",
     contact: "",
@@ -221,7 +239,11 @@ export default function OnboardingWizard() {
       );
       if (!answered)
         return setError("Please tell us at least your business name and what you sell.");
-      analyze({ fields });
+      const resolvedCategory =
+        fields.category === "other"
+          ? fields.customCategory.trim()
+          : fields.category;
+      analyze({ fields: { ...fields, category: resolvedCategory } });
     }
   }
 
@@ -304,10 +326,11 @@ export default function OnboardingWizard() {
         {step === "method" && (
           <div className="animate-fade-in">
             <h1 className="text-2xl font-bold text-rbai-text text-center">
-              Does your business have a website?
+              আপনার ব্যবসার ওয়েবসাইট আছে? / Does your business have a website?
             </h1>
             <p className="text-rbai-text-light text-center mt-2 mb-8">
-              Pick one — the AI learns from it and starts answering your customers.
+              একটি বেছে নিন — AI সেখান থেকে শিখে আপনার গ্রাহকদের উত্তর দেবে। / Pick
+              one — the AI learns from it and starts answering your customers.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
               {METHODS.map((m) => (
@@ -370,10 +393,51 @@ export default function OnboardingWizard() {
                     and your landing page.
                   </p>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-rbai-text mb-1.5">
+                    Business name
+                  </label>
+                  <textarea
+                    value={fields.businessName}
+                    onChange={(e) =>
+                      setFields({ ...fields, businessName: e.target.value })
+                    }
+                    rows={1}
+                    placeholder="e.g. Dhaka Cake House"
+                    className={`${inputClass} resize-y`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-rbai-text mb-1.5">
+                    ব্যবসার ধরন / Business category
+                  </label>
+                  <select
+                    value={fields.category}
+                    onChange={(e) =>
+                      setFields({ ...fields, category: e.target.value })
+                    }
+                    className={inputClass}
+                  >
+                    {CATEGORIES.map((c) => (
+                      <option key={c.value} value={c.value}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                  {fields.category === "other" && (
+                    <input
+                      value={fields.customCategory}
+                      onChange={(e) =>
+                        setFields({ ...fields, customCategory: e.target.value })
+                      }
+                      placeholder="আপনার ব্যবসার ধরন লিখুন / Type your business category"
+                      maxLength={60}
+                      className={`${inputClass} mt-2`}
+                    />
+                  )}
+                </div>
                 {(
                   [
-                    ["businessName", "Business name", "e.g. Dhaka Cake House", 1],
-                    ["category", "Business category", "e.g. Bakery, Fashion, Restaurant, Electronics", 1],
                     ["whatYouSell", "What do you sell or offer?", "e.g. Custom cakes, pastries, party orders", 2],
                     ["location", "Location / delivery area", "e.g. Mirpur, Dhaka — delivery all over Dhaka", 2],
                     ["contact", "Contact / WhatsApp", "e.g. 01XXXXXXXXX, WhatsApp, Facebook page", 2],
@@ -584,6 +648,13 @@ export default function OnboardingWizard() {
                     </span>
                   </span>
                 </label>
+                <p className="text-xs text-rbai-text-light mt-4 border-t border-rbai-border pt-3">
+                  পেজটি আপনার দেওয়া তথ্য থেকে একটি প্রিমিয়াম টেমপ্লেটে তৈরি হয় — কোনো
+                  AI কী ছাড়াই কাজ করে। OpenAI সংযুক্ত করলে ড্যাশবোর্ড থেকে AI দিয়ে
+                  লেখা আরও উন্নত করতে পারবেন। / Your page is built from your details in
+                  a premium template — no AI key needed. Once OpenAI is connected, you
+                  can refine the copy with AI from your dashboard.
+                </p>
               </div>
             )}
 

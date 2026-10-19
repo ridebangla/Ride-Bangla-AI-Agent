@@ -198,6 +198,7 @@ function MarketingLanding() {
             <a href="#features" className="hover:text-slate-900">Features</a>
             <a href="#pricing" className="hover:text-slate-900">Pricing</a>
             <a href="#faq" className="hover:text-slate-900">FAQ</a>
+            <Link href="/contact" className="hover:text-slate-900">Contact</Link>
           </nav>
           <div className="flex items-center gap-3">
             <Link
@@ -486,6 +487,7 @@ function MarketingLanding() {
           <div className="flex items-center gap-6 text-sm text-slate-500">
             <Link href="/signup" className="hover:text-slate-900">Sign up</Link>
             <Link href="/login" className="hover:text-slate-900">Log in</Link>
+            <Link href="/contact" className="hover:text-slate-900">Contact</Link>
             <Link href="/privacy" className="hover:text-slate-900">Privacy</Link>
             <Link href="/terms" className="hover:text-slate-900">Terms</Link>
             <a href="https://ridebangla.bd" className="hover:text-slate-900">
