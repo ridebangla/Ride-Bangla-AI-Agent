@@ -11,6 +11,13 @@ export async function POST(request: NextRequest) {
   const auth = await requireAuth(request, "messages:create");
   if (!isAuthenticated(auth)) return auth;
 
+  // PHASE 3 ENFORCEMENT POINT (SaaS trial rule): before any LLM tokens are
+  // spent, call `requireActiveSubscription(auth.businessId)` from
+  // `@/lib/subscription` and HARD-STOP with HTTP 402 + a friendly
+  // "subscription expired" message when it throws SubscriptionInactiveError.
+  // Same rule must be wired in `/api/chat/widget` and every channel/social
+  // inbound handler (see the enforcement map in src/lib/subscription.ts).
+
   return runWithBusiness(auth.businessId, async () => {
 
     try {
@@ -52,3 +59,4 @@ export async function POST(request: NextRequest) {
 
   });
 }
+

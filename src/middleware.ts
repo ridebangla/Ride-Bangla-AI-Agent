@@ -91,8 +91,15 @@ export async function middleware(request: NextRequest) {
   // auth is the business's public siteKey (validated in the route handler,
   // rate-limited per siteKey+visitor). It must stay in this list or the
   // embeddable widget can never reach the chat API (401 for all visitors).
-  const publicPaths = ["/login", "/setup", "/api/auth", "/api/health", "/api/chat/widget"];
+  const publicPaths = ["/login", "/setup", "/signup", "/api/auth", "/api/health", "/api/chat/widget"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
+
+  // The SaaS marketing landing page lives at `/` — EXACT match only (a
+  // startsWith("/") prefix here would make the entire site public).
+  // Logged-out visitors see the landing page; the root page itself
+  // redirects logged-in users to /dashboard (or /billing when their
+  // trial/subscription is inactive).
+  const isLandingRoot = pathname === "/";
 
   // Channel webhook endpoints (authenticated via provider signatures, not JWT)
   if (
@@ -124,7 +131,7 @@ export async function middleware(request: NextRequest) {
     });
   }
 
-  if (isPublic) {
+  if (isPublic || isLandingRoot) {
     return addHeaders(NextResponse.next(), requestId);
   }
 
@@ -204,3 +211,4 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: ["/((?!_next/static|_next/image).*)"],
 };
+

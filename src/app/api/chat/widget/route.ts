@@ -38,6 +38,11 @@ export async function POST(request: NextRequest) {
     if (!business) {
       return NextResponse.json({ error: "Invalid site key" }, { status: 401 });
     }
+    // PHASE 3 ENFORCEMENT POINT (SaaS trial rule): call
+    // `isSubscriptionActive(business)` from `@/lib/subscription` here and
+    // HARD-STOP the AI reply with HTTP 402 + a friendly "subscription
+    // expired — contact the business owner" message when inactive. Do this
+    // BEFORE any LLM tokens are spent or conversations are created.
     enterBusinessContext(business.id);
 
     const visitor = typeof visitorId === "string" && visitorId.trim() ? visitorId.trim().slice(0, 64) : "anonymous";
@@ -104,3 +109,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to process message" }, { status: 500 });
   }
 }
+

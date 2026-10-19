@@ -36,7 +36,7 @@ interface NavSection {
 const sections: NavSection[] = [
   {
     items: [
-      { name: "Dashboard", href: "/", icon: LayoutDashboard },
+      { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
       { name: "Conversations", href: "/conversations", icon: MessageSquare },
       { name: "Customers", href: "/customers", icon: Contact },
       { name: "Tickets", href: "/tickets", icon: Ticket },
@@ -164,3 +164,4 @@ export function Sidebar() {
     </aside>
   );
 }
+

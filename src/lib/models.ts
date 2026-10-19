@@ -25,6 +25,11 @@ export interface Business {
   slug: string;
   siteKey: string;
   isActive: boolean;
+  /** SaaS subscription (Phase 1). Absent on businesses created before Phase 1. */
+  plan?: string; // 'trial' | 'starter' | 'growth' | 'pro'
+  subscriptionStatus?: string; // 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired'
+  trialEndsAt?: Date | null;
+  websiteUrl?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -574,3 +579,4 @@ export interface Product {
   updatedAt: Date;
   category: ProductCategory | null;
 }
+

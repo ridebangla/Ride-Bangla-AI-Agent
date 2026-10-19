@@ -24,7 +24,7 @@ export default function LoginPage() {
           return;
         }
         if (data.authenticated) {
-          router.replace("/");
+          router.replace("/dashboard");
           return;
         }
       } catch {
@@ -64,7 +64,7 @@ export default function LoginPage() {
         return;
       }
 
-      router.replace("/");
+      router.replace("/dashboard");
     } catch (err: unknown) {
       const code =
         typeof err === "object" && err !== null && "code" in err
@@ -194,3 +194,4 @@ export default function LoginPage() {
     </div>
   );
 }
+
