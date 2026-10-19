@@ -1,6 +1,15 @@
 import { prisma, withBusinessId } from "./prisma";
 import { getBusinessId, TenantContextError } from "./prisma";
 
+/**
+ * Normalize a product's tags to a lowercase string regardless of storage
+ * shape (dashboard writes comma-separated strings; imports may use arrays).
+ */
+export function normTags(tags: unknown): string {
+  if (Array.isArray(tags)) return tags.map((t) => String(t)).join(" ").toLowerCase();
+  return String(tags ?? "").toLowerCase();
+}
+
 export interface CatalogProduct {
   id: string;
   name: string;
@@ -222,7 +231,7 @@ export async function matchProductsInMessage(
   const scored = products.map((p) => {
     const name = (p.name || "").toLowerCase();
     const desc = (p.description || "").toLowerCase();
-    const tags = (p.tags || "").toLowerCase();
+    const tags = normTags(p.tags);
     const cat = (p.category?.name || "").toLowerCase();
     let score = 0;
     for (const t of terms) {
@@ -529,8 +538,8 @@ export function planAutoCategories(products: PlannableProduct[]): AutoCategoryPl
   // 2. tag clustering for the rest (union-find over shared significant tags)
   const rest = products.filter((p) => !assigned.has(p.id));
   const tagsOf = (p: PlannableProduct) =>
-    (p.tags || "")
-      .split(",")
+    normTags(p.tags)
+      .split(/[\s,]+/)
       .map((t) => t.trim().toLowerCase())
       .filter((t) => t.length > 2 && !CATEGORY_STOPWORDS.has(t));
   const parent = new Map<string, string>();
