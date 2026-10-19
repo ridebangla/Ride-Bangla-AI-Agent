@@ -655,12 +655,16 @@ async function loadRelated(
       { [rel.fk]: parent.id } as Where,
       { businessId: childBusinessId ?? undefined }
     );
-    // fetchCandidates prefilters businessId server-side when present;
-    // double-check in memory for safety.
-    return rows.filter((r) =>
-      childMeta.tenantScoped && typeof childBusinessId === "string"
-        ? r.businessId === childBusinessId
-        : true
+    // fetchCandidates only prefilters businessId server-side; the FK filter
+    // must be applied in memory (Phase 3 fix: without this, "many" includes
+    // returned every row of the business for every parent).
+    const fkWhere = { [rel.fk]: parent.id } as Where;
+    return rows.filter(
+      (r) =>
+        matchesScalarWhere(r, fkWhere) &&
+        (childMeta.tenantScoped && typeof childBusinessId === "string"
+          ? r.businessId === childBusinessId
+          : true)
     );
   }
   const fkVal = parent[rel.fk];
@@ -1655,4 +1659,5 @@ if (process.env.NODE_ENV !== "production") {
   globalForDb.rawDb = rawDb;
   globalForDb.prisma = prisma;
 }
+
 
