@@ -22,8 +22,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const qa = Array.isArray(body.qa) ? body.qa : [];
-    const products = Array.isArray(body.products) ? body.products : [];
+    const qa: Array<{ question?: unknown; answer?: unknown }> =
+      Array.isArray(body.qa) ? body.qa : [];
+    const products: Array<{
+      name?: unknown;
+      price?: unknown;
+      currency?: unknown;
+      category?: unknown;
+    }> = Array.isArray(body.products) ? body.products : [];
 
     if (qa.length > 200 || products.length > 200) {
       return NextResponse.json(
@@ -34,34 +40,30 @@ export async function POST(request: NextRequest) {
 
     const cleanQA = qa
       .filter(
-        (e) =>
-          e &&
+        (e): e is { question: string; answer: string } =>
+          !!e &&
           typeof e.question === "string" &&
           typeof e.answer === "string" &&
           e.question.trim().length >= 3 &&
           e.answer.trim().length >= 3
       )
       .slice(0, 200)
-      .map((e: { question: string; answer: string }) => ({
+      .map((e) => ({
         question: e.question.trim().slice(0, 160),
         answer: e.answer.trim().slice(0, 2000),
       }));
 
     const cleanProducts = products
       .filter(
-        (p) =>
-          p &&
-          typeof p.name === "string" &&
-          p.name.trim().length >= 2
-      )
-      .slice(0, 200)
-      .map(
-        (p: {
+        (p): p is {
           name: string;
           price?: unknown;
           currency?: unknown;
           category?: unknown;
-        }) => {
+        } => !!p && typeof p.name === "string" && p.name.trim().length >= 2
+      )
+      .slice(0, 200)
+      .map((p) => {
           const price =
             typeof p.price === "number" && Number.isFinite(p.price) && p.price > 0
               ? p.price
