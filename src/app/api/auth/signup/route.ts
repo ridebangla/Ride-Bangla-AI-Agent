@@ -8,7 +8,7 @@ import {
   setAuthCookie,
   setRefreshCookie,
 } from "@/lib/auth";
-import { TRIAL_MS } from "@/lib/subscription";
+import { TRIAL_MS, TRIAL_DAYS } from "@/lib/subscription";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 
@@ -46,8 +46,8 @@ function slugify(name: string): string {
 // Creates, in order:
 //   1. a Firebase Auth user (Admin SDK; password lives ONLY in Firebase Auth,
 //      this app never stores it — same shared project as the Admin Console),
-//   2. a `businesses` doc on a 10-day free trial
-//      { plan:'trial', subscriptionStatus:'trialing', trialEndsAt: now+10d },
+//   2. a `businesses` doc on a 7-day free trial (TRIAL_DAYS)
+//      { plan:'trial', subscriptionStatus:'trialing', trialEndsAt: now+TRIAL_MS },
 //   3. an `admins` doc { role:'admin', businessId } — NEVER super_admin here.
 // On any failure after step 1, the Firebase user + business doc are rolled
 // back so no orphaned accounts or trial businesses are left behind.
@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
         throw err;
       }
 
-      // 2. Business on a 10-day free trial.
+      // 2. Business on a TRIAL_DAYS-day free trial.
       const baseSlug = slugify(businessName);
       let slug = baseSlug;
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
       const refreshToken = generateRefreshToken(tenantAdmin.id, tenantAdmin.role);
 
       logger.warn(
-        `[Auth] SaaS signup: business="${businessName}" (${business.id}) admin=${email} — 10-day trial started`
+        `[Auth] SaaS signup: business="${businessName}" (${business.id}) admin=${email} — ${TRIAL_DAYS}-day trial started`
       );
 
       const response = NextResponse.json({

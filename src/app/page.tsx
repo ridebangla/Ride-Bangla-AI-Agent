@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { verifySessionToken } from "@/lib/auth";
 import { getUnscopedPrisma } from "@/lib/prisma";
 import { getSubscription } from "@/lib/subscription";
+import { TRIAL_DAYS } from "@/lib/plans";
 import {
   ArrowRight,
   Bot,
@@ -126,7 +127,7 @@ const PLANS = [
 const FAQS = [
   {
     q: "Do I need a credit card for the trial?",
-    a: "No. The 10-day free trial needs nothing but your business name and email. You only pay if you decide to continue.",
+    a: `No. The ${TRIAL_DAYS}-day free trial needs nothing but your business name and email. You only pay if you decide to continue.`,
   },
   {
     q: "What happens when my trial ends?",
@@ -194,7 +195,7 @@ function MarketingLanding() {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/15 px-4 py-1.5 text-sm text-slate-200">
               <Clock className="h-4 w-4 text-[#A8D0E6]" />
-              10-day free trial · No credit card required
+              {TRIAL_DAYS}-day free trial · No credit card required
             </span>
             <h1 className="text-4xl sm:text-5xl font-bold leading-tight mt-6">
               Your AI customer-service agent that{" "}
@@ -346,7 +347,7 @@ function MarketingLanding() {
       <section id="pricing" className="max-w-7xl mx-auto px-4 sm:px-6 py-20">
         <h2 className="text-3xl font-bold text-center">Simple, honest pricing</h2>
         <p className="text-slate-500 text-center mt-3 max-w-2xl mx-auto">
-          Start free for 10 days. Then pick the plan that fits — cancel anytime.
+          Start free for {TRIAL_DAYS} days. Then pick the plan that fits — cancel anytime.
         </p>
         <div className="grid md:grid-cols-3 gap-6 mt-12 items-stretch">
           {PLANS.map((plan) => (
@@ -391,7 +392,7 @@ function MarketingLanding() {
           ))}
         </div>
         <p className="text-center text-sm text-slate-500 mt-8">
-          Every plan starts with the same 10-day free trial — no credit card.
+          Every plan starts with the same {TRIAL_DAYS}-day free trial — no credit card.
         </p>
       </section>
 
@@ -417,7 +418,7 @@ function MarketingLanding() {
             Never miss another customer message
           </h2>
           <p className="text-slate-300 mt-4">
-            Join the 10-day free trial and let your AI agent handle tonight&apos;s
+            Join the {TRIAL_DAYS}-day free trial and let your AI agent handle tonight&apos;s
             customers while you sleep.
           </p>
           <Link
