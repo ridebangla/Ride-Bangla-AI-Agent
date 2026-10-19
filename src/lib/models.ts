@@ -35,6 +35,12 @@ export interface Business {
   brandColor?: string;
   logoUrl?: string;
   landingPublished?: boolean;
+  /** Premium polish: visual theme id for /p/[slug] (see src/lib/landing-themes.ts). */
+  landingTheme?: string;
+  /** Premium polish: AI-refined copy overrides + suggested theme ("Enhance with AI"). */
+  landingAiCopy?: JsonValue;
+  /** Premium polish: last recorded landing quality-gate summary (see src/lib/landing-quality.ts). */
+  landingQuality?: JsonValue;
   /** Phase 2: per-business custom order fields (Order Settings). */
   orderFields?: JsonValue;
   createdAt: Date;

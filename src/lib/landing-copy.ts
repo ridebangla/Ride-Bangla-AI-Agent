@@ -1,16 +1,19 @@
 /**
- * landing-copy.ts — Phase 2: rule-based copy generation for auto landing pages.
+ * landing-copy.ts — rule-based copy generation for auto landing pages,
+ * plus the LLM refinement seam.
  *
  * The generator builds every text block on a hosted landing page from the
  * business's own data (name, description, catalog, knowledge base). No fake
  * data is ever invented: when information is missing, the copy degrades to
  * honest generic phrasing ("Contact us for details").
  *
- * OPENAI UPGRADE SEAM (Phase 3): `refineCopyWithAI()` is the single place
- * where an LLM pass plugs in. It checks `process.env.OPENAI_API_KEY` and
- * gracefully falls back to the rule-based text when the key is absent —
+ * LLM REFINEMENT (premium polish): `refineCopyWithAI()` calls the model
+ * when `process.env.OPENAI_API_KEY` is present and gracefully returns the
+ * rule-based input unchanged when it is absent (or when the call fails) —
  * never hardcode keys; the key lives only in the environment.
  */
+
+import { LANDING_THEME_IDS, type LandingThemeId } from "./landing-themes";
 
 export interface LandingBusiness {
   name: string;
@@ -46,6 +49,40 @@ export interface LandingCopy {
   productsHeading: string;
   contactHeading: string;
   footerLine: string;
+}
+
+/**
+ * AI-refined copy overrides persisted on the business doc
+ * (`businesses.landingAiCopy`). Only non-empty strings override the
+ * rule-based copy at render time (see applyAiCopyOverrides).
+ */
+export interface LandingAiCopy {
+  tagline?: string | null;
+  heroSubtext?: string | null;
+  aboutHeading?: string | null;
+  aboutText?: string | null;
+  productsHeading?: string | null;
+  contactHeading?: string | null;
+  footerLine?: string | null;
+  /** Theme the model judged best-fitting for this business type. */
+  suggestedTheme?: string | null;
+  enhancedAt?: string | null;
+}
+
+/** Merge persisted AI overrides over rule-based copy (non-empty wins). */
+export function applyAiCopyOverrides(copy: LandingCopy, ai: LandingAiCopy | null | undefined): LandingCopy {
+  if (!ai) return copy;
+  const pick = (base: string, override?: string | null) =>
+    typeof override === "string" && override.trim() ? override.trim() : base;
+  return {
+    tagline: pick(copy.tagline, ai.tagline),
+    heroSubtext: pick(copy.heroSubtext, ai.heroSubtext),
+    aboutHeading: pick(copy.aboutHeading, ai.aboutHeading),
+    aboutText: pick(copy.aboutText, ai.aboutText),
+    productsHeading: pick(copy.productsHeading, ai.productsHeading),
+    contactHeading: pick(copy.contactHeading, ai.contactHeading),
+    footerLine: pick(copy.footerLine, ai.footerLine),
+  };
 }
 
 /** First sentence of a text, capped at `max` chars without cutting words. */
@@ -111,26 +148,166 @@ export function generateLandingCopy(
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* LLM refinement seam                                                 */
+/* ------------------------------------------------------------------ */
+
+/** Context given to the model so it can write business-specific copy. */
+export interface AICopyContext {
+  businessName: string;
+  businessDesc?: string | null;
+  tagline?: string | null;
+  brandColor?: string | null;
+  products: Array<{
+    name: string;
+    description?: string | null;
+    price?: number | null;
+    currency?: string | null;
+    categoryName?: string | null;
+  }>;
+  categories: string[];
+  knowledgeTitles: string[];
+  currentTheme?: string | null;
+}
+
+export interface AIRefineResult {
+  copy: LandingCopy;
+  /** Theme id the model judged best-fitting, or null. */
+  suggestedTheme: LandingThemeId | null;
+  /** False whenever the key is missing or the call failed — input returned. */
+  aiEnhanced: boolean;
+  /** Machine-readable reason when not enhanced: "no-key" | "invalid" | "error". */
+  note?: string;
+}
+
+const FIELD_CAPS: Record<keyof Omit<LandingCopy, never>, number> = {
+  tagline: 160,
+  heroSubtext: 220,
+  aboutHeading: 80,
+  aboutText: 480,
+  productsHeading: 60,
+  contactHeading: 60,
+  footerLine: 120,
+};
+
+function cleanField(value: unknown, cap: number): string | null {
+  if (typeof value !== "string") return null;
+  const v = value.replace(/\s+/g, " ").trim();
+  if (!v) return null;
+  return v.slice(0, cap);
+}
+
 /**
- * LLM refinement seam. When `OPENAI_API_KEY` is set, Phase 3 may call the
- * model here to polish the rule-based copy; until then (and whenever the
- * key is missing) the input is returned unchanged — the page always works.
+ * Validate + sanitize raw model JSON into a LandingCopy. Pure and
+ * unit-tested. Returns null when the payload is unusable (caller then
+ * falls back to the rule-based input).
+ */
+export function sanitizeAiCopyResult(
+  raw: unknown,
+  fallback: LandingCopy
+): { copy: LandingCopy; suggestedTheme: LandingThemeId | null } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const copy: LandingCopy = { ...fallback };
+  let touched = 0;
+  (Object.keys(FIELD_CAPS) as Array<keyof typeof FIELD_CAPS>).forEach((k) => {
+    const v = cleanField(r[k], FIELD_CAPS[k]);
+    if (v) {
+      copy[k] = v;
+      touched += 1;
+    }
+  });
+  if (touched === 0) return null;
+  const st = typeof r.suggestedTheme === "string" ? r.suggestedTheme.trim() : "";
+  const suggestedTheme = (LANDING_THEME_IDS as readonly string[]).includes(st)
+    ? (st as LandingThemeId)
+    : null;
+  return { copy, suggestedTheme };
+}
+
+const AI_SYSTEM_PROMPT = `You are a senior landing-page copywriter for small businesses in Bangladesh. Rewrite the provided draft copy so it sounds premium, warm, and specific — never generic.
+
+Hard rules:
+- Use ONLY facts present in the business data. Never invent prices, addresses, phone numbers, awards, years in business, or customer claims.
+- Keep the same meaning and language as the draft (if the draft is in Bengali, write in Bengali).
+- Return ONLY a JSON object with exactly these keys: tagline, heroSubtext, aboutHeading, aboutText, productsHeading, contactHeading, footerLine, suggestedTheme.
+- suggestedTheme must be one of: modern-minimal, bold-color, elegant-serif, dark-premium. Pick the one that best fits the business type (e.g. bakery/sweets -> elegant-serif or bold-color; tech/gadgets -> bold-color or dark-premium; fashion/boutique -> elegant-serif; general store/services -> modern-minimal; premium/luxury -> dark-premium).
+- Respect the length caps: tagline <= 160 chars, heroSubtext <= 220, aboutText <= 480, headings <= 80.`;
+
+function buildAiUserPrompt(copy: LandingCopy, ctx: AICopyContext): string {
+  const productLines = ctx.products.slice(0, 24).map((p) => {
+    const price = p.price != null ? ` (${p.currency || "BDT"} ${p.price})` : "";
+    const cat = p.categoryName ? ` [${p.categoryName}]` : "";
+    return `- ${p.name}${price}${cat}`;
+  });
+  return [
+    `Business: ${ctx.businessName}`,
+    ctx.tagline ? `Current tagline: ${ctx.tagline}` : "",
+    ctx.businessDesc ? `Description: ${ctx.businessDesc.slice(0, 600)}` : "",
+    ctx.categories.length ? `Categories: ${ctx.categories.join(", ")}` : "",
+    productLines.length ? `Products:\n${productLines.join("\n")}` : "Products: none listed yet",
+    ctx.knowledgeTitles.length ? `Knowledge topics: ${ctx.knowledgeTitles.slice(0, 10).join(", ")}` : "",
+    "",
+    "Draft copy to rewrite:",
+    JSON.stringify(copy),
+    "",
+    "Return the improved copy as JSON.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * LLM refinement seam. When `OPENAI_API_KEY` is set, the model rewrites
+ * the rule-based copy, picks the best-fitting theme, and tailors section
+ * headings — all grounded strictly in the business's own data. When the
+ * key is missing (or anything fails), the input is returned unchanged so
+ * the page always renders beautifully from the premium template.
+ *
+ * The second argument accepts the legacy `businessName: string` form for
+ * backwards compatibility.
  *
  * NOTE: no key is ever hardcoded. `process.env.OPENAI_API_KEY` only.
  */
 export async function refineCopyWithAI(
   copy: LandingCopy,
-  _businessName: string
-): Promise<LandingCopy> {
+  context?: AICopyContext | string
+): Promise<AIRefineResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    // Graceful fallback: rule-based copy is the production path today.
-    return copy;
+    // Graceful fallback: rule-based copy + template is the production path.
+    return { copy, suggestedTheme: null, aiEnhanced: false, note: "no-key" };
   }
-  // Phase 3 upgrade point: send `copy` + business context to the model and
-  // return the polished result. Kept as an explicit no-op-plus-hook so the
-  // rule-based path stays the tested, working default.
-  return copy;
+  const ctx: AICopyContext =
+    typeof context === "string"
+      ? { businessName: context, products: [], categories: [], knowledgeTitles: [] }
+      : (context ?? { businessName: "", products: [], categories: [], knowledgeTitles: [] });
+
+  try {
+    const { default: OpenAI } = await import("openai");
+    const client = new OpenAI({ apiKey, timeout: 25000, maxRetries: 1 });
+    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+    const completion = await client.chat.completions.create({
+      model,
+      temperature: 0.7,
+      max_tokens: 1000,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: AI_SYSTEM_PROMPT },
+        { role: "user", content: buildAiUserPrompt(copy, ctx) },
+      ],
+    });
+    const text = completion.choices[0]?.message?.content ?? "";
+    const parsed = JSON.parse(text) as unknown;
+    const sane = sanitizeAiCopyResult(parsed, copy);
+    if (!sane) {
+      return { copy, suggestedTheme: null, aiEnhanced: false, note: "invalid" };
+    }
+    return { copy: sane.copy, suggestedTheme: sane.suggestedTheme, aiEnhanced: true };
+  } catch {
+    // Any failure (network, timeout, bad JSON, SDK error) -> graceful fallback.
+    return { copy, suggestedTheme: null, aiEnhanced: false, note: "error" };
+  }
 }
 
 /** Sanitize a brand color to a safe #rrggbb hex, falling back to teal. */

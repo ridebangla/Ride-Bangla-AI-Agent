@@ -15,12 +15,16 @@ import {
   Globe,
   CheckCircle,
   AlertCircle,
+  AlertTriangle,
+  XCircle,
   Loader2,
   Copy,
   ExternalLink,
   Palette,
+  Sparkles,
+  LayoutTemplate,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 const inputClasses =
   "w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text placeholder:text-rbai-text-light/60 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-colors";
@@ -63,6 +67,37 @@ interface PreviewProduct {
   categoryName?: string | null;
 }
 
+interface ThemeMeta {
+  id: string;
+  name: string;
+  description: string;
+  swatch: { bg: string; fg: string; accent: string };
+}
+
+interface QualityRecord {
+  ready: boolean;
+  fails: number;
+  warnings: number;
+  checkedAt: string;
+}
+
+interface QualityCheck {
+  id: string;
+  label: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+}
+
+interface QualityStatus {
+  slug: string;
+  theme: string;
+  ready: boolean;
+  fails: number;
+  warnings: number;
+  checks: QualityCheck[];
+  checkedAt: string;
+}
+
 interface PreviewData {
   business: {
     name: string;
@@ -72,7 +107,11 @@ interface PreviewData {
     logoUrl: string;
     websiteUrl: string;
     landingPublished: boolean;
+    landingTheme: string;
+    aiSuggestedTheme: string | null;
+    landingQuality: QualityRecord | null;
   };
+  themes: ThemeMeta[];
   preview: {
     copy: { tagline: string; heroSubtext: string; aboutText: string };
     products: PreviewProduct[];
@@ -98,6 +137,7 @@ function LivePreview({
   products,
   heroSubtext,
   aboutText,
+  theme,
 }: {
   name: string;
   tagline: string;
@@ -106,11 +146,22 @@ function LivePreview({
   products: PreviewProduct[];
   heroSubtext: string;
   aboutText: string;
+  theme: string;
 }) {
   const brand = /^#[0-9A-Fa-f]{6}$/.test(brandColor) ? brandColor : "#0B7A55";
   const dark = shade(brand, -0.25);
   const light = shade(brand, 0.88);
   const initial = (name.trim()[0] || "?").toUpperCase();
+  // Miniature hero treatment per theme so the picker feels live.
+  const heroStyle: CSSProperties =
+    theme === "dark-premium"
+      ? { background: "#0C0E12", color: "#F4F6F8" }
+      : theme === "elegant-serif"
+        ? { background: "#FDFCF9", color: "#23201A" }
+        : theme === "modern-minimal"
+          ? { background: "#FFFFFF", color: "#14181D" }
+          : { background: `linear-gradient(135deg, ${dark}, ${brand})`, color: "#fff" };
+  const heroCtaColor = theme === "bold-color" ? dark : brand;
   return (
     <div className="rounded-xl border border-rbai-border overflow-hidden bg-white text-left">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
@@ -135,14 +186,11 @@ function LivePreview({
           Chat with us
         </span>
       </div>
-      <div
-        className="px-4 py-8 text-center text-white"
-        style={{ background: `linear-gradient(135deg, ${dark}, ${brand})` }}
-      >
+      <div className="px-4 py-8 text-center" style={heroStyle}>
         <div className="text-xl font-extrabold mb-1.5">{name}</div>
         <div className="text-sm opacity-95 mb-1">{tagline || "Your tagline appears here"}</div>
         <div className="text-xs opacity-80 mb-4">{heroSubtext}</div>
-        <span className="inline-block bg-white text-xs font-bold px-5 py-2 rounded-full" style={{ color: dark }}>
+        <span className="inline-block bg-white text-xs font-bold px-5 py-2 rounded-full" style={{ color: heroCtaColor }}>
           Chat with us
         </span>
       </div>
@@ -192,6 +240,13 @@ export default function LandingPage() {
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [published, setPublished] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Premium polish: theme picker + AI enhancement + quality gate.
+  const [theme, setTheme] = useState("modern-minimal");
+  const [aiSuggestedTheme, setAiSuggestedTheme] = useState<string | null>(null);
+  const [enhancing, setEnhancing] = useState(false);
+  const [quality, setQuality] = useState<QualityStatus | null>(null);
+  const [qualityRecord, setQualityRecord] = useState<QualityRecord | null>(null);
+  const [checkingQuality, setCheckingQuality] = useState(false);
 
   const toast = (type: "success" | "error", message: string) => {
     const id = Date.now() + Math.random();
@@ -211,6 +266,9 @@ export default function LandingPage() {
         setLogoUrl(json.business.logoUrl);
         setWebsiteUrl(json.business.websiteUrl);
         setPublished(json.business.landingPublished);
+        setTheme(json.business.landingTheme || "modern-minimal");
+        setAiSuggestedTheme(json.business.aiSuggestedTheme ?? null);
+        setQualityRecord(json.business.landingQuality ?? null);
       } catch {
         toast("error", "Could not load landing page settings.");
       } finally {
@@ -230,6 +288,7 @@ export default function LandingPage() {
           brandColor,
           logoUrl,
           websiteUrl,
+          landingTheme: theme,
           landingPublished: overrides?.landingPublished ?? published,
         }),
       });
@@ -262,6 +321,62 @@ export default function LandingPage() {
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  /** "Enhance with AI": LLM-rewrites the page copy; graceful when no API key. */
+  const enhanceWithAI = async () => {
+    setEnhancing(true);
+    try {
+      const res = await fetch("/api/landing/enhance", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Enhancement failed");
+      if (!json.enhanced) {
+        toast("error", json.reason || "AI enhancement is not available right now.");
+        return;
+      }
+      if (json.suggestedTheme) setAiSuggestedTheme(json.suggestedTheme);
+      toast("success", "Copy enhanced with AI. Review the preview, then Save.");
+      const r2 = await fetch("/api/landing");
+      if (r2.ok) {
+        const refreshed: PreviewData = await r2.json();
+        setData(refreshed);
+        setAiSuggestedTheme(refreshed.business.aiSuggestedTheme ?? null);
+      }
+    } catch (e) {
+      toast("error", e instanceof Error ? e.message : "Enhancement failed.");
+    } finally {
+      setEnhancing(false);
+    }
+  };
+
+  /** Run the visual quality gate and record the summary on the business. */
+  const runQualityCheck = async () => {
+    if (!data) return;
+    setCheckingQuality(true);
+    try {
+      const res = await fetch(`/api/landing/quality?slug=${encodeURIComponent(data.business.slug)}`);
+      const json: QualityStatus = await res.json();
+      if (!res.ok) throw new Error((json as unknown as { error?: string }).error || "Check failed");
+      setQuality(json);
+      // Record the status (does not block publishing — warnings are advisory).
+      const record = { ready: json.ready, fails: json.fails, warnings: json.warnings, checkedAt: json.checkedAt };
+      const put = await fetch("/api/landing", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ landingQuality: record }),
+      });
+      if (put.ok) setQualityRecord(record);
+      toast(
+        "success",
+        json.ready
+          ? `Quality check passed${json.warnings > 0 ? ` with ${json.warnings} warning${json.warnings === 1 ? "" : "s"}` : ""}.`
+          : `Found ${json.fails} issue${json.fails === 1 ? "" : "s"} to fix.`
+      );
+    } catch (e) {
+      toast("error", e instanceof Error ? e.message : "Quality check failed.");
+    } finally {
+      setCheckingQuality(false);
+    }
   };
 
   if (loading) {
@@ -360,6 +475,84 @@ export default function LandingPage() {
                 Leave empty to use your business initial. Image upload comes later — a direct image URL works for now.
               </p>
             </div>
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-rbai-text flex items-center gap-1.5">
+                <LayoutTemplate className="h-4 w-4 text-rbai-primary" /> Page theme
+              </label>
+              <div className="grid grid-cols-2 gap-2.5">
+                {(data?.themes ?? []).map((t) => {
+                  const selected = theme === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setTheme(t.id)}
+                      aria-pressed={selected}
+                      className={cn(
+                        "text-left rounded-xl border p-2.5 transition-all",
+                        selected
+                          ? "border-rbai-primary ring-2 ring-rbai-primary/30"
+                          : "border-rbai-border hover:border-rbai-primary/50"
+                      )}
+                    >
+                      <div
+                        className="h-14 rounded-lg border border-black/10 flex items-center justify-center mb-2"
+                        style={{ background: t.swatch.bg }}
+                      >
+                        <span className="text-xl font-extrabold" style={{ color: t.swatch.fg }}>
+                          Ag
+                        </span>
+                        <span
+                          className="ml-1.5 h-3 w-3 rounded-full"
+                          style={{ background: t.swatch.accent }}
+                        />
+                      </div>
+                      <div className="text-sm font-semibold text-rbai-text">{t.name}</div>
+                      <div className="text-xs text-rbai-text-light leading-snug mt-0.5">
+                        {t.description}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              {aiSuggestedTheme && aiSuggestedTheme !== theme && (
+                <div className="flex items-center gap-2 text-xs text-rbai-text-light bg-rbai-bg rounded-lg px-3 py-2">
+                  <Sparkles className="h-3.5 w-3.5 text-rbai-primary flex-shrink-0" />
+                  <span>
+                    AI suggests{" "}
+                    <strong>
+                      {(data?.themes ?? []).find((t) => t.id === aiSuggestedTheme)?.name ??
+                        aiSuggestedTheme}
+                    </strong>{" "}
+                    for your business type.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setTheme(aiSuggestedTheme)}
+                    className="ml-auto font-semibold text-rbai-primary hover:underline flex-shrink-0"
+                  >
+                    Apply
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={enhanceWithAI}
+                disabled={enhancing}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-rbai-border text-rbai-text hover:bg-rbai-bg transition-colors disabled:opacity-50"
+              >
+                {enhancing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4 text-rbai-primary" />
+                )}
+                {enhancing ? "Enhancing…" : "Enhance copy with AI"}
+              </button>
+              <p className="text-xs text-rbai-text-light">
+                AI rewrites your headlines and picks the best-fitting theme from your real
+                catalog — never invents facts. Works without an API key too (premium template).
+              </p>
+            </div>
           </div>
 
           <div className="rounded-xl border border-rbai-border bg-rbai-surface p-5 space-y-4">
@@ -429,6 +622,68 @@ export default function LandingPage() {
               </button>
             )}
           </div>
+
+          <div className="rounded-xl border border-rbai-border bg-rbai-surface p-5 space-y-3">
+            <h3 className="font-semibold text-rbai-text flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-rbai-primary" /> Ready to publish
+            </h3>
+            <p className="text-xs text-rbai-text-light">
+              The quality gate checks images, sections, text contrast, and SEO on your live
+              page. Warnings are suggestions — they never block publishing.
+            </p>
+            {qualityRecord && (
+              <div
+                className={cn(
+                  "text-xs rounded-lg px-3 py-2",
+                  qualityRecord.ready
+                    ? "bg-green-50 text-green-800"
+                    : "bg-amber-50 text-amber-800"
+                )}
+              >
+                Last checked{" "}
+                {new Date(qualityRecord.checkedAt).toLocaleString()} —{" "}
+                {qualityRecord.ready
+                  ? `ready${qualityRecord.warnings > 0 ? ` (${qualityRecord.warnings} warning${qualityRecord.warnings === 1 ? "" : "s"})` : ""}`
+                  : `${qualityRecord.fails} issue${qualityRecord.fails === 1 ? "" : "s"}, ${qualityRecord.warnings} warning${qualityRecord.warnings === 1 ? "" : "s"}`}
+              </div>
+            )}
+            <button
+              onClick={runQualityCheck}
+              disabled={checkingQuality}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-rbai-border text-rbai-text hover:bg-rbai-bg transition-colors disabled:opacity-50"
+            >
+              {checkingQuality ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle className="h-4 w-4 text-rbai-primary" />
+              )}
+              {checkingQuality ? "Checking…" : quality ? "Re-run quality check" : "Run quality check"}
+            </button>
+            {quality && (
+              <ul className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                {quality.checks.map((c) => (
+                  <li key={c.id} className="flex items-start gap-2 text-xs">
+                    {c.status === "pass" ? (
+                      <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
+                    ) : c.status === "warn" ? (
+                      <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
+                    )}
+                    <div>
+                      <div className="font-semibold text-rbai-text">{c.label}</div>
+                      <div className="text-rbai-text-light leading-snug">{c.detail}</div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {quality && !quality.ready && (
+              <p className="text-xs text-amber-700">
+                Fix the issues above for the best-looking page — or publish anyway, your call.
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Live preview */}
@@ -442,6 +697,7 @@ export default function LandingPage() {
             products={data?.preview?.products ?? []}
             heroSubtext={data?.preview?.copy.heroSubtext ?? ""}
             aboutText={data?.preview?.copy.aboutText ?? ""}
+            theme={theme}
           />
           <p className="text-xs text-rbai-text-light">
             Preview updates as you type. The full page (about, hours, contact, chat widget) renders at the public link.
