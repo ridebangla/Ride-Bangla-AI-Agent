@@ -130,6 +130,29 @@ export async function middleware(request: NextRequest) {
     return addHeaders(NextResponse.next(), requestId);
   }
 
+  // Phase 6 (Launch Readiness): the Admin Console (admin.ridebangla.bd) calls
+  // GET /api/admin/launch-readiness from the browser with a Firebase ID token
+  // in the Authorization header — it has no rbai-token cookie. The middleware
+  // preflight below lets the CORS preflight through; the GET itself reaches
+  // the handler via the bearer pass-through further down, where the token is
+  // verified fail-closed. The origin is scoped to the Admin Console only.
+  const adminConsoleOrigin =
+    process.env.ADMIN_CONSOLE_ORIGIN || "https://admin.ridebangla.bd";
+  if (
+    pathname.startsWith("/api/admin/launch-readiness") &&
+    request.method === "OPTIONS"
+  ) {
+    const preflight = new NextResponse(null, { status: 204 });
+    preflight.headers.set("Access-Control-Allow-Origin", adminConsoleOrigin);
+    preflight.headers.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    preflight.headers.set(
+      "Access-Control-Allow-Headers",
+      "Authorization, Content-Type"
+    );
+    preflight.headers.set("Access-Control-Max-Age", "86400");
+    return addHeaders(preflight, requestId);
+  }
+
   // Rate limiting for auth endpoint
   if (pathname.startsWith("/api/auth")) {
     const ip = getClientIp(request);
@@ -197,6 +220,20 @@ export async function middleware(request: NextRequest) {
 
   // API key auth is validated in route handlers (requireAuth), just pass through
   if (apiKey && !token) {
+    return addHeaders(NextResponse.next(), requestId, apiRateInfo);
+  }
+
+  // Phase 6 (Launch Readiness): bearer requests for
+  // /api/admin/launch-readiness carry a Firebase ID token and no cookie.
+  // The token is verified inside the route (fail-closed); the middleware
+  // only lets the request reach the handler, with API rate-limit headers
+  // already applied above.
+  const bearerAuth = request.headers.get("authorization") || "";
+  if (
+    !token &&
+    pathname.startsWith("/api/admin/launch-readiness") &&
+    /^Bearer\s+\S+$/i.test(bearerAuth.trim())
+  ) {
     return addHeaders(NextResponse.next(), requestId, apiRateInfo);
   }
 
