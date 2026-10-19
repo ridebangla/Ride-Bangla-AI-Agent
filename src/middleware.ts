@@ -91,7 +91,7 @@ export async function middleware(request: NextRequest) {
   // auth is the business's public siteKey (validated in the route handler,
   // rate-limited per siteKey+visitor). It must stay in this list or the
   // embeddable widget can never reach the chat API (401 for all visitors).
-  const publicPaths = ["/login", "/setup", "/signup", "/api/auth", "/api/health", "/api/chat/widget"];
+  const publicPaths = ["/login", "/setup", "/signup", "/api/auth", "/api/health", "/api/chat/widget", "/p/"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   // The SaaS marketing landing page lives at `/` — EXACT match only (a

@@ -297,6 +297,15 @@ service cloud.firestore {
       allow update: if tenantUpdate();
       allow delete: if tenantDelete();
     }
+    // Phase 2: tenant orders. App server uses the Admin SDK (bypasses rules);
+    // these tenant*() helpers are the defense-in-depth layer for direct
+    // Firebase Auth client access (custom claims: businessId, role).
+    match /orders/{docId} {
+      allow get, list: if tenantRead();
+      allow create: if tenantCreate();
+      allow update: if tenantUpdate();
+      allow delete: if tenantDelete();
+    }
 
     // ------------------------------------------------------------------
     // Default deny: anything not listed above is inaccessible.

@@ -138,7 +138,7 @@ export const agentTools: ToolDefinition[] = [
     function: {
       name: "take_order",
       description:
-        "Record a customer ORDER or BOOKING (ride, food delivery, courier/parcel, grocery, or a product purchase). Call this when the customer has confirmed they want to order/book and you have the essentials. The order becomes a ticket the team can see and fulfill in the dashboard.",
+        "Record a customer ORDER or BOOKING (ride, food delivery, courier/parcel, grocery, or a product purchase). Pass everything you collected in customFields (keyed by the business's order fields). If the tool replies with needsFields, ask the customer for exactly those details and call again — never record the order until all required fields are collected. The order is saved for the team to fulfill in the dashboard.",
       parameters: {
         type: "object",
         properties: {
@@ -168,11 +168,37 @@ export const agentTools: ToolDefinition[] = [
             type: "string",
             description: "Customer's phone number, if known.",
           },
+          items: {
+            type: "array",
+            description:
+              "Items being ordered. Each item: { name (string), qty (number), price (number, optional), productId (string, optional) }.",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                qty: { type: "number" },
+                price: { type: "number" },
+                productId: { type: "string" },
+              },
+              required: ["name"],
+            },
+          },
+          customFields: {
+            type: "object",
+            description:
+              "The business's custom order fields as key/value pairs (e.g. { cake_flavor: 'Chocolate', delivery_date: '2026-10-25' }). Every REQUIRED field must be present before the order is recorded.",
+            additionalProperties: true,
+          },
+          total: {
+            type: "number",
+            description: "Order total, if known. Computed from items when omitted.",
+          },
         },
         required: ["serviceType", "details"],
       },
     },
   },
+
   {
     type: "function",
     function: {
@@ -449,6 +475,23 @@ async function takeOrder(
   args: Record<string, unknown>,
   conversationId?: string
 ): Promise<string> {
+  const { getBusinessId, getUnscopedPrisma } = await import("../prisma");
+  const {
+    getOrderFields,
+    getMissingOrderFields,
+    normalizeItems,
+    createOrder,
+  } = await import("../orders");
+
+  // Fail-closed: no tenant context => no order.
+  const businessId = getBusinessId();
+  if (!businessId) {
+    return JSON.stringify({
+      success: false,
+      message: "No business context for this order.",
+    });
+  }
+
   const serviceType = String(args.serviceType ?? "").trim();
   const details = String(args.details ?? "").trim();
   if (!serviceType || !details) {
@@ -458,6 +501,104 @@ async function takeOrder(
     });
   }
 
+  // Merge legacy top-level args into the custom-field map so older prompts
+  // and simple calls keep working: each fills its matching field key when
+  // the AI did not pass it explicitly in customFields.
+  const customFields: Record<string, unknown> =
+    args.customFields && typeof args.customFields === "object"
+      ? { ...(args.customFields as Record<string, unknown>) }
+      : {};
+  const legacyMap: Record<string, string> = {
+    customerName: "customer_name",
+    customerPhone: "phone",
+    pickup: "pickup",
+    dropoff: "delivery_address",
+    details: "notes",
+  };
+  for (const [argKey, fieldKey] of Object.entries(legacyMap)) {
+    const v = args[argKey];
+    if (
+      v !== undefined &&
+      v !== null &&
+      String(v).trim() !== "" &&
+      customFields[fieldKey] === undefined
+    ) {
+      customFields[fieldKey] = v;
+    }
+  }
+
+  // Phase 2 slot check: every REQUIRED orderField the business defined must
+  // be collected before the order is created. When something is missing we
+  // return the exact list so the AI can ask the customer conversationally
+  // and call take_order again — no deep slot-filling machinery needed yet.
+  let orderFields;
+  try {
+    orderFields = await getOrderFields(businessId);
+  } catch {
+    orderFields = [];
+  }
+  const missing = getMissingOrderFields(orderFields, customFields);
+  if (missing.length > 0) {
+    return JSON.stringify({
+      success: false,
+      needsFields: missing,
+      message:
+        "Before recording the order, please collect the following details from the customer: " +
+        missing
+          .map(
+            (f) =>
+              `${f.label}${
+                f.type === "select" && f.options
+                  ? ` (choose one: ${f.options.join(", ")})`
+                  : ""
+              }`
+          )
+          .join("; ") +
+        ". Then call take_order again with everything in customFields.",
+    });
+  }
+
+  const items = normalizeItems(args.items);
+  const rawTotal = args.total;
+  const parsedTotal =
+    rawTotal === null || rawTotal === undefined || rawTotal === ""
+      ? null
+      : Number(rawTotal);
+  const total =
+    parsedTotal !== null && Number.isFinite(parsedTotal) && parsedTotal >= 0
+      ? parsedTotal
+      : null;
+
+  // Link the order to the conversation's customer when known. Never link
+  // across tenants: the conversation must belong to this business.
+  let customerId: string | null = null;
+  if (conversationId) {
+    try {
+      const conv = (await getUnscopedPrisma().conversation.findUnique({
+        where: { id: conversationId },
+        select: { customerId: true, businessId: true },
+      })) as { customerId?: string | null; businessId?: string } | null;
+      if (conv && conv.businessId === businessId) {
+        customerId = conv.customerId ?? null;
+      }
+    } catch {
+      customerId = null;
+    }
+  }
+
+  // The Phase 2 order doc — the source of truth in the tenant's `orders`
+  // collection.
+  const order = await createOrder({
+    conversationId: conversationId ?? null,
+    customerId,
+    items,
+    customFields,
+    total,
+    summary: `${serviceType}: ${details}`.slice(0, 300),
+  });
+
+  // Keep the ticket as the team's fulfillment queue (existing dashboard
+  // surface), now linked to the order doc via metadata.orderId.
   const ticket = await prisma.ticket.create({
     data: withBusinessId({
       title: `Order: ${serviceType}`,
@@ -476,12 +617,16 @@ async function takeOrder(
       conversationId: conversationId || null,
       metadata: {
         kind: "order",
+        orderId: order.id,
         serviceType,
         pickup: args.pickup ?? "",
         dropoff: args.dropoff ?? "",
         details,
         customerName: args.customerName ?? "",
         customerPhone: args.customerPhone ?? "",
+        customFields,
+        items,
+        total,
         orderedAt: new Date().toISOString(),
       },
     }),
@@ -489,10 +634,11 @@ async function takeOrder(
 
   return JSON.stringify({
     success: true,
-    orderId: ticket.id,
+    orderId: order.id,
+    ticketId: ticket.id,
     message:
       `Order recorded (${serviceType}). The team has been notified and will ` +
-      `confirm shortly. Order reference: ${ticket.id.slice(0, 8)}.`,
+      `confirm shortly. Order reference: ${order.id.slice(0, 8)}.`,
   });
 }
 

@@ -77,6 +77,7 @@ import type {
   AgentCommand,
   ProductCategory,
   Product,
+  Order,
 } from "./models";
 
 // ---------------------------------------------------------------------------
@@ -387,6 +388,19 @@ const MODEL_META: Record<string, ModelMeta> = {
       metadata: {},
     },
   }),
+  // Phase 2: tenant orders (dashboard + AI order capture).
+  order: M("orders", {
+    hasUpdatedAt: true,
+    defaults: {
+      conversationId: null,
+      customerId: null,
+      items: [],
+      customFields: {},
+      summary: "",
+      status: "pending",
+      total: null,
+    },
+  }),
 };
 
 // ---------------------------------------------------------------------------
@@ -409,6 +423,7 @@ const RELATIONS: Record<string, Record<string, Relation>> = {
     tags: { model: "conversationTag", kind: "many", fk: "conversationId" },
     notes: { model: "internalNote", kind: "many", fk: "conversationId" },
     followUps: { model: "followUp", kind: "many", fk: "conversationId" },
+    orders: { model: "order", kind: "many", fk: "conversationId" },
   },
   message: {
     conversation: { model: "conversation", kind: "one", fk: "conversationId" },
@@ -463,6 +478,10 @@ const RELATIONS: Record<string, Record<string, Relation>> = {
   },
   productCategory: {
     products: { model: "product", kind: "many", fk: "categoryId" },
+  },
+  order: {
+    conversation: { model: "conversation", kind: "one", fk: "conversationId" },
+    customer: { model: "customer", kind: "one", fk: "customerId" },
   },
 };
 
@@ -1289,6 +1308,7 @@ export interface DbClient {
   agentCommand: ModelDelegate<AgentCommand>;
   productCategory: ModelDelegate<ProductCategory>;
   product: ModelDelegate<Product>;
+  order: ModelDelegate<Order>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   $queryRaw(...args: any[]): Promise<any>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1375,6 +1395,7 @@ const TENANT_MODELS = new Set([
   "followUp",
   "productCategory",
   "product",
+  "order",
   "socialAccount",
   "scheduledPost",
   "socialInteraction",

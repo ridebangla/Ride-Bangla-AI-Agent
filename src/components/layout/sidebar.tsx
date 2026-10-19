@@ -25,6 +25,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Share2,
+  LayoutTemplate,
+  ShoppingBag,
+  ClipboardList,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -49,6 +52,14 @@ const sections: NavSection[] = [
       { name: "Canned Responses", href: "/canned-responses", icon: Zap },
       { name: "Automation", href: "/automation", icon: Workflow },
       { name: "Business Hours", href: "/business-hours", icon: Clock },
+    ],
+  },
+  {
+    title: "Storefront",
+    items: [
+      { name: "Landing Page", href: "/landing", icon: LayoutTemplate },
+      { name: "Catalog", href: "/catalog", icon: ShoppingBag },
+      { name: "Orders", href: "/orders", icon: ClipboardList },
     ],
   },
   {

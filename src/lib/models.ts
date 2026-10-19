@@ -30,6 +30,13 @@ export interface Business {
   subscriptionStatus?: string; // 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired'
   trialEndsAt?: Date | null;
   websiteUrl?: string;
+  /** Phase 2: auto landing page (hosted at /p/[slug]). */
+  tagline?: string;
+  brandColor?: string;
+  logoUrl?: string;
+  landingPublished?: boolean;
+  /** Phase 2: per-business custom order fields (Order Settings). */
+  orderFields?: JsonValue;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -580,3 +587,20 @@ export interface Product {
   category: ProductCategory | null;
 }
 
+export interface Order {
+
+  [key: string]: unknown;  id: string;
+  businessId: string;
+  conversationId: string | null;
+  customerId: string | null;
+  /** Line items: [{ productId?, name, qty, price? }]. */
+  items: JsonValue;
+  /** Business-defined custom fields: { key: value }. */
+  customFields: JsonValue;
+  /** Short human summary for dashboard lists. */
+  summary: string;
+  status: string; // 'pending' | 'confirmed' | 'cancelled'
+  total: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
