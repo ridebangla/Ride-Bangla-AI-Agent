@@ -157,7 +157,7 @@ function toCatalogProduct(p: {
     price: p.price,
     currency: p.currency,
     imageUrl: p.imageUrl,
-    tags: p.tags ? p.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+    tags: normTags(p.tags).split(/[\s,]+/).map((t) => t.trim()).filter(Boolean),
     isAvailable: p.isAvailable,
     categoryName: p.category?.name ?? null,
   };
