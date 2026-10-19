@@ -71,6 +71,8 @@ export async function middleware(request: NextRequest) {
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml" ||
     pathname.endsWith(".png") ||
+    pathname.endsWith(".jpg") ||
+    pathname.endsWith(".jpeg") ||
     pathname.endsWith(".svg") ||
     pathname.endsWith(".ico") ||
     pathname.endsWith(".mp4") ||
