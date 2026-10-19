@@ -78,7 +78,7 @@ export default async function BillingPage() {
   // Manual payment methods (Phase 4b) — read via the Admin SDK (server
   // side, bypasses Firestore rules); only ENABLED methods are returned.
   // The reference code lets the team match an incoming bank/crypto
-  transfer to this claim: business slug + timestamp.
+  // transfer to this claim: business slug + timestamp.
   const manualMethods = !isSuperAdmin ? await getPublicManualPaymentMethods() : [];
   let manualReference = "";
   if (!isSuperAdmin && admin.businessId) {

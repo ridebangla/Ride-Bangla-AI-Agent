@@ -11,6 +11,14 @@ import {
   type BillingInterval,
 } from "@/lib/plans";
 
+// Pricing doctrine (user decision 2026-10-19): ALL-IN-ONE — every plan
+// includes the COMPLETE platform (AI agent, Facebook automation,
+// website/landing-page builder, order handling). Plans differ by
+// VOLUME/LIMITS only. The lead engine is a coming module: listed as
+// included/coming, never claimed as live.
+const PLATFORM_INCLUDED = "Full platform: AI agent, Facebook automation, website builder, order handling";
+const LEAD_ENGINE = "Lead engine — coming soon, included";
+
 const PAID_CARDS: {
   id: PaidPlanId;
   desc: string;
@@ -24,10 +32,11 @@ const PAID_CARDS: {
     cta: "Choose Starter",
     features: [
       `${TRIAL_DAYS}-day free trial — no credit card`,
-      "1 website chat widget",
-      "2 social channels",
-      "1,000 AI conversations / month",
-      "Product catalog",
+      PLATFORM_INCLUDED,
+      LEAD_ENGINE,
+      "1 website widget + 1 social channel",
+      "1,000 AI messages / month",
+      "50 products · 1 landing page · 1 seat",
       "Email support",
     ],
   },
@@ -38,11 +47,11 @@ const PAID_CARDS: {
     cta: "Choose Growth",
     features: [
       `${TRIAL_DAYS}-day free trial — no credit card`,
-      "Everything in Starter",
-      "All social channels",
-      "10,000 AI conversations / month",
-      "Order handling + advance payments",
-      "Auto landing-page builder",
+      PLATFORM_INCLUDED,
+      LEAD_ENGINE,
+      "1 website widget + 3 social channels",
+      "5,000 AI messages / month",
+      "500 products · 3 landing pages · 3 seats",
       "Priority support",
     ],
   },
@@ -52,10 +61,11 @@ const PAID_CARDS: {
     cta: "Choose Pro",
     features: [
       `${TRIAL_DAYS}-day free trial — no credit card`,
-      "Everything in Growth",
-      "Unlimited AI conversations",
-      "Team inbox + roles",
-      "Advanced analytics",
+      PLATFORM_INCLUDED,
+      LEAD_ENGINE,
+      "1 website widget + all social channels",
+      "15,000 AI messages / month",
+      "Unlimited products · 10 landing pages · 10 seats",
       "Dedicated support",
     ],
   },
@@ -72,16 +82,22 @@ const TRIAL_FEATURES = [
 
 // Feature comparison table (paid plans). `true` = included,
 // `false` = not included, string = a specific limit/value shown.
+// All-in-one doctrine: the table differentiates on LIMITS, not features.
+// Facebook automation, the website builder, the AI agent and order handling
+// are included (✓) in every plan; the lead engine is honestly marked as
+// coming soon (it is not live yet).
 const COMPARE_ROWS: { label: string; values: (boolean | string)[] }[] = [
   { label: `${TRIAL_DAYS}-day free trial (no credit card)`, values: [true, true, true] },
-  { label: "Website chat widget", values: [true, true, true] },
-  { label: "Connected channels", values: ["2 social channels", "All social channels", "All social channels"] },
-  { label: "AI conversations / month", values: ["1,000", "10,000", "Unlimited"] },
-  { label: "Product catalog", values: [true, true, true] },
-  { label: "Order handling + advance payments", values: [false, true, true] },
-  { label: "Auto landing-page builder", values: [false, true, true] },
-  { label: "Team inbox + roles", values: [false, false, true] },
-  { label: "Analytics", values: ["Basic", "Advanced", "Advanced"] },
+  { label: "AI agent — the complete platform", values: [true, true, true] },
+  { label: "Facebook automation", values: [true, true, true] },
+  { label: "Website / landing-page builder", values: [true, true, true] },
+  { label: "Order handling + advance payments", values: [true, true, true] },
+  { label: "Lead engine", values: ["Coming soon", "Coming soon", "Coming soon"] },
+  { label: "Social channels", values: ["1", "3", "All"] },
+  { label: "AI messages / month", values: ["1,000", "5,000", "15,000"] },
+  { label: "Products", values: ["50", "500", "Unlimited"] },
+  { label: "Landing pages", values: ["1", "3", "10"] },
+  { label: "Seats", values: ["1", "3", "10"] },
   { label: "Support", values: ["Email", "Priority", "Dedicated"] },
 ];
 
@@ -135,6 +151,17 @@ export default function PlanCards() {
 
   return (
     <>
+      {/* All-in-one doctrine banner */}
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-4 text-center">
+        <p className="inline-block rounded-full bg-[#F7FBFD] border border-[#4A7C9B]/30 px-5 py-2.5 text-sm text-slate-700">
+          <span className="font-semibold text-[#2D5A7B]">All-in-one:</span>{" "}
+          every plan includes everything — Facebook automation,
+          website/landing-page builder, your own AI agent, lead engine{" "}
+          <span className="text-slate-500">(coming soon)</span>. You only
+          choose how much volume you need.
+        </p>
+      </div>
+
       {/* Billing interval toggle */}
       <div className="flex justify-center mt-2">
         <div
