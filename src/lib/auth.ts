@@ -18,10 +18,15 @@ function getJwtSecret(): string {
 const JWT_SECRET = getJwtSecret();
 const TOKEN_NAME = "rbai-token";
 const REFRESH_TOKEN_NAME = "rbai-refresh";
-// M-53: short-lived access tokens (1h) + refresh tokens (7d), instead of a
-// single 7-day token with no revocation.
+// M-53: short-lived access tokens (1h) + refresh tokens (30d), instead of
+// a single long-lived token with no revocation.
+// Auth doctrine (user): login ONCE per device and stay logged in — the
+// 30-day rotating refresh token keeps the session alive across browser
+// restarts. PAYMENT gates activity, never the session itself: an expired
+// trial / unpaid subscription still hard-stops at 402 even with a valid
+// session (see the subscription checks in route handlers).
 const TOKEN_EXPIRY = "1h";
-const REFRESH_TOKEN_EXPIRY = "7d";
+const REFRESH_TOKEN_EXPIRY = "30d";
 
 // M-53: persistent per-account lockout — 5 failed logins → 15-minute lock.
 // Stored in the DB (Admin.failedLoginAttempts / lockedUntil), so it cannot
@@ -236,7 +241,7 @@ export function setRefreshCookie(token: string) {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax" as const,
-    maxAge: 60 * 60 * 24 * 7, // 7 days — matches REFRESH_TOKEN_EXPIRY
+    maxAge: 60 * 60 * 24 * 30, // 30 days — matches REFRESH_TOKEN_EXPIRY
     path: "/api/auth",
   };
 }

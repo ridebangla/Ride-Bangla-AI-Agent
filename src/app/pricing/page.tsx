@@ -4,10 +4,76 @@ import { ArrowRight } from "lucide-react";
 import PlanCards from "./PlanCards";
 import { TRIAL_DAYS } from "@/lib/plans";
 
+const SITE_URL = "https://ai.ridebangla.bd";
+
 export const metadata = {
   title: "Pricing — Ride Bangla AI Agent",
+  description: `Simple, honest pricing: ${TRIAL_DAYS}-day free trial, then Starter $19, Growth $49 or Pro $99 per month — or yearly with 2 months free. Cancel anytime.`,
+  alternates: { canonical: SITE_URL + "/pricing" },
+  openGraph: {
+    title: "Pricing — Ride Bangla AI Agent",
+    description:
+      "One subscription, everything included: AI customer-service agent, Facebook automation, website/landing-page builder, lead engine. Starter $19, Growth $49, Pro $99.",
+    url: SITE_URL + "/pricing",
+    siteName: "Ride Bangla AI Agent",
+    type: "website",
+    images: [
+      {
+        url: SITE_URL + "/agent-avatar.png",
+        width: 1062,
+        height: 1095,
+        alt: "Ride Bangla AI Agent",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Pricing — Ride Bangla AI Agent",
+    description:
+      "Starter $19, Growth $49, Pro $99 — every plan includes the complete platform. 7-day free trial.",
+    images: [SITE_URL + "/agent-avatar.png"],
+  },
+};
+
+// Product/Offer structured data: real prices from the plan catalog.
+const PRODUCT_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "Product",
+  name: "Ride Bangla AI Agent",
   description:
-    "Simple, honest pricing: ${TRIAL_DAYS}-day free trial, then Starter $19, Growth $49 or Pro $99 per month — or yearly with 2 months free. Cancel anytime.",
+    "AI customer-service agent SaaS: 24/7 chat support, WhatsApp/Facebook/Instagram/Telegram automation, website & landing-page builder, product catalog, order handling, lead engine.",
+  brand: { "@type": "Brand", name: "Ride Bangla" },
+  image: SITE_URL + "/agent-avatar.png",
+  url: SITE_URL + "/pricing",
+  offers: [
+    {
+      "@type": "Offer",
+      name: "Starter",
+      price: "19",
+      priceCurrency: "USD",
+      description: `Starter plan, $${19}/month or $${190}/year (2 months free). Includes a ${TRIAL_DAYS}-day free trial.`,
+      availability: "https://schema.org/InStock",
+      url: SITE_URL + "/signup?plan=starter",
+    },
+    {
+      "@type": "Offer",
+      name: "Growth",
+      price: "49",
+      priceCurrency: "USD",
+      description: `Growth plan, $${49}/month or $${490}/year (2 months free). Includes a ${TRIAL_DAYS}-day free trial.`,
+      availability: "https://schema.org/InStock",
+      url: SITE_URL + "/signup?plan=growth",
+    },
+    {
+      "@type": "Offer",
+      name: "Pro",
+      price: "99",
+      priceCurrency: "USD",
+      description: `Pro plan, $${99}/month or $${990}/year (2 months free). Includes a ${TRIAL_DAYS}-day free trial.`,
+      availability: "https://schema.org/InStock",
+      url: SITE_URL + "/signup?plan=pro",
+    },
+  ],
 };
 
 const FAQS = [
@@ -36,6 +102,10 @@ const FAQS = [
 export default function PricingPage() {
   return (
     <div className="min-h-screen bg-white text-slate-900 antialiased">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(PRODUCT_JSON_LD) }}
+      />
       {/* Nav */}
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">

@@ -28,6 +28,8 @@ async function load(slug: string): Promise<PublicLandingData> {
   return data;
 }
 
+const CANONICAL_BASE = "https://ai.ridebangla.bd";
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
   const data = await getLandingData(slug);
@@ -36,6 +38,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   return {
     title: meta.title,
     description: meta.description,
+    alternates: { canonical: CANONICAL_BASE + "/p/" + slug },
     openGraph: {
       title: meta.ogTitle,
       description: meta.ogDescription,

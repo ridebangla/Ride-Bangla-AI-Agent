@@ -29,6 +29,10 @@ export interface RateLimitConfig {
 export const RATE_LIMITS = {
   auth: { maxRequests: 5, windowMs: 60 * 1000 } as RateLimitConfig,
   api: { maxRequests: 60, windowMs: 60 * 1000 } as RateLimitConfig,
+  // Money-moving endpoints: rare, expensive — 10 per hour per key.
+  claim: { maxRequests: 10, windowMs: 60 * 60 * 1000 } as RateLimitConfig,
+  // Onboarding analyze/confirm: website scraping + DB writes — 30/hour/key.
+  onboarding: { maxRequests: 30, windowMs: 60 * 60 * 1000 } as RateLimitConfig,
 } as const;
 
 export interface RateLimitResult {

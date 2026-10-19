@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { runWithBusiness } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 
@@ -18,6 +19,27 @@ export async function POST(request: NextRequest) {
       { error: "Onboarding requires a business account." },
       { status: 400 }
     );
+  }
+
+  // Per-account + per-IP rate limit, honest 429.
+  const _rlIp =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    "unknown";
+  const _rl = checkRateLimit(
+    `onboarding:${auth.businessId}:${_rlIp}`,
+    RATE_LIMITS.onboarding
+  );
+  if (!_rl.allowed) {
+    const _res = NextResponse.json(
+      { error: "rate_limited", message: "Too many save requests. Please wait a while and try again." },
+      { status: 429 }
+    );
+    _res.headers.set(
+      "Retry-After",
+      String(Math.ceil((_rl.resetAt - Date.now()) / 1000))
+    );
+    return _res;
   }
 
   try {

@@ -4,7 +4,8 @@ import Image from "next/image";
 export const metadata = {
   title: "Terms & Conditions — Ride Bangla AI Agent",
   description:
-    "The terms for using Ride Bangla AI Agent: trial, subscriptions, payments, and acceptable use.",
+    "The terms for using Ride Bangla AI Agent: trial, subscriptions, payments, and acceptable use.",,
+  alternates: { canonical: "https://ai.ridebangla.bd/terms" },
 };
 
 const SECTIONS: { heading: string; body: string[] }[] = [

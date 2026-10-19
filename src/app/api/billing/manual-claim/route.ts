@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 import {
   isPaidPlanId,
@@ -70,6 +71,31 @@ export async function POST(request: NextRequest) {
       },
       { status: 400 }
     );
+  }
+
+  // Money-moving endpoint: per-account + per-IP, honest 429.
+  const claimIp =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    "unknown";
+  const claimRl = checkRateLimit(
+    `claim:${auth.businessId}:${claimIp}`,
+    RATE_LIMITS.claim
+  );
+  if (!claimRl.allowed) {
+    const claimRes = NextResponse.json(
+      {
+        error: "rate_limited",
+        message:
+          "Too many payment claims submitted. Please wait a while and try again.",
+      },
+      { status: 429 }
+    );
+    claimRes.headers.set(
+      "Retry-After",
+      String(Math.ceil((claimRl.resetAt - Date.now()) / 1000))
+    );
+    return claimRes;
   }
 
   let body: {

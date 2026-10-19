@@ -67,6 +67,16 @@ export const metadata: Metadata = {
     ],
     apple: "/apple-touch-icon.png",
   },
+  // GOOGLE SEARCH CONSOLE: set NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION in the
+  // Vercel env vars and redeploy — the verification meta tag renders ONLY
+  // when the env var is set. Never hardcode a verification code here.
+  ...(process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
+    ? {
+        verification: {
+          google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION,
+        },
+      }
+    : {}),
 };
 
 const ORGANIZATION_JSON_LD = {

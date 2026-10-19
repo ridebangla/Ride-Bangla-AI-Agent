@@ -4,12 +4,40 @@ import { verifyJwtEdge } from "@/lib/edge-auth";
 
 const API_VERSION = "2026-04-07";
 
+// NOTE: Strict-Transport-Security is sent by Vercel's edge on every
+// response (max-age=63072000) — it is deliberately NOT duplicated here.
+const CSP_DIRECTIVES = [
+  "default-src 'self'",
+  // 'unsafe-inline' is required for Next.js App Router's own inline
+  // bootstrap scripts (no nonce infrastructure yet). Everything else is
+  // locked down; revisit with nonces if the app adopts them.
+  "script-src 'self' 'unsafe-inline' https://www.gstatic.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https: blob:",
+  "font-src 'self' data:",
+  "media-src 'self'",
+  // Firebase JS SDK (Auth/Firestore) + future hCaptcha widget. The
+  // embeddable chat widget is a static JS file served without these
+  // headers (see the static bypass below), so customer-site embeds are
+  // unaffected by this policy.
+  "connect-src 'self' https://*.googleapis.com https://*.gstatic.com https://hcaptcha.com https://*.hcaptcha.com wss:",
+  "frame-src https://js.stripe.com https://hcaptcha.com https://*.hcaptcha.com",
+  // Our pages are never framed (the widget injects DOM, not an iframe),
+  // so framing stays denied — matches X-Frame-Options: DENY above.
+  "frame-ancestors 'self'",
+  "form-action 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "upgrade-insecure-requests",
+].join("; ");
+
 const SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "X-XSS-Protection": "1; mode=block",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  "Content-Security-Policy": CSP_DIRECTIVES,
   "X-API-Version": API_VERSION,
 };
 

@@ -26,6 +26,30 @@ import {
 
 export const dynamic = "force-dynamic";
 
+
+const SOFTWARE_APP_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Ride Bangla AI Agent",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  url: "https://ai.ridebangla.bd",
+  image: "https://ai.ridebangla.bd/agent-avatar.png",
+  description:
+    "AI customer-service agent SaaS for businesses: 24/7 instant chat support, WhatsApp/Facebook/Instagram/Telegram automation, website & landing-page builder, product catalog, order handling, and a lead engine — one subscription, everything included.",
+  offers: {
+    "@type": "Offer",
+    price: "19",
+    priceCurrency: "USD",
+    description: "Plans from $19/month. 7-day free trial, no credit card.",
+  },
+  provider: {
+    "@type": "Organization",
+    name: "Ride Bangla",
+    url: "https://ridebangla.bd",
+  },
+};
+
 // Root: logged-out visitors see the SaaS marketing landing page; logged-in
 // users go to their dashboard (or /billing when their trial/subscription is
 // inactive). The middleware leaves `/` (exact) public so this page can decide.
@@ -48,7 +72,17 @@ export default async function RootPage() {
       }
     }
   }
-  return <MarketingLanding />;
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(SOFTWARE_APP_JSON_LD),
+        }}
+      />
+      <MarketingLanding />
+    </>
+  );
 }
 
 const STEPS = [
