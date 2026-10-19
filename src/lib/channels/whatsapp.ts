@@ -1,7 +1,8 @@
 import { Client, LocalAuth, Message } from "whatsapp-web.js";
 import * as qrcode from "qrcode";
 import { prisma, withBusinessId } from "@/lib/prisma";
-import { chat, createNewConversation } from "@/lib/ai/engine";
+import { createNewConversation } from "@/lib/ai/engine";
+import { processChannelMessage } from "@/lib/channels/inbound";
 import { logger } from "@/lib/logger";
 import { resolveCustomer } from "@/lib/customer-resolver";
 import { enterBusinessContext, resolveChannelBusiness } from "@/lib/tenant";
@@ -97,7 +98,8 @@ export async function initWhatsApp(): Promise<void> {
       // Tenant context: channel workers run outside HTTP requests, so the
       // business must be resolved explicitly (fail-closed, never guessed
       // across businesses).
-      enterBusinessContext(await resolveChannelBusiness());
+      const businessId = await resolveChannelBusiness();
+      enterBusinessContext(businessId);
       if (message.fromMe) return;
 
       const contact = await message.getContact();
@@ -158,10 +160,16 @@ export async function initWhatsApp(): Promise<void> {
         }
       }
 
-      // Get AI response (with media perception when an attachment was sent).
-      // Phase 3: chat() returns { response, products, silent }. On human
-      // takeover (silent) the pipeline stored the message — send nothing.
-      const chatResult = await chat(conversation.id, messageContent, media ? { media } : undefined);
+      // Phase 5: shared inbound pipeline — subscription hard-stop (user
+      // decision 16) first, then the engine (honors per-conversation +
+      // global aiEnabled, user decision 17). On human takeover or an
+      // inactive subscription the pipeline stored the message — send nothing.
+      const chatResult = await processChannelMessage(
+        conversation.id,
+        businessId,
+        messageContent,
+        media ? { media } : undefined
+      );
 
       // Send response back via WhatsApp
       if (!chatResult.silent) {

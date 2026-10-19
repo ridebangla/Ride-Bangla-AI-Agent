@@ -84,6 +84,13 @@ export interface Settings {
   whatsappPhone: string;
   telegramBotToken: string;
   telegramWebhookSecret: string;
+  /**
+   * Phase 5 (user decision 17): GLOBAL AI kill-switch. false = the AI stays
+   * silent across EVERY conversation (website, channels, social) — the
+   * human team handles everything. true (default) = per-conversation
+   * `conversations.aiEnabled` decides. Flipped from Settings > AI.
+   */
+  aiEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -211,6 +218,12 @@ export interface Message {
   mediaType: string | null;
   mediaUrl: string | null;
   toolCalls: JsonValue | null;
+  /**
+   * Phase 5: honest delivery record for owner replies sent from the inbox
+   * live-chat view. "delivered via whatsapp" / "delivered via telegram" /
+   * "dashboard-only reply (channel not connected)", etc.
+   */
+  deliveryNote?: string | null;
   createdAt: Date;
   conversation: Conversation;
 }
@@ -512,6 +525,13 @@ export interface SocialAccount {
   tokenEnc: string;
   tokenIv: string;
   isActive: boolean;
+  /**
+   * Phase 5 (user decision 6): comment auto-reply switch. true = the AI may
+   * reply to comments automatically; false (default) = the AI only DRAFTS
+   * replies for the business to approve in the inbox. Never auto-post
+   * without this setting.
+   */
+  autoReply: boolean;
   lastSyncAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -550,6 +570,14 @@ export interface SocialInteraction {
   replied: boolean;
   repliedAt: Date | null;
   replyRef: string;
+  /**
+   * Phase 5 (user decision 6): the AI-drafted reply for a comment, stored
+   * for the business to approve in the inbox. Set whether or not the
+   * account has autoReply on (when autoReply is on the draft was also sent).
+   */
+  draftReply?: string | null;
+  /** Phase 5: id of the socialAccount that produced this interaction. */
+  socialAccountId?: string | null;
   createdAt: Date;
 }
 

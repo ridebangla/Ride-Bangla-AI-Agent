@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import {
   Settings as SettingsIcon,
   Bot,
+  BotOff,
   Mic,
   Phone,
   Mail,
@@ -50,6 +51,8 @@ interface SettingsData {
   whatsappMode: string;
   whatsappApiKey: string;
   whatsappPhone: string;
+  /** Phase 5 (user decision 17): global AI kill-switch. */
+  aiEnabled: boolean;
 }
 
 type SectionKey =
@@ -82,7 +85,7 @@ const tabs: TabDef[] = [
 // Which fields belong to each section (used for partial saves)
 const sectionFields: Record<SectionKey, (keyof SettingsData)[]> = {
   general: ["businessName", "businessDesc", "welcomeMessage", "tone", "language"],
-  ai: ["aiProvider", "aiModel", "aiApiKey", "maxTokens", "temperature"],
+  ai: ["aiProvider", "aiModel", "aiApiKey", "maxTokens", "temperature", "aiEnabled"],
   voice: ["elevenLabsKey", "elevenLabsVoice"],
   phone: ["twilioSid", "twilioToken", "twilioPhone"],
   email: [
@@ -361,7 +364,7 @@ function GeneralSection({
   update,
 }: {
   data: SettingsData;
-  update: (field: keyof SettingsData, value: string | number) => void;
+  update: (field: keyof SettingsData, value: string | number | boolean) => void;
 }) {
   return (
     <div className="space-y-5">
@@ -425,7 +428,7 @@ function AISection({
   update,
 }: {
   data: SettingsData;
-  update: (field: keyof SettingsData, value: string | number) => void;
+  update: (field: keyof SettingsData, value: string | number | boolean) => void;
 }) {
   const modelOptions: Record<string, { value: string; label: string }[]> = {
     openai: [
@@ -447,6 +450,51 @@ function AISection({
 
   return (
     <div className="space-y-5">
+      {/* Phase 5 (user decision 17): GLOBAL AI kill-switch. OFF = the AI
+          stays silent across every conversation (website, all channels,
+          social) until turned back on. Per-conversation switches in the
+          inbox decide individually when this is ON. */}
+      <div
+        className={cn(
+          "rounded-xl border p-4 flex items-center justify-between gap-4",
+          data.aiEnabled !== false
+            ? "border-rbai-border bg-rbai-bg/50"
+            : "border-amber-300 bg-amber-50"
+        )}
+      >
+        <div>
+          <p className="text-sm font-semibold text-rbai-text flex items-center gap-2">
+            {data.aiEnabled !== false ? (
+              <Bot className="h-4 w-4 text-rbai-primary" />
+            ) : (
+              <BotOff className="h-4 w-4 text-amber-600" />
+            )}
+            AI replies {data.aiEnabled !== false ? "enabled" : "DISABLED"} (global kill-switch)
+          </p>
+          <p className="text-xs text-rbai-text-light mt-1 max-w-md">
+            {data.aiEnabled !== false
+              ? "The AI replies on every channel where its per-conversation switch is on."
+              : "The AI is silent everywhere — website, all channels, social. Your team handles every conversation until you switch it back on."}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={data.aiEnabled !== false}
+          onClick={() => update("aiEnabled", !(data.aiEnabled !== false))}
+          className={cn(
+            "relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:ring-offset-2",
+            data.aiEnabled !== false ? "bg-rbai-primary" : "bg-rbai-border"
+          )}
+        >
+          <span
+            className={cn(
+              "pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+              data.aiEnabled !== false ? "translate-x-5" : "translate-x-0"
+            )}
+          />
+        </button>
+      </div>
       <FormField label="AI Provider" description="Select which AI provider to use for generating responses.">
         <SelectInput
           value={data.aiProvider}
@@ -511,7 +559,7 @@ function VoiceSection({
   update,
 }: {
   data: SettingsData;
-  update: (field: keyof SettingsData, value: string | number) => void;
+  update: (field: keyof SettingsData, value: string | number | boolean) => void;
 }) {
   return (
     <div className="space-y-5">
@@ -543,7 +591,7 @@ function PhoneSection({
   update,
 }: {
   data: SettingsData;
-  update: (field: keyof SettingsData, value: string | number) => void;
+  update: (field: keyof SettingsData, value: string | number | boolean) => void;
 }) {
   return (
     <div className="space-y-5">
@@ -582,7 +630,7 @@ function EmailSection({
   update,
 }: {
   data: SettingsData;
-  update: (field: keyof SettingsData, value: string | number) => void;
+  update: (field: keyof SettingsData, value: string | number | boolean) => void;
 }) {
   return (
     <div className="space-y-6">
@@ -687,7 +735,7 @@ function WhatsAppSection({
   update,
 }: {
   data: SettingsData;
-  update: (field: keyof SettingsData, value: string | number) => void;
+  update: (field: keyof SettingsData, value: string | number | boolean) => void;
 }) {
   return (
     <div className="space-y-5">
@@ -760,6 +808,7 @@ const defaultSettings: SettingsData = {
   whatsappMode: "web",
   whatsappApiKey: "",
   whatsappPhone: "",
+  aiEnabled: true,
 };
 
 export default function SettingsPage() {
@@ -793,7 +842,7 @@ export default function SettingsPage() {
       .finally(() => setLoading(false));
   }, [addToast]);
 
-  const update = (field: keyof SettingsData, value: string | number) => {
+  const update = (field: keyof SettingsData, value: string | number | boolean) => {
     setData((prev) => ({ ...prev, [field]: value }));
   };
 

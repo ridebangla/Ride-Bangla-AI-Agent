@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import { prisma, withBusinessId } from "@/lib/prisma";
 import { enterBusinessContext, resolveChannelBusiness } from "@/lib/tenant";
-import { chat, createNewConversation } from "@/lib/ai/engine";
+import { createNewConversation } from "@/lib/ai/engine";
+import { processChannelMessage } from "@/lib/channels/inbound";
 import { resolveCustomer } from "@/lib/customer-resolver";
 
 interface PhoneConfig {
@@ -180,7 +181,8 @@ export async function handleSpeechInput(
   conversationId: string,
   callSid: string
 ): Promise<string> {
-  enterBusinessContext(await resolveChannelBusiness());
+  const businessId = await resolveChannelBusiness();
+  enterBusinessContext(businessId);
   if (!speechResult || speechResult.trim() === "") {
     return generateTwiMLSay("I didn't catch that. Could you please repeat?");
   }
@@ -188,11 +190,13 @@ export async function handleSpeechInput(
   // Get AI response
   let aiResponse: string;
   try {
-    // Phase 3: chat() returns { response, products, silent }. On human
-    // takeover the pipeline stored the message in silence — a live call
-    // still needs a TwiML answer, so use a static handoff line (never an
-    // AI-generated reply).
-    const chatResult = await chat(conversationId, speechResult);
+    // Phase 5: shared inbound pipeline — subscription hard-stop (user
+    // decision 16) first, then the engine (honors per-conversation +
+    // global aiEnabled, user decision 17). On human takeover or an
+    // inactive subscription the pipeline stored the message in silence —
+    // a live call still needs a TwiML answer, so use a static handoff
+    // line (never an AI-generated reply).
+    const chatResult = await processChannelMessage(conversationId, businessId, speechResult);
     aiResponse = chatResult.silent
       ? "Let me connect you with someone from the team."
       : chatResult.response;

@@ -145,6 +145,9 @@ export async function getAIConfig(): Promise<AIConfig & ConversationContext> {
     apiKey: settings.aiApiKey,
     maxTokens: settings.maxTokens,
     temperature: settings.temperature,
+    // Phase 5 (user decision 17): global kill-switch. Missing = enabled
+    // (all pre-Phase-5 settings keep working).
+    aiEnabled: settings.aiEnabled !== false,
     businessName: settings.businessName,
     businessDesc: settings.businessDesc,
     welcomeMessage: settings.welcomeMessage,
@@ -181,9 +184,14 @@ export async function chat(
   // stores the customer's message and returns in PURE SILENCE — no AI
   // reply, no tool calls, no realtime assistant event, zero interjection.
   // The customer talks directly to the owner; flipping the switch back ON
-  // resumes the AI with full history intact. Missing/true = AI enabled
-  // (all pre-Phase-3 conversations keep working).
-  if (conversation.aiEnabled === false) {
+  // resumes the AI with full history intact (the messages above are always
+  // loaded, so the engine reads recent history on resume). Missing/true =
+  // AI enabled (all pre-Phase-3 conversations keep working).
+  //
+  // Phase 5 addition: the GLOBAL kill-switch (settings.aiEnabled) is
+  // checked first — when the owner kills AI globally, EVERY conversation
+  // goes silent regardless of its own switch.
+  if (config.aiEnabled === false || conversation.aiEnabled === false) {
     await prisma.message.create({
       data: withBusinessId({
         conversationId,
@@ -196,7 +204,8 @@ export async function chat(
       data: { updatedAt: new Date() },
     });
     logger.info(
-      `[brain] human takeover: stored customer message silently for conversation ${conversationId}`
+      `[brain] human takeover: stored customer message silently for conversation ${conversationId}` +
+        (config.aiEnabled === false ? " (global kill-switch)" : "")
     );
     return { response: "", products: [], silent: true };
   }

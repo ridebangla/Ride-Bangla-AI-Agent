@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
-import { chat, createNewConversation } from "@/lib/ai/engine";
+import { createNewConversation } from "@/lib/ai/engine";
+import { processChannelMessage } from "@/lib/channels/inbound";
 import { resolveCustomer } from "@/lib/customer-resolver";
 import { logger } from "@/lib/logger";
 import { enterBusinessContext, resolveChannelBusiness } from "@/lib/tenant";
@@ -98,7 +99,8 @@ export async function handleTelegramUpdate(
   update: TelegramUpdate,
   businessSlug?: string | null
 ): Promise<string | null> {
-  enterBusinessContext(await resolveChannelBusiness(businessSlug));
+  const businessId = await resolveChannelBusiness(businessSlug);
+  enterBusinessContext(businessId);
   const message = update.message;
   if (!message) return null;
 
@@ -143,9 +145,16 @@ export async function handleTelegramUpdate(
 
     if (!text && !media) return null;
 
-    // Phase 3: chat() returns { response, products, silent }. On human
-    // takeover (silent) the pipeline stored the message — send nothing.
-    const chatResult = await chat(conversation.id, text, media ? { media } : undefined);
+    // Phase 5: shared inbound pipeline — subscription hard-stop (user
+    // decision 16) first, then the engine (honors per-conversation +
+    // global aiEnabled, user decision 17). On human takeover or an
+    // inactive subscription the pipeline stored the message — send nothing.
+    const chatResult = await processChannelMessage(
+      conversation.id,
+      businessId,
+      text,
+      media ? { media } : undefined
+    );
 
     // Send reply via Telegram API
     if (!chatResult.silent) {

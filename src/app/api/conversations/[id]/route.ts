@@ -69,12 +69,22 @@ export async function PUT(
     try {
       const { id } = await params;
       const body = await request.json();
-      const { status, customerName, customerContact, summary, satisfaction, tagIds } = body;
+      const { status, customerName, customerContact, summary, satisfaction, tagIds, aiEnabled } = body;
 
       const validStatuses = ["active", "resolved", "closed", "escalated", "snoozed"];
       if (status !== undefined && !validStatuses.includes(status)) {
         return NextResponse.json(
           { error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` },
+          { status: 400 }
+        );
+      }
+
+      // Phase 5 (user decision 17): per-conversation human-takeover switch.
+      // false = the pipeline stores customer messages in pure silence;
+      // true = the AI replies (unless the global kill-switch is off).
+      if (aiEnabled !== undefined && typeof aiEnabled !== "boolean") {
+        return NextResponse.json(
+          { error: "aiEnabled must be a boolean" },
           { status: 400 }
         );
       }
@@ -104,6 +114,7 @@ export async function PUT(
           ...(customerContact !== undefined && { customerContact: customerContact.trim() }),
           ...(summary !== undefined && { summary: summary.trim() }),
           ...(satisfaction !== undefined && { satisfaction }),
+          ...(aiEnabled !== undefined && { aiEnabled }),
         },
         include: {
           messages: {

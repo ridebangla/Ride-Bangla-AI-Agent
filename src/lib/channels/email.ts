@@ -2,7 +2,8 @@ import Imap from "imap";
 import { simpleParser, ParsedMail } from "mailparser";
 import nodemailer from "nodemailer";
 import { prisma } from "@/lib/prisma";
-import { chat, createNewConversation } from "@/lib/ai/engine";
+import { createNewConversation } from "@/lib/ai/engine";
+import { processChannelMessage } from "@/lib/channels/inbound";
 import { escapeHtml, sanitizeEmailSubject } from "@/lib/security";
 import { logger } from "@/lib/logger";
 import { resolveCustomer } from "@/lib/customer-resolver";
@@ -66,7 +67,8 @@ function getSmtpTransporter(config: EmailConfig) {
 async function processEmail(parsed: ParsedMail, config: EmailConfig) {
   // Tenant context: the IMAP listener runs outside HTTP requests, so the
   // business must be resolved explicitly (fail-closed).
-  enterBusinessContext(await resolveChannelBusiness());
+  const businessId = await resolveChannelBusiness();
+  enterBusinessContext(businessId);
   const fromAddress = parsed.from?.value?.[0]?.address;
   const fromName =
     parsed.from?.value?.[0]?.name || fromAddress || "Unknown";
@@ -101,12 +103,14 @@ async function processEmail(parsed: ParsedMail, config: EmailConfig) {
 
   // Get AI response
   const messageContent = `Subject: ${subject}\n\n${textBody}`;
-  // Phase 3: chat() returns { response, products, silent }. On human
-  // takeover (silent) the pipeline stored the inbound email - send no AI
-  // reply email at all (pure silence).
-  const chatResult = await chat(conversation.id, messageContent);
+  // Phase 5: shared inbound pipeline — subscription hard-stop (user
+  // decision 16) first, then the engine (honors per-conversation +
+  // global aiEnabled, user decision 17). On human takeover or an
+  // inactive subscription the pipeline stored the inbound email — send
+  // no AI reply email at all (pure silence).
+  const chatResult = await processChannelMessage(conversation.id, businessId, messageContent);
   if (chatResult.silent) {
-    logger.info("[Email] human takeover: stored inbound email silently, no reply sent");
+    logger.info("[Email] human takeover / subscription inactive: stored inbound email silently, no reply sent");
     return;
   }
   const aiResponse = chatResult.response;

@@ -3,6 +3,7 @@ import { prisma, withBusinessId, runWithBusiness } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 import { emitNewMessage } from "@/lib/realtime";
+import { deliverOwnerReply } from "@/lib/channels/deliver";
 
 export async function GET(
   request: NextRequest,
@@ -79,11 +80,32 @@ export async function POST(
       const validRoles = ["customer", "assistant", "system"];
       const messageRole = validRoles.includes(role) ? role : "assistant";
 
+      // Phase 5 (user decision 17): live-chat view — the owner's reply is
+      // ALWAYS stored first. Delivery back through the channel's send API
+      // is attempted only when that channel is connected (env-gated);
+      // otherwise the reply is stored honestly as a dashboard-only reply.
+      const isOwnerReply = messageRole === "assistant";
+      let deliveryNote: string | null = null;
+      let delivered = false;
+      if (isOwnerReply) {
+        const attempt = await deliverOwnerReply(
+          {
+            channel: conversation.channel,
+            customerContact: conversation.customerContact,
+            metadata: conversation.metadata,
+          },
+          content.trim()
+        );
+        delivered = attempt.delivered;
+        deliveryNote = attempt.deliveryNote;
+      }
+
       const message = await prisma.message.create({
         data: withBusinessId({
           conversationId: id,
           role: messageRole,
           content: content.trim(),
+          ...(deliveryNote ? { deliveryNote } : {}),
         }),
       });
 
@@ -94,7 +116,10 @@ export async function POST(
 
       emitNewMessage(id, { id: message.id, role: messageRole, content: content.trim() });
 
-      return NextResponse.json(message, { status: 201 });
+      return NextResponse.json(
+        { ...message, delivered, deliveryNote },
+        { status: 201 }
+      );
     } catch (error) {
       logger.error("Failed to create message:", error);
       return NextResponse.json(

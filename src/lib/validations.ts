@@ -176,6 +176,10 @@ export const updateSettingsSchema = z.object({
   // (strict mode rejected them). Both are secrets (masked on GET).
   telegramBotToken: z.string().max(500).optional(),
   telegramWebhookSecret: z.string().max(500).optional(),
+  // Phase 5 (user decision 17): global AI kill-switch. false silences the
+  // AI across every conversation; true (default) leaves the decision to
+  // each conversation's own aiEnabled switch.
+  aiEnabled: z.boolean().optional(),
 }).strict();
 
 // Canned Responses

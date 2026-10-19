@@ -35,6 +35,11 @@ export interface AIConfig {
   apiKey: string;
   maxTokens: number;
   temperature: number;
+  /**
+   * Phase 5 (user decision 17): global AI kill-switch from settings.
+   * false = the chat pipeline stays silent on every conversation.
+   */
+  aiEnabled: boolean;
 }
 
 export interface ConversationContext {

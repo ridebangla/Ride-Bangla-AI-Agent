@@ -117,9 +117,10 @@ async function generateReply(
 
 // ---------------------------------------------------------------------------
 // Post a reply through the platform API (real writes only)
+// Exported for the Phase 5 comment-approval flow (inbox approve/send).
 // ---------------------------------------------------------------------------
 
-async function postReply(
+export async function postReply(
   account: SocialAccount,
   token: string,
   target: ReplyTarget,
@@ -491,6 +492,11 @@ export async function syncEngagement(): Promise<SyncResult> {
       let replied = false;
       let repliedAt: Date | undefined;
       let replyRef = "";
+      // Phase 5 (user decision 6): the AI DRAFTS every reply. The draft is
+      // stored on the interaction and the business approves it in the
+      // inbox. Auto-post happens ONLY when the connected account has
+      // `autoReply` enabled in channel settings — never without it.
+      let draftReply = "";
 
       if (item.kind === "comment" || item.kind === "message") {
         try {
@@ -499,10 +505,14 @@ export async function syncEngagement(): Promise<SyncResult> {
             item.kind,
             item.platform
           );
-          replyRef = await postReply(account, token, item.replyTarget, replyText);
-          replied = true;
-          repliedAt = new Date();
-          result.replied++;
+          draftReply = replyText;
+
+          if (account.autoReply) {
+            replyRef = await postReply(account, token, item.replyTarget, replyText);
+            replied = true;
+            repliedAt = new Date();
+            result.replied++;
+          }
         } catch (err) {
           result.limitations.push(
             `Reply failed for ${item.platform} ${item.kind} ${item.externalId}: ` +
@@ -523,6 +533,8 @@ export async function syncEngagement(): Promise<SyncResult> {
           replied,
           repliedAt,
           replyRef,
+          draftReply,
+          socialAccountId: account.id,
         }),
       });
     }

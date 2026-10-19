@@ -119,7 +119,13 @@ export async function middleware(request: NextRequest) {
   if (
     pathname.startsWith("/api/channels/phone/") ||
     pathname.startsWith("/api/channels/sms") ||
-    pathname.startsWith("/api/channels/telegram")
+    pathname.startsWith("/api/channels/telegram") ||
+    // Phase 5: provider webhooks — Meta (X-Hub-Signature-256), WhatsApp
+    // Cloud (verify-token handshake), X (CRC challenge). Signature/token
+    // verified inside each route; never JWT.
+    pathname.startsWith("/api/webhooks/meta") ||
+    pathname.startsWith("/api/webhooks/whatsapp") ||
+    pathname.startsWith("/api/webhooks/x")
   ) {
     return addHeaders(NextResponse.next(), requestId);
   }

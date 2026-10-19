@@ -28,6 +28,7 @@ import {
   LayoutTemplate,
   ShoppingBag,
   ClipboardList,
+  Inbox,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -40,6 +41,7 @@ const sections: NavSection[] = [
   {
     items: [
       { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+      { name: "Inbox", href: "/inbox", icon: Inbox },
       { name: "Conversations", href: "/conversations", icon: MessageSquare },
       { name: "Customers", href: "/customers", icon: Contact },
       { name: "Tickets", href: "/tickets", icon: Ticket },

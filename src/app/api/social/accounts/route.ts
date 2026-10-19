@@ -13,6 +13,7 @@ function toPublic(account: {
   platform: string;
   label: string;
   accountRef: string;
+  autoReply: boolean;
   isActive: boolean;
   lastSyncAt: Date | null;
   createdAt: Date;
@@ -23,6 +24,9 @@ function toPublic(account: {
     label: account.label,
     accountRef: account.accountRef,
     tokenHint: maskToken(account),
+    // Phase 5 (user decision 6): fail-closed — missing (pre-Phase-5
+    // accounts) means NO auto-post, only AI-drafted replies for approval.
+    autoReply: account.autoReply === true,
     isActive: account.isActive,
     lastSyncAt: account.lastSyncAt,
     createdAt: account.createdAt,
@@ -43,6 +47,7 @@ export async function GET(request: NextRequest) {
           platform: true,
           label: true,
           accountRef: true,
+          autoReply: true,
           isActive: true,
           lastSyncAt: true,
           createdAt: true,
@@ -104,6 +109,8 @@ export async function POST(request: NextRequest) {
           accountRef: accountRef.trim(),
           tokenEnc: encrypted.tokenEnc,
           tokenIv: encrypted.tokenIv,
+          // Phase 5 (user decision 6): never auto-post without the setting.
+          autoReply: false,
           isActive: true,
         }),
         select: {
@@ -111,6 +118,7 @@ export async function POST(request: NextRequest) {
           platform: true,
           label: true,
           accountRef: true,
+          autoReply: true,
           isActive: true,
           lastSyncAt: true,
           createdAt: true,

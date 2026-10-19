@@ -35,6 +35,15 @@ export function getChannelLabel(channel: string): string {
     whatsapp: "WhatsApp",
     email: "Email",
     phone: "Phone",
+    // Phase 5: unified inbox channels
+    widget: "Website",
+    api: "Website",
+    messenger: "Messenger",
+    facebook: "Facebook",
+    instagram: "Instagram",
+    x: "X",
+    telegram: "Telegram",
+    sms: "SMS",
   };
   return labels[channel] || channel;
 }

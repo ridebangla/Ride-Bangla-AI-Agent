@@ -17,7 +17,13 @@ import {
   XCircle,
   Eye,
   EyeOff,
+  Link2,
+  AlertTriangle,
+  Info,
+  Copy,
+  RefreshCw,
 } from "lucide-react";
+import { FacebookIcon, InstagramIcon, XBrandIcon } from "@/components/ui/channel-icons";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 
@@ -828,6 +834,456 @@ function WidgetCard({ siteKey }: { siteKey: string | null }) {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 5: social connect cards — Meta (Facebook + Instagram), WhatsApp
+// Cloud API, X. Every card degrades honestly when env is missing: no fake
+// connected states, no crashes — "not connected yet, see setup guide".
+// ---------------------------------------------------------------------------
+
+interface MetaAccountInfo {
+  id: string;
+  platform: string;
+  label: string;
+  accountRef: string;
+}
+
+interface ConnectStatus {
+  meta: {
+    configured: boolean;
+    webhookConfigured: boolean;
+    accounts: MetaAccountInfo[];
+    webhookUrl: string;
+    setupGuide: string[];
+  };
+  whatsappCloud: {
+    configured: boolean;
+    webhookConfigured: boolean;
+    webhookUrl: string;
+    setupGuide: string[];
+  };
+  x: {
+    configured: boolean;
+    writeConfigured: boolean;
+    hasBearer: boolean;
+    hasUserContext: boolean;
+    webhookUrl: string;
+    setupGuide: string[];
+  };
+}
+
+function SetupGuide({ steps }: { steps: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-xs font-medium text-rbai-primary hover:underline"
+      >
+        <Info className="h-3.5 w-3.5" />
+        {open ? "Hide setup guide" : "Show setup guide"}
+      </button>
+      {open && (
+        <ol className="mt-2 space-y-1.5 text-xs text-rbai-text-light list-decimal list-inside bg-rbai-bg rounded-lg p-3">
+          {steps.map((s, i) => (
+            <li key={i}>{s}</li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function NotConnectedNote({ what }: { what: string }) {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-2">
+      <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+      <p className="text-xs text-amber-800">
+        <span className="font-semibold">{what} is not connected yet.</span>{" "}
+        Nothing is faked — connect it below when the setup is done.
+      </p>
+    </div>
+  );
+}
+
+function CopyRow({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div>
+      <p className="text-xs font-medium text-rbai-text-light mb-1">{label}</p>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 text-xs bg-rbai-bg rounded-lg px-3 py-2 break-all text-rbai-text">
+          {value}
+        </code>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(value);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            } catch { /* ignore */ }
+          }}
+          className="p-2 text-rbai-text-light hover:text-rbai-text border border-rbai-border rounded-lg transition-colors"
+          title="Copy"
+        >
+          {copied ? <CheckCircle className="h-4 w-4 text-rbai-success" /> : <Copy className="h-4 w-4" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MetaCard({
+  status,
+  onToast,
+}: {
+  status: ConnectStatus["meta"] | null;
+  onToast: (m: string, t: "success" | "error") => void;
+}) {
+  const [connecting, setConnecting] = useState(false);
+  const [accounts, setAccounts] = useState<MetaAccountInfo[]>(status?.accounts || []);
+  const [autoReply, setAutoReply] = useState<Record<string, boolean>>({});
+  const [toggling, setToggling] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (status?.accounts) {
+      setAccounts(status.accounts);
+      fetch("/api/social/accounts")
+        .then((r) => (r.ok ? r.json() : []))
+        .then((list: Array<{ id: string; autoReply: boolean }>) => {
+          const map: Record<string, boolean> = {};
+          for (const a of list) map[a.id] = a.autoReply === true;
+          setAutoReply(map);
+        })
+        .catch(() => {});
+    }
+  }, [status]);
+
+  // OAuth result banners (?meta=connected / denied / error)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const m = params.get("meta");
+    if (m === "connected") {
+      onToast("Meta accounts connected", "success");
+      window.history.replaceState({}, "", "/channels");
+      fetch("/api/channels/connect-status")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => d?.meta?.accounts && setAccounts(d.meta.accounts))
+        .catch(() => {});
+    } else if (m === "denied") {
+      onToast("Meta connect was cancelled", "error");
+      window.history.replaceState({}, "", "/channels");
+    } else if (m === "error") {
+      onToast("Meta connect failed — try again", "error");
+      window.history.replaceState({}, "", "/channels");
+    }
+  }, [onToast]);
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    try {
+      const res = await fetch("/api/social/meta/connect");
+      const data = await res.json();
+      if (!data.configured) {
+        onToast(data.reason || "Meta is not configured yet", "error");
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      onToast("Failed to start Meta connect", "error");
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleAutoReply = async (id: string, value: boolean) => {
+    setToggling(id);
+    try {
+      const res = await fetch(`/api/social/accounts/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autoReply: value }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      setAutoReply((prev) => ({ ...prev, [id]: value }));
+      onToast(
+        value ? "Auto-reply enabled for this account" : "Auto-reply disabled — the AI will only draft replies",
+        "success"
+      );
+    } catch {
+      onToast("Failed to update auto-reply", "error");
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  const handleDisconnect = async (id: string, label: string) => {
+    if (!confirm(`Disconnect ${label}?`)) return;
+    try {
+      const res = await fetch(`/api/social/accounts/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed");
+      setAccounts((prev) => prev.filter((a) => a.id !== id));
+      onToast(`${label} disconnected`, "success");
+    } catch {
+      onToast("Failed to disconnect", "error");
+    }
+  };
+
+  return (
+    <div className="bg-rbai-surface rounded-xl border border-rbai-border overflow-hidden">
+      <div className="px-5 py-4 border-b border-rbai-border">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-lg bg-blue-50 text-[#1877F2]">
+              <FacebookIcon className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-rbai-text">Meta</h3>
+              <p className="text-xs text-rbai-text-light mt-0.5">
+                Facebook Pages + Instagram via OAuth
+              </p>
+            </div>
+          </div>
+          <StatusBadge status={status && accounts.length > 0 ? "connected" : "disconnected"} />
+        </div>
+      </div>
+
+      <div className="p-5 space-y-4">
+        {!status ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="h-6 w-6 animate-spin text-rbai-primary" />
+          </div>
+        ) : !status.configured ? (
+          <>
+            <NotConnectedNote what="Meta" />
+            <SetupGuide steps={status.setupGuide} />
+          </>
+        ) : (
+          <>
+            {accounts.length === 0 ? (
+              <p className="text-sm text-rbai-text-light">
+                Meta app is configured but no Pages are connected yet. Click Connect to sign in with
+                the Facebook account that owns your Page.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {accounts.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex items-center gap-3 rounded-lg border border-rbai-border bg-rbai-bg p-3"
+                  >
+                    <div className={cn("p-2 rounded-lg", a.platform === "instagram" ? "bg-pink-50 text-pink-600" : "bg-blue-50 text-[#1877F2]")}>
+                      {a.platform === "instagram" ? <InstagramIcon className="h-4 w-4" /> : <FacebookIcon className="h-4 w-4" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-rbai-text truncate">{a.label}</p>
+                      <p className="text-xs text-rbai-text-light capitalize">{a.platform}</p>
+                      <label className="mt-1.5 flex items-center gap-2 text-xs text-rbai-text-light cursor-pointer">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={autoReply[a.id] === true}
+                          disabled={toggling === a.id}
+                          onClick={() => handleAutoReply(a.id, !(autoReply[a.id] === true))}
+                          className={cn(
+                            "relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
+                            autoReply[a.id] === true ? "bg-rbai-primary" : "bg-rbai-border"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition",
+                              autoReply[a.id] === true ? "translate-x-4" : "translate-x-0"
+                            )}
+                          />
+                        </button>
+                        Auto-reply to comments
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDisconnect(a.id, a.label)}
+                      className="text-xs font-medium text-red-600 hover:underline flex-shrink-0"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                ))}
+                <p className="text-xs text-rbai-text-light">
+                  Auto-reply off (default): the AI drafts comment replies for your approval in the Inbox.
+                  Auto-reply on: replies post automatically.
+                </p>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleConnect}
+              disabled={connecting}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-[#1877F2] rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity"
+            >
+              {connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+              {connecting ? "Connecting..." : accounts.length > 0 ? "Connect another account" : "Connect with Facebook"}
+            </button>
+
+            <div className="space-y-3 pt-1">
+              <CopyRow label="Webhook URL (paste in the Meta dashboard)" value={status.webhookUrl} />
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-rbai-text-light">Verify token:</span>
+                {status.webhookConfigured ? (
+                  <span className="inline-flex items-center gap-1 text-rbai-success font-medium">
+                    <CheckCircle className="h-3.5 w-3.5" /> Set
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-amber-600 font-medium">
+                    <AlertTriangle className="h-3.5 w-3.5" /> META_VERIFY_TOKEN not set
+                  </span>
+                )}
+              </div>
+            </div>
+            <SetupGuide steps={status.setupGuide} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WhatsAppCloudCard({
+  status,
+}: {
+  status: ConnectStatus["whatsappCloud"] | null;
+}) {
+  return (
+    <div className="bg-rbai-surface rounded-xl border border-rbai-border overflow-hidden">
+      <div className="px-5 py-4 border-b border-rbai-border">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-lg bg-green-50 text-green-600">
+              <MessageCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-rbai-text">WhatsApp Cloud API</h3>
+              <p className="text-xs text-rbai-text-light mt-0.5">
+                Official Meta business API (no phone needed online)
+              </p>
+            </div>
+          </div>
+          <StatusBadge status={status?.configured ? "connected" : "disconnected"} />
+        </div>
+      </div>
+
+      <div className="p-5 space-y-4">
+        {!status ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="h-6 w-6 animate-spin text-rbai-primary" />
+          </div>
+        ) : !status.configured ? (
+          <>
+            <NotConnectedNote what="WhatsApp Cloud API" />
+            <SetupGuide steps={status.setupGuide} />
+          </>
+        ) : (
+          <>
+            <div className="rounded-lg border border-green-200 bg-green-50 p-3 flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <span className="text-sm text-green-700">
+                Cloud API credentials found — inbound messages flow to the Inbox.
+              </span>
+            </div>
+            <div className="space-y-3">
+              <CopyRow label="Webhook URL (paste in the Meta dashboard)" value={status.webhookUrl} />
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-rbai-text-light">Verify token:</span>
+                {status.webhookConfigured ? (
+                  <span className="inline-flex items-center gap-1 text-rbai-success font-medium">
+                    <CheckCircle className="h-3.5 w-3.5" /> Set
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-amber-600 font-medium">
+                    <AlertTriangle className="h-3.5 w-3.5" /> WHATSAPP_VERIFY_TOKEN not set — the webhook handshake will fail
+                  </span>
+                )}
+              </div>
+            </div>
+            <SetupGuide steps={status.setupGuide} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function XCard({
+  status,
+}: {
+  status: ConnectStatus["x"] | null;
+}) {
+  return (
+    <div className="bg-rbai-surface rounded-xl border border-rbai-border overflow-hidden">
+      <div className="px-5 py-4 border-b border-rbai-border">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-lg bg-slate-100 text-slate-700">
+              <XBrandIcon className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-rbai-text">X</h3>
+              <p className="text-xs text-rbai-text-light mt-0.5">
+                Posts, replies and DM webhooks
+              </p>
+            </div>
+          </div>
+          <StatusBadge status={status?.configured ? "connected" : "disconnected"} />
+        </div>
+      </div>
+
+      <div className="p-5 space-y-4">
+        {!status ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="h-6 w-6 animate-spin text-rbai-primary" />
+          </div>
+        ) : !status.configured ? (
+          <>
+            <NotConnectedNote what="X" />
+            <SetupGuide steps={status.setupGuide} />
+          </>
+        ) : (
+          <>
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center gap-2">
+                {status.hasBearer ? (
+                  <CheckCircle className="h-4 w-4 text-rbai-success" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-rbai-danger" />
+                )}
+                <span className="text-rbai-text">Read access (mentions sync)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {status.hasUserContext ? (
+                  <CheckCircle className="h-4 w-4 text-rbai-success" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-rbai-danger" />
+                )}
+                <span className="text-rbai-text">Write access (posts, replies, DMs)</span>
+              </div>
+            </div>
+            {!status.writeConfigured && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                Read-only: the engagement sync can read mentions, but posting and DMs need the full
+                user-context keys (X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET).
+              </p>
+            )}
+            <CopyRow label="DM webhook URL (Account Activity dashboard)" value={status.webhookUrl} />
+            <SetupGuide steps={status.setupGuide} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -837,6 +1293,7 @@ export default function ChannelsPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [siteKey, setSiteKey] = useState<string | null>(null);
+  const [connectStatus, setConnectStatus] = useState<ConnectStatus | null>(null);
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error";
@@ -869,7 +1326,13 @@ export default function ChannelsPage() {
     fetchChannels();
   }, [fetchChannels]);
 
-  // Website widget site key (super admin only; business admins won't see it).
+  // Phase 5: social connect status (Meta / WhatsApp Cloud / X).
+  useEffect(() => {
+    fetch("/api/channels/connect-status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => data && setConnectStatus(data))
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     fetch("/api/businesses")
       .then((r) => (r.ok ? r.json() : null))
@@ -984,6 +1447,10 @@ export default function ChannelsPage() {
               saving={saving}
             />
             <WidgetCard siteKey={siteKey} />
+            {/* Phase 5: social connect cards */}
+            <MetaCard status={connectStatus?.meta || null} onToast={showToast} />
+            <WhatsAppCloudCard status={connectStatus?.whatsappCloud || null} />
+            <XCard status={connectStatus?.x || null} />
           </div>
         )}
       </div>

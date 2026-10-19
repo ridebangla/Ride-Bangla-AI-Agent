@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { chat, createNewConversation } from "@/lib/ai/engine";
+import { createNewConversation } from "@/lib/ai/engine";
+import { processChannelMessage } from "@/lib/channels/inbound";
 import { resolveCustomer } from "@/lib/customer-resolver";
 import { logger } from "@/lib/logger";
 import { enterBusinessContext, resolveChannelBusiness } from "@/lib/tenant";
@@ -28,7 +29,8 @@ export async function handleIncomingSms(
   from: string,
   body: string
 ): Promise<string> {
-  enterBusinessContext(await resolveChannelBusiness());
+  const businessId = await resolveChannelBusiness();
+  enterBusinessContext(businessId);
   try {
     if (!body || !body.trim()) {
       return "Please send a message and we'll be happy to help!";
@@ -48,10 +50,12 @@ export async function handleIncomingSms(
       conversation = await createNewConversation("sms", "SMS User", from, customerId);
     }
 
-    // Phase 3: chat() returns { response, products, silent }. On human
-    // takeover (silent) the pipeline stored the message — the route answers
-    // with empty TwiML so no reply SMS goes out (pure silence).
-    const chatResult = await chat(conversation.id, body.trim());
+    // Phase 5: shared inbound pipeline — subscription hard-stop (user
+    // decision 16) first, then the engine (honors per-conversation +
+    // global aiEnabled, user decision 17). On human takeover or an
+    // inactive subscription the pipeline stored the message — the route
+    // answers with empty TwiML so no reply SMS goes out (pure silence).
+    const chatResult = await processChannelMessage(conversation.id, businessId, body.trim());
     return chatResult.silent ? "" : chatResult.response;
   } catch (error) {
     logger.error("[SMS] Failed to process incoming message:", error);
