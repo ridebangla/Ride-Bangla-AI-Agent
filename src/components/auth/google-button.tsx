@@ -7,10 +7,27 @@
  * endpoint:
  *  - "/api/auth/google"   (signup page — creates the account + trial if new)
  *  - "/api/auth/firebase" (login page — fail-closed, existing accounts only)
+ *
+ * A-to-Z audit 2026-10-20 (cross-site Google sign-in failure, owner-reported):
+ *  - Error codes are no longer swallowed into a bare generic banner: the
+ *    Firebase `error.code` is logged and the user message distinguishes
+ *    "Google sign-in isn't available yet" (provider disabled in the
+ *    Firebase console / domain not authorized / bad API key) from plain
+ *    try-again failures.
+ *  - Mobile: signInWithPopup is fragile on Android Chrome, so popup
+ *    failures that indicate blocking/unsupported environments fall back
+ *    to signInWithRedirect, and the redirect result is consumed on
+ *    return (getRedirectResult below) and exchanged the same way.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import {
+  GoogleAuthProvider,
+  getRedirectResult,
+  signInWithPopup,
+  signInWithRedirect,
+  type User,
+} from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase-client";
 
 function GoogleGlyph() {
@@ -36,6 +53,29 @@ function GoogleGlyph() {
   );
 }
 
+/** Codes that mean Google sign-in cannot work at all until the Firebase
+ *  project is configured — telling the user to "try again" would be a lie. */
+const NOT_AVAILABLE_CODES = new Set([
+  "auth/operation-not-allowed",
+  "auth/unauthorized-domain",
+  "auth/invalid-api-key",
+  "auth/api-key-not-valid",
+  "auth/configuration-not-found",
+  "auth/admin-restricted-operation",
+]);
+
+const REDIRECT_FALLBACK_CODES = new Set([
+  "auth/popup-blocked",
+  "auth/operation-not-supported-in-this-environment",
+  "auth/web-storage-unsupported",
+]);
+
+function errorCode(err: unknown): string {
+  return typeof err === "object" && err !== null && "code" in err
+    ? String((err as { code: unknown }).code)
+    : "";
+}
+
 export function GoogleButton({
   endpoint,
   label,
@@ -47,46 +87,112 @@ export function GoogleButton({
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const exchangingRef = useRef(false);
 
-  async function handleClick() {
+  async function exchange(user: User) {
+    if (exchangingRef.current) return;
+    exchangingRef.current = true;
     setLoading(true);
-    onError("");
     try {
-      const auth = getFirebaseAuth();
-      const provider = new GoogleAuthProvider();
-      const cred = await signInWithPopup(auth, provider);
-      const idToken = await cred.user.getIdToken();
-
+      const idToken = await user.getIdToken();
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idToken }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         onError(data.error || "Google sign-in failed. Please try again.");
         setLoading(false);
+        exchangingRef.current = false;
         return;
       }
       router.replace("/dashboard");
-    } catch (err: unknown) {
-      const code =
-        typeof err === "object" && err !== null && "code" in err
-          ? String((err as { code: unknown }).code)
-          : "";
-      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
-        // Customer closed the popup — not an error, just let them retry.
-      } else if (code === "auth/popup-blocked") {
-        onError("Your browser blocked the Google popup. Please allow popups for this site and try again.");
-      } else if (
-        err instanceof Error &&
-        err.message.includes("NEXT_PUBLIC_FIREBASE")
-      ) {
-        onError("Sign-in is not configured. Please contact support.");
-      } else {
-        onError("Google sign-in failed. Please try again.");
-      }
+    } catch {
+      onError("Google sign-in failed. Please check your connection and try again.");
       setLoading(false);
+      exchangingRef.current = false;
+    }
+  }
+
+  // Redirect-return path: if the user just came back from
+  // signInWithRedirect, finish the same token exchange.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const auth = getFirebaseAuth();
+        const result = await getRedirectResult(auth);
+        if (!cancelled && result?.user) {
+          onError("");
+          exchange(result.user);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const code = errorCode(err);
+        console.error("[google-signin] redirect result failed:", code || err);
+        if (NOT_AVAILABLE_CODES.has(code)) {
+          onError(
+            "Google sign-in isn't available yet. Please use email sign-in for now, or contact support."
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function reportFailure(err: unknown) {
+    const code = errorCode(err);
+    console.error("[google-signin] failed:", code || err);
+    if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+      // Customer closed the popup — not an error, just let them retry.
+    } else if (NOT_AVAILABLE_CODES.has(code)) {
+      onError(
+        "Google sign-in isn't available yet. Please use email sign-in for now, or contact support."
+      );
+    } else if (
+      err instanceof Error &&
+      err.message.includes("NEXT_PUBLIC_FIREBASE")
+    ) {
+      onError("Sign-in is not configured. Please contact support.");
+    } else {
+      onError("Google sign-in failed. Please try again.");
+    }
+    setLoading(false);
+  }
+
+  async function handleClick() {
+    setLoading(true);
+    onError("");
+    let auth;
+    try {
+      auth = getFirebaseAuth();
+    } catch (err) {
+      reportFailure(err);
+      return;
+    }
+    const provider = new GoogleAuthProvider();
+    try {
+      const cred = await signInWithPopup(auth, provider);
+      await exchange(cred.user);
+    } catch (err) {
+      const code = errorCode(err);
+      if (REDIRECT_FALLBACK_CODES.has(code)) {
+        // Popup path is unusable in this browser (common on Android
+        // Chrome) — full-page redirect instead; the result is consumed
+        // by the getRedirectResult effect above when the user returns.
+        try {
+          await signInWithRedirect(auth, provider);
+          return; // page is navigating away
+        } catch (redirectErr) {
+          reportFailure(redirectErr);
+          return;
+        }
+      }
+      reportFailure(err);
     }
   }
 

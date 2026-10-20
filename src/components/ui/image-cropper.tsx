@@ -317,16 +317,46 @@ export function ImageCropper({
         ow = Math.max(1, Math.round(ow * k));
         oh = Math.max(1, Math.round(oh * k));
       }
-      const canvas = document.createElement("canvas");
-      canvas.width = ow;
-      canvas.height = oh;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("canvas unavailable");
-      ctx.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, ow, oh);
+      // Encode with a hard size guarantee (A-to-Z audit 2026-10-20, C1):
+      // photos are stored as data URLs inside a Firestore doc (1 MiB
+      // limit; the server cap is 950,000 chars). A 1024px PNG of a real
+      // phone photo routinely exceeds that — the owner hit exactly the
+      // server's "too large after cropping" rejection. So: start with
+      // the faithful encode, then step quality down, then dimensions,
+      // until the result fits the budget. A normal photo now always
+      // saves; only a pathological image can still fail.
+      const MAX_DATA_URL_CHARS = 900_000;
+      const renderTo = (w: number, h: number, jpegOnWhite: boolean) => {
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        const cx = c.getContext("2d");
+        if (!cx) throw new Error("canvas unavailable");
+        if (jpegOnWhite) {
+          cx.fillStyle = "#ffffff";
+          cx.fillRect(0, 0, w, h);
+        }
+        cx.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, w, h);
+        return c;
+      };
       const isPng = file?.type === "image/png";
-      const dataUrl = isPng
-        ? canvas.toDataURL("image/png")
-        : canvas.toDataURL("image/jpeg", 0.85);
+      let dataUrl = isPng
+        ? renderTo(ow, oh, false).toDataURL("image/png")
+        : renderTo(ow, oh, false).toDataURL("image/jpeg", 0.85);
+      if (dataUrl.length > MAX_DATA_URL_CHARS) {
+        // JPEG re-encode (photos gain nothing from lossless PNG here).
+        for (const q of [0.85, 0.7, 0.55, 0.4]) {
+          dataUrl = renderTo(ow, oh, true).toDataURL("image/jpeg", q);
+          if (dataUrl.length <= MAX_DATA_URL_CHARS) break;
+        }
+        let scale = 0.75;
+        while (dataUrl.length > MAX_DATA_URL_CHARS && ow * scale >= 96) {
+          const w = Math.max(1, Math.round(ow * scale));
+          const h = Math.max(1, Math.round(oh * scale));
+          dataUrl = renderTo(w, h, true).toDataURL("image/jpeg", 0.7);
+          scale *= 0.75;
+        }
+      }
       onConfirm(dataUrl);
     } catch {
       setError("Something went wrong while cropping. Please try again.");

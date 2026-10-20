@@ -11,7 +11,7 @@
   --rbai-bg: #F8FAFC;
   --rbai-surface: #FFFFFF;
   --rbai-text: #1E293B;
-  --rbai-text-light: #64748B;
+  --rbai-text-light: #475569;
   --rbai-border: #E2E8F0;
   --rbai-sidebar: #1E293B;
   --rbai-sidebar-hover: #334155;
@@ -66,6 +66,18 @@ body {
   background: var(--rbai-bg);
   color: var(--rbai-text);
   font-family: var(--font-sans), system-ui, sans-serif;
+  /* Owner order 2026-10-20 (all-sites text rule): ALL reading text is
+     bold — body copy inherits weight 600 minimum, no faint text. */
+  font-weight: 600;
+}
+
+/* Utility-weight floor for reading text: Tailwind's font-normal (400)
+   and font-medium (500) classes render below the owner's bold-text rule,
+   so they are floored at 600. Unlayered CSS wins over Tailwind's
+   layered utilities. Headings/semibold/bold utilities are unaffected. */
+.font-normal,
+.font-medium {
+  font-weight: 600;
 }
 
 /* Scrollbar */

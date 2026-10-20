@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "input is required" }, { status: 400 });
   }
 
-  let providerHint: "auto" | "groq" | "gemini" | "openai";
+  let providerHint: "auto" | "groq" | "gemini" | "openai" | "openrouter";
   try {
     providerHint = normalizeProviderHint(body.provider ?? "auto");
   } catch (err) {

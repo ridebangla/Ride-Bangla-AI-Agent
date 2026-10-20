@@ -1,5 +1,9 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
+ * CANONICAL EMBED — v2026-10-20.2 (A-to-Z audit: CORS companion fix in
+ * the platform middleware + honest error states below). This is the ONE
+ * embed build every project reuses for the company help center; do not
+ * fork per-site copies.
  * Embeddable chat widget for customer websites.
  *
  * Usage:
@@ -378,12 +382,23 @@
     if (pendingRequests === 0) setAgentState("idle");
 
     if (!data) {
-      addMessage("Connection error. Please try again.", "bot");
+      // Genuine transport failure only (network down / unreadable
+      // response). Server-side states are handled below and must never
+      // be mislabeled as a connection error.
+      addMessage("Connection problem — please check your internet connection and try again.", "bot");
       return;
     }
     // Subscription hard-stop: dedicated paused state, nothing else.
     if (status === 402 || data.error === "subscription_paused") {
       showPausedState();
+      return;
+    }
+    if (status === 401) {
+      addMessage("This chat is not configured correctly yet. Please contact the business directly.", "bot");
+      return;
+    }
+    if (data.error === "message_limit_reached") {
+      addMessage("This business has reached its AI message limit for now. Please try again later, or contact the business directly.", "bot");
       return;
     }
     if (data.conversationId) conversationId = data.conversationId;

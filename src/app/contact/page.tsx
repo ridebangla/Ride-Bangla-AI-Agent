@@ -79,7 +79,7 @@ export default function ContactPage() {
       <section className="bg-[#0F172A] text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
           <h1 className="text-3xl sm:text-4xl font-bold">
-            যোগাযোগ করুন <span className="text-slate-400 font-medium">/ Contact Us</span>
+            যোগাযোগ করুন <span className="text-slate-600 font-medium">/ Contact Us</span>
           </h1>
           <p className="text-slate-300 mt-3 max-w-xl mx-auto">
             প্রশ্ন, পেমেন্ট সমস্যা বা মতামত — নিচের ফর্মটি পূরণ করুন, আমাদের টিম
@@ -107,9 +107,9 @@ export default function ContactPage() {
             <span className="font-semibold text-sm">
               Ride Bangla AI Agent
             </span>
-            <span className="text-xs text-slate-400">by Ride Bangla</span>
+            <span className="text-xs text-slate-600">by Ride Bangla</span>
           </div>
-          <div className="flex items-center gap-6 text-sm text-slate-500">
+          <div className="flex items-center gap-6 text-sm text-slate-700">
             <Link href="/signup" className="hover:text-slate-900">Sign up</Link>
             <Link href="/login" className="hover:text-slate-900">Log in</Link>
             <Link href="/contact" className="hover:text-slate-900">Contact</Link>
@@ -119,7 +119,7 @@ export default function ContactPage() {
               ridebangla.bd
             </a>
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-600">
             © {new Date().getFullYear()} Ride Bangla Limited. All rights reserved.
           </p>
         </div>

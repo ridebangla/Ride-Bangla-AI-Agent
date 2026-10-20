@@ -25,14 +25,15 @@ interface SearchResult {
  */
 async function generateEmbedding(text: string, apiKey: string): Promise<number[] | null> {
   try {
-    const response = await fetch("https://api.openai.com/v1/embeddings", {
+    const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+    const response = await fetch(`${baseUrl}/embeddings`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "text-embedding-3-small",
+        model: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
         input: text.substring(0, 8000),
       }),
     });

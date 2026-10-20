@@ -27,6 +27,8 @@
  */
 
 import admin from "firebase-admin";
+import { assertTxnIdNotClaimed } from "./claim-dedupe";
+export { DuplicateTxnError } from "./claim-dedupe";
 
 /** Manual payment method ids — one Firestore doc each. */
 export type ManualMethodId =
@@ -243,6 +245,7 @@ export async function createPaymentClaim(input: {
   kind?: ClaimKind;
   createdBy?: string;
 }): Promise<{ claimId: string; refCode: string }> {
+  await assertTxnIdNotClaimed(input.txnId);
   const { createWithUniqueRefCode } = await import("./ref-codes");
   const { id, refCode } = await createWithUniqueRefCode(
     getAdminDb(),

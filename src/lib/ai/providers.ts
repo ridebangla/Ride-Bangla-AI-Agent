@@ -39,14 +39,15 @@ import { logger } from "../logger";
 export type AIProviderName = "openai" | "groq" | "gemini" | "claude" | "ollama";
 
 /** Providers with a real implementation behind them. */
-export type RealProvider = "openai" | "groq" | "gemini";
-export const REAL_PROVIDERS: readonly RealProvider[] = ["openai", "groq", "gemini"];
+export type RealProvider = "openai" | "groq" | "gemini" | "openrouter";
+export const REAL_PROVIDERS: readonly RealProvider[] = ["openai", "groq", "gemini", "openrouter"];
 
 /** Resolved keys for one site. Absent/empty string = not configured. */
 export interface ProviderKeys {
   openai?: string | null;
   groq?: string | null;
   gemini?: string | null;
+  openrouter?: string | null;
 }
 
 export interface ProviderToolCall {
@@ -101,7 +102,13 @@ export class AllProvidersFailedError extends Error {
 export const DEFAULT_PROVIDER_PRIORITY: RealProvider[] = ["groq", "gemini", "openai"];
 
 export function providerEnvName(p: RealProvider): string {
-  return p === "groq" ? "GROQ_API_KEY" : p === "gemini" ? "GEMINI_API_KEY" : "OPENAI_API_KEY";
+  return p === "groq"
+    ? "GROQ_API_KEY"
+    : p === "gemini"
+      ? "GEMINI_API_KEY"
+      : p === "openrouter"
+        ? "OPENROUTER_API_KEY"
+        : "OPENAI_API_KEY";
 }
 
 /**
@@ -135,7 +142,7 @@ export function normalizeProviderHint(value: unknown): "auto" | RealProvider {
   const v = value.trim().toLowerCase();
   if (v === "auto") return "auto";
   const p = normalizePreferredProvider(v);
-  if (!p) throw new Error(`Invalid provider hint "${value}" — allowed: auto, groq, gemini, openai`);
+  if (!p) throw new Error(`Invalid provider hint "${value}" — allowed: auto, groq, gemini, openai, openrouter`);
   return p;
 }
 
@@ -167,6 +174,7 @@ function readSiteKeys(doc: SettingsLike | null | undefined): ProviderKeys {
     out.groq = cleanKey(r.groq);
     out.gemini = cleanKey(r.gemini);
     out.openai = cleanKey(r.openai);
+    out.openrouter = cleanKey(r.openrouter);
   }
   return out;
 }
@@ -191,6 +199,7 @@ export async function resolveSiteKeys(businessId?: string | null): Promise<Provi
     groq: envKey("groq"),
     gemini: envKey("gemini"),
     openai: envKey("openai"),
+    openrouter: envKey("openrouter"),
   };
 
   let doc: SettingsLike | null = null;
@@ -252,6 +261,7 @@ export function publicProviderStatus(keys: ProviderKeys): {
       openai: !!keys.openai,
       groq: !!keys.groq,
       gemini: !!keys.gemini,
+      openrouter: !!keys.openrouter,
     },
     priority: getProviderPriority(),
   };
@@ -269,6 +279,10 @@ export function defaultModelFor(p: RealProvider): string {
       return "gemini-2.0-flash";
     case "openai":
       return "gpt-4o-mini";
+    case "openrouter":
+      // OpenRouter model slugs are namespaced ("vendor/model") and are
+      // configurable via OPENROUTER_MODEL — never hardcode an OpenAI id.
+      return process.env.OPENROUTER_MODEL?.trim() || "openai/gpt-4o-mini";
   }
 }
 
@@ -285,10 +299,18 @@ function modelFor(p: RealProvider, requested?: string): string {
     if (r && /^gemini-/i.test(r)) return r;
     return defaultModelFor("gemini");
   }
+  if (p === "openrouter") {
+    // Any namespaced OpenRouter slug the business configured is valid.
+    return r || defaultModelFor("openrouter");
+  }
   return r || defaultModelFor("openai");
 }
 
 function visionModelFor(p: RealProvider, requested?: string): string {
+  if (p === "openrouter") {
+    const r = (requested ?? "").trim();
+    return r || "openai/gpt-4o-mini";
+  }
   if (p === "groq") {
     const r = (requested ?? "").trim();
     if (r && /llama-?4/i.test(r)) return r;
@@ -307,10 +329,21 @@ function visionModelFor(p: RealProvider, requested?: string): string {
 
 const PROVIDER_TIMEOUT_MS = 30000;
 
-function openAiClientFor(p: "openai" | "groq", apiKey: string): OpenAI {
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+
+function openAiClientFor(p: "openai" | "groq" | "openrouter", apiKey: string): OpenAI {
   return new OpenAI({
     apiKey,
     ...(p === "groq" ? { baseURL: "https://api.groq.com/openai/v1" } : {}),
+    ...(p === "openrouter"
+      ? {
+          baseURL: OPENROUTER_BASE_URL,
+          defaultHeaders: {
+            "HTTP-Referer": "https://ai.ridebangla.bd",
+            "X-Title": "Ride Bangla AI Agent",
+          },
+        }
+      : {}),
     timeout: PROVIDER_TIMEOUT_MS,
     maxRetries: 0, // failover across providers is handled here, not in-SDK
   });

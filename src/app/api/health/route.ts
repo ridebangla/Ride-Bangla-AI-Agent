@@ -18,15 +18,20 @@ export async function GET() {
     checks.database = "error";
   }
 
-  // OpenAI reachability check
+  // AI provider reachability check — probes the CONFIGURED provider's
+  // base URL (OpenRouter tenants must not be probed against OpenAI).
   try {
     const settings = await db.settings.findFirst({
-      select: { aiApiKey: true },
+      select: { aiApiKey: true, aiProvider: true },
     });
+    const isOpenRouter = settings?.aiProvider === "openrouter";
+    const modelsUrl = isOpenRouter
+      ? "https://openrouter.ai/api/v1/models"
+      : "https://api.openai.com/v1/models";
     if (settings?.aiApiKey) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
-      const res = await fetch("https://api.openai.com/v1/models", {
+      const res = await fetch(modelsUrl, {
         method: "HEAD",
         headers: { Authorization: `Bearer ${settings.aiApiKey}` },
         signal: controller.signal,

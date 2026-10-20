@@ -129,7 +129,7 @@ export function Sidebar() {
         {!collapsed && (
           <div className="overflow-hidden">
             <h1 className="text-base font-bold tracking-tight">Ride Bangla AI Agent</h1>
-            <p className="text-[10px] text-white/50">AI Customer Support</p>
+            <p className="text-[10px] font-semibold text-white/70">AI Customer Support</p>
           </div>
         )}
       </div>
@@ -138,7 +138,7 @@ export function Sidebar() {
         {sections.map((section, si) => (
           <div key={si}>
             {section.title && !collapsed && (
-              <p className="px-3 mb-1 text-[10px] uppercase tracking-wider text-white/40 font-medium">
+              <p className="px-3 mb-1 text-[10px] uppercase tracking-wider text-white/60 font-semibold">
                 {section.title}
               </p>
             )}

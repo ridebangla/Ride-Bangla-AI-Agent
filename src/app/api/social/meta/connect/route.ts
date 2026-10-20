@@ -5,6 +5,7 @@ import {
   buildMetaOAuthUrl,
   isMetaConfigured,
 } from "@/lib/channels/meta";
+import { createMetaOAuthState } from "@/lib/meta-oauth-state";
 
 /**
  * Phase 5: start the Meta (Facebook + Instagram) OAuth connect flow.
@@ -36,10 +37,27 @@ export async function GET(request: NextRequest) {
     }
 
     const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || "https://ai.ridebangla.bd"}/api/social/meta/callback`;
-    // State binds the OAuth round-trip to this business (checked on callback).
-    const state = Buffer.from(
-      JSON.stringify({ businessId: auth.businessId, nonce: Date.now() })
-    ).toString("base64url");
+    // State binds the OAuth round-trip to this business — HMAC-signed
+    // (see @/lib/meta-oauth-state); the callback verifies the signature
+    // and fails closed on anything unsigned, forged or stale.
+    if (!auth.businessId) {
+      return NextResponse.json({
+        configured: false,
+        reason:
+          "Meta connect runs inside a business workspace — platform administrators have no channels of their own.",
+      });
+    }
+    const state = createMetaOAuthState(auth.businessId);
+    if (!state) {
+      return NextResponse.json(
+        {
+          configured: false,
+          reason:
+            "Meta connect is unavailable: no server signing secret (META_APP_SECRET / JWT_SECRET) is configured.",
+        },
+        { status: 503 }
+      );
+    }
 
     return NextResponse.json({
       configured: true,

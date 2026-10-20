@@ -159,7 +159,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, claimId, refCode });
   } catch (err) {
     if (err instanceof WalletError) {
-      const status = err.code === "method_disabled" ? 409 : 400;
+      const status =
+        err.code === "method_disabled" || err.code === "duplicate_txn"
+          ? 409
+          : 400;
       return NextResponse.json(
         { error: err.code, message: err.message },
         { status }

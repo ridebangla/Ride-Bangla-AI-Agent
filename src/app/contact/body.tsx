@@ -181,7 +181,7 @@ export default function ContactBody() {
   }
 
   const inputClass =
-    "w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#4A7C9B] focus:border-transparent transition-shadow";
+    "w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-[#4A7C9B] focus:border-transparent transition-shadow";
 
   return (
     <>
@@ -197,7 +197,7 @@ export default function ContactBody() {
                   <Mail className="h-5 w-5" />
                 </span>
                 <span>
-                  <span className="block text-xs text-slate-500">ইমেইল / Email</span>
+                  <span className="block text-xs text-slate-700">ইমেইল / Email</span>
                   <span className="block text-sm font-medium break-all">{contacts.email}</span>
                 </span>
               </a>
@@ -211,7 +211,7 @@ export default function ContactBody() {
                   <Phone className="h-5 w-5" />
                 </span>
                 <span>
-                  <span className="block text-xs text-slate-500">ফোন / Phone</span>
+                  <span className="block text-xs text-slate-700">ফোন / Phone</span>
                   <span className="block text-sm font-medium">{contacts.phone}</span>
                 </span>
               </a>
@@ -225,7 +225,7 @@ export default function ContactBody() {
                   <PhoneCall className="h-5 w-5" />
                 </span>
                 <span>
-                  <span className="block text-xs text-slate-500">হটলাইন / Hotline</span>
+                  <span className="block text-xs text-slate-700">হটলাইন / Hotline</span>
                   <span className="block text-sm font-medium">{contacts.hotline}</span>
                 </span>
               </a>
@@ -241,7 +241,7 @@ export default function ContactBody() {
               <h2 className="text-xl font-bold mt-4">
                 বার্তা পাঠানো হয়েছে / Message sent
               </h2>
-              <p className="text-sm text-slate-500 mt-2 max-w-md mx-auto">
+              <p className="text-sm text-slate-700 mt-2 max-w-md mx-auto">
                 ধন্যবাদ! আমাদের সাপোর্ট টিম শীঘ্রই আপনার সাথে যোগাযোগ করবে। /
                 Thank you — our support team will get back to you soon.
               </p>
@@ -319,7 +319,7 @@ export default function ContactBody() {
                       placeholder="RB-XXXXXXXX"
                       maxLength={20}
                     />
-                    <p className="text-xs text-slate-500 mt-1.5">
+                    <p className="text-xs text-slate-700 mt-1.5">
                       পেমেন্টের সময় পাওয়া রেফারেন্স কোডটি দিন / Enter the reference code from your payment.
                     </p>
                   </div>
@@ -346,7 +346,7 @@ export default function ContactBody() {
               <div>
                 <span className="block text-sm font-medium text-slate-700 mb-1.5">
                   ছবি/ভিডিও যুক্ত করুন / Attach photos or video{" "}
-                  <span className="font-normal text-slate-400">(সর্বোচ্চ ৩টি / max 3)</span>
+                  <span className="font-normal text-slate-600">(সর্বোচ্চ ৩টি / max 3)</span>
                 </span>
                 <input
                   ref={fileRef}
@@ -375,13 +375,13 @@ export default function ContactBody() {
                         className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
                       >
                         <span className="flex-1 truncate text-slate-700">{a.name}</span>
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-slate-600">
                           {(a.size / 1024).toFixed(0)} KB
                         </span>
                         <button
                           type="button"
                           onClick={() => setAttachments(attachments.filter((_, j) => j !== i))}
-                          className="p-1 text-slate-400 hover:text-red-600"
+                          className="p-1 text-slate-600 hover:text-red-600"
                           aria-label="Remove file"
                         >
                           <X className="h-4 w-4" />
@@ -390,7 +390,7 @@ export default function ContactBody() {
                     ))}
                   </ul>
                 )}
-                <p className="text-xs text-slate-400 mt-2">
+                <p className="text-xs text-slate-600 mt-2">
                   ছবি স্বয়ংক্রিয়ভাবে ছোট করা হয় (JPEG, ১২৮০px) / Images are compressed automatically (JPEG, 1280px).
                 </p>
               </div>

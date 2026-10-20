@@ -141,7 +141,7 @@ export default function PricingPage() {
         <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">
           Simple, honest pricing
         </h1>
-        <p className="text-slate-500 mt-4 text-lg max-w-2xl mx-auto">
+        <p className="text-slate-700 mt-4 text-lg max-w-2xl mx-auto">
           Start free for {TRIAL_DAYS} days. Then pick the plan that fits —
           cancel anytime, keep your data either way.
         </p>
@@ -158,7 +158,7 @@ export default function PricingPage() {
             {FAQS.map((f) => (
               <div key={f.q} className="bg-white border border-slate-200 rounded-xl p-6">
                 <h3 className="font-semibold">{f.q}</h3>
-                <p className="text-sm text-slate-500 mt-2 leading-relaxed">{f.a}</p>
+                <p className="text-sm text-slate-700 mt-2 leading-relaxed">{f.a}</p>
               </div>
             ))}
           </div>
@@ -179,7 +179,7 @@ export default function PricingPage() {
           >
             Start free trial <ArrowRight className="h-4 w-4" />
           </Link>
-          <p className="text-xs text-slate-400 mt-4">
+          <p className="text-xs font-semibold text-slate-300 mt-4">
             No credit card · Set up in minutes · Cancel anytime
           </p>
         </div>
@@ -187,7 +187,7 @@ export default function PricingPage() {
 
       {/* Footer */}
       <footer className="border-t border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-500">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-700">
           <Link href="/" className="flex items-center gap-2.5">
             <Image
               src="/agent-avatar.png"

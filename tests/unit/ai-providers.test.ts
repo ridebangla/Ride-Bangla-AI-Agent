@@ -329,7 +329,7 @@ describe("key hygiene — keys never leak into client-safe payloads", () => {
     expect(serialized).not.toContain(FAKE.groq);
     expect(serialized).not.toContain(FAKE.gemini);
     expect(serialized).not.toContain(FAKE.openai);
-    expect(status.providers).toEqual({ openai: true, groq: true, gemini: true });
+    expect(status.providers).toEqual({ openai: true, groq: true, gemini: true, openrouter: false });
   });
 
   it("maskSettingsSecrets deep-masks aiKeys without exposing material", () => {

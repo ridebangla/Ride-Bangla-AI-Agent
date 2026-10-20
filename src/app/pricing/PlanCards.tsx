@@ -157,7 +157,7 @@ export default function PlanCards() {
           <span className="font-semibold text-[#2D5A7B]">All-in-one:</span>{" "}
           every plan includes everything — Facebook automation,
           website/landing-page builder, your own AI agent, lead engine{" "}
-          <span className="text-slate-500">(coming soon)</span>. You only
+          <span className="text-slate-700">(coming soon)</span>. You only
           choose how much volume you need.
         </p>
       </div>
@@ -207,9 +207,9 @@ export default function PlanCards() {
             <h2 className="font-semibold text-lg">Free Trial</h2>
             <p className="mt-3">
               <span className="text-4xl font-bold">$0</span>
-              <span className="text-slate-500 text-sm"> / {TRIAL_DAYS} days</span>
+              <span className="text-slate-700 text-sm"> / {TRIAL_DAYS} days</span>
             </p>
-            <p className="text-sm text-slate-500 mt-2">
+            <p className="text-sm text-slate-700 mt-2">
               Try everything free for {TRIAL_DAYS} days — no credit card.
             </p>
             <ul className="mt-6 space-y-2.5 text-sm text-slate-600 flex-1">
@@ -245,7 +245,7 @@ export default function PlanCards() {
               <h2 className="font-semibold text-lg">{PLAN_META[plan.id].name}</h2>
               <p className="mt-3">
                 <span className="text-4xl font-bold">${priceFor(plan.id)}</span>
-                <span className="text-slate-500 text-sm">
+                <span className="text-slate-700 text-sm">
                   {interval === "yearly" ? " / year" : " / month"}
                 </span>
               </p>
@@ -254,12 +254,12 @@ export default function PlanCards() {
                   <span className="inline-block rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold px-2.5 py-0.5">
                     2 months free
                   </span>{" "}
-                  <span className="text-slate-500">
+                  <span className="text-slate-700">
                     — just ${monthlyEquiv(plan.id)}/mo
                   </span>
                 </p>
               )}
-              <p className="text-sm text-slate-500 mt-2">{plan.desc}</p>
+              <p className="text-sm text-slate-700 mt-2">{plan.desc}</p>
               <ul className="mt-6 space-y-2.5 text-sm text-slate-600 flex-1">
                 {plan.features.map((f) => (
                   <li key={f} className="flex items-start gap-2">
@@ -282,7 +282,7 @@ export default function PlanCards() {
             </div>
           ))}
         </div>
-        <p className="text-center text-sm text-slate-500 mt-8">
+        <p className="text-center text-sm text-slate-700 mt-8">
           Every paid plan starts with the same {TRIAL_DAYS}-day free trial — no
           credit card. Prices in USD — billed monthly, or yearly with 2 months
           free.
@@ -292,20 +292,20 @@ export default function PlanCards() {
       {/* Comparison table (paid plans) */}
       <section className="max-w-5xl mx-auto px-4 sm:px-6 py-14">
         <h2 className="text-3xl font-bold text-center">Compare plans</h2>
-        <p className="text-slate-500 text-center mt-3">
+        <p className="text-slate-700 text-center mt-3">
           Everything your AI agent can do, side by side.
         </p>
         <div className="mt-10 overflow-x-auto rounded-2xl border border-slate-200">
           <table className="w-full min-w-[560px] text-left">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="py-4 px-5 text-sm font-semibold text-slate-500 w-[46%]">
+                <th className="py-4 px-5 text-sm font-semibold text-slate-700 w-[46%]">
                   Feature
                 </th>
                 {PAID_CARDS.map((p) => (
                   <th key={p.id} className="py-4 px-5 text-sm font-bold text-center">
                     {PLAN_META[p.id].name}
-                    <span className="block text-xs font-normal text-slate-500 mt-0.5">
+                    <span className="block text-xs font-normal text-slate-700 mt-0.5">
                       ${priceFor(p.id)}
                       {interval === "yearly" ? "/yr" : "/mo"}
                     </span>

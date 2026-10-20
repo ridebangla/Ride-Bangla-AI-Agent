@@ -157,7 +157,7 @@ export default function TermsPage() {
       {/* Content */}
       <main className="max-w-3xl mx-auto px-4 sm:px-6 py-14">
         <h1 className="text-4xl font-bold tracking-tight">Terms &amp; Conditions</h1>
-        <p className="text-slate-500 mt-3 text-sm">Last updated: October 19, 2026</p>
+        <p className="text-slate-700 mt-3 text-sm">Last updated: October 19, 2026</p>
         <div className="mt-10 space-y-10">
           {SECTIONS.map((s) => (
             <section key={s.heading}>
@@ -176,7 +176,7 @@ export default function TermsPage() {
 
       {/* Footer */}
       <footer className="border-t border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-500">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-slate-700">
           <Link href="/" className="flex items-center gap-2.5">
             <Image
               src="/agent-avatar.png"

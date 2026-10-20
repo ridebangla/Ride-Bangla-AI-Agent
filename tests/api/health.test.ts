@@ -27,7 +27,7 @@ describe("GET /api/health", () => {
 
   it("should return ok status when database is connected (admin sees details)", async () => {
     (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([{ "?column?": 1 }]);
-    await mockUser({ role: "admin" });
+    await mockUser({ role: "super_admin" });
 
     const { GET } = await import("@/app/api/health/route");
     const response = await GET();
@@ -43,7 +43,7 @@ describe("GET /api/health", () => {
 
   it("should return degraded status when database is down (admin sees details)", async () => {
     (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Connection refused"));
-    await mockUser({ role: "admin" });
+    await mockUser({ role: "super_admin" });
 
     const { GET } = await import("@/app/api/health/route");
     const response = await GET();
@@ -57,7 +57,7 @@ describe("GET /api/health", () => {
   it("should report openai as not_configured when no API key (admin)", async () => {
     (mockPrisma.$queryRaw as ReturnType<typeof vi.fn>).mockResolvedValue([{ "?column?": 1 }]);
     (mockPrisma.settings as Record<string, ReturnType<typeof vi.fn>>).findFirst.mockResolvedValue({ aiApiKey: "" });
-    await mockUser({ role: "admin" });
+    await mockUser({ role: "super_admin" });
 
     const { GET } = await import("@/app/api/health/route");
     const response = await GET();

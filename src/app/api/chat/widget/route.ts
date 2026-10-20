@@ -109,12 +109,32 @@ export async function POST(request: NextRequest) {
       if (!existing || existing.customerContact !== visitor) convId = "";
     }
     if (!convId) {
+      // Multi-site identity (A-to-Z audit 2026-10-20): when ONE business's
+      // widget is embedded on several of the owner's sites, the Origin /
+      // Referer host is the only reliable per-site signal — record it on
+      // the conversation so the Inbox can tell which site a chat came
+      // from. An explicit body.source (sanitized) wins when provided.
+      const explicitSource =
+        typeof (body as { source?: unknown }).source === "string"
+          ? (body as { source: string }).source.trim().slice(0, 60)
+          : "";
+      let sourceSite = explicitSource;
+      if (!sourceSite) {
+        const originHost =
+          request.headers.get("origin") || request.headers.get("referer") || "";
+        try {
+          sourceSite = new URL(originHost).hostname.slice(0, 60);
+        } catch {
+          sourceSite = "";
+        }
+      }
       const conv = await prisma.conversation.create({
         data: withBusinessId({
           channel: "widget",
           customerName: "Website Visitor",
           customerContact: visitor,
           status: "open",
+          ...(sourceSite ? { metadata: { sourceSite } } : {}),
           // Phase 3 (user decision 17): AI replies ON by default; the Phase
           // 5 dashboard switch flips this to false for human takeover.
           aiEnabled: true,

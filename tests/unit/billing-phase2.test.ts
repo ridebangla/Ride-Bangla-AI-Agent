@@ -541,6 +541,23 @@ describe("wallet", () => {
     expect(snap2.data()!.visionPreRead.status).toBe("unavailable"); // no AI key in test env
   });
 
+  it("createDepositClaim rejects a txnId already claimed (A-to-Z audit dedupe)", async () => {
+    await createDepositClaim("biz-1", {
+      method: "binance",
+      amountCents: 5000,
+      txnId: "TXN-DUP-1",
+      screenshotDataUrl: SHOT,
+    });
+    await expect(
+      createDepositClaim("biz-2", {
+        method: "binance",
+        amountCents: 5000,
+        txnId: "TXN-DUP-1",
+        screenshotDataUrl: SHOT,
+      })
+    ).rejects.toMatchObject({ name: "WalletError", code: "duplicate_txn" });
+  });
+
   it("createDepositClaim rejects non-positive amounts", async () => {
     await expect(
       createDepositClaim("biz-1", {

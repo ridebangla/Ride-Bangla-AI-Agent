@@ -11,9 +11,75 @@ interface HeaderProps {
   actions?: React.ReactNode;
 }
 
+interface NotificationItem {
+  id: string;
+  kind: string;
+  text: string;
+  at: string | null;
+  href: string;
+}
+
+const NOTIF_SEEN_KEY = "rbai-notifications-seen-at";
+
 export function Header({ title, description, actions }: HeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  // Notification bell (A-to-Z audit 2026-10-20): previously a dead button
+  // with a hardcoded red dot. Now fed by GET /api/notifications; the dot
+  // reflects genuinely newer items vs the local seen-watermark and
+  // clears when the panel is opened.
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifItems, setNotifItems] = useState<NotificationItem[]>([]);
+  const [notifLatestAt, setNotifLatestAt] = useState<string | null>(null);
+  const [notifSeenAt, setNotifSeenAt] = useState<string>("");
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try {
+      setNotifSeenAt(window.localStorage.getItem(NOTIF_SEEN_KEY) || "");
+    } catch { /* storage unavailable */ }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/notifications");
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        setNotifItems(Array.isArray(json.items) ? json.items : []);
+        setNotifLatestAt(typeof json.latestAt === "string" ? json.latestAt : null);
+      } catch { /* bell simply shows no dot on failure */ }
+    };
+    load();
+    const timer = window.setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const hasUnread =
+    !!notifLatestAt && (!notifSeenAt || notifLatestAt > notifSeenAt);
+
+  const toggleNotifications = () => {
+    const next = !notifOpen;
+    setNotifOpen(next);
+    if (next && notifLatestAt) {
+      setNotifSeenAt(notifLatestAt);
+      try {
+        window.localStorage.setItem(NOTIF_SEEN_KEY, notifLatestAt);
+      } catch { /* ignore */ }
+    }
+  };
   // Profile photo + display name for the avatar (set on the Profile page).
   // Best-effort only: any failure leaves the letter avatar untouched.
   const [profile, setProfile] = useState<{ name: string; photo: string } | null>(null);
@@ -106,10 +172,54 @@ export function Header({ title, description, actions }: HeaderProps) {
           )}
         </button>
 
-        <button className="relative p-2 text-rbai-text-light hover:text-rbai-text hover:bg-rbai-primary-50 rounded-lg transition-colors">
-          <Bell className="h-5 w-5" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rbai-danger rounded-full" />
-        </button>
+        <div className="relative" ref={notifRef}>
+          <button
+            onClick={toggleNotifications}
+            className="relative p-2 text-rbai-text-light hover:text-rbai-text hover:bg-rbai-primary-50 rounded-lg transition-colors"
+            title="Notifications"
+            aria-label="Notifications"
+          >
+            <Bell className="h-5 w-5" />
+            {hasUnread && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rbai-danger rounded-full" />
+            )}
+          </button>
+          {notifOpen && (
+            <div className="absolute right-0 mt-2 w-80 max-w-[85vw] bg-rbai-surface border border-rbai-border rounded-lg shadow-lg py-1 z-50 animate-scale-in transition-theme">
+              <p className="px-4 py-2 text-sm font-semibold text-rbai-text border-b border-rbai-border">
+                Notifications
+              </p>
+              {notifItems.length === 0 ? (
+                <p className="px-4 py-3 text-sm text-rbai-text-light">
+                  No notifications yet.
+                </p>
+              ) : (
+                <ul className="max-h-80 overflow-y-auto">
+                  {notifItems.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        onClick={() => {
+                          setNotifOpen(false);
+                          router.push(item.href);
+                        }}
+                        className="w-full text-left px-4 py-2.5 hover:bg-rbai-primary-50 transition-colors"
+                      >
+                        <span className="block text-sm font-medium text-rbai-text">
+                          {item.text}
+                        </span>
+                        {item.at && (
+                          <span className="block text-xs text-rbai-text-light mt-0.5">
+                            {new Date(item.at).toLocaleString()}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
 
         {actions}
 

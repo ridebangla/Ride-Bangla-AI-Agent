@@ -319,7 +319,7 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
                   confirmation on WhatsApp shortly.
                 </div>
               </div>
-              <div className="px-5 py-4 border-t border-slate-200 flex items-center gap-2 text-sm text-slate-400">
+              <div className="px-5 py-4 border-t border-slate-200 flex items-center gap-2 text-sm text-slate-600">
                 <MessageCircle className="h-4 w-4" />
                 Powered by Ride Bangla AI Agent
               </div>
@@ -330,7 +330,7 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
 
       {/* Channel strip */}
       <section className="border-b border-slate-200 bg-slate-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-wrap items-center justify-center gap-x-10 gap-y-4 text-slate-500 text-sm font-medium">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-wrap items-center justify-center gap-x-10 gap-y-4 text-slate-700 text-sm font-medium">
           <span className="flex items-center gap-2"><Globe className="h-4 w-4" /> Your website</span>
           <span className="flex items-center gap-2"><MessageCircle className="h-4 w-4" /> WhatsApp</span>
           <span className="flex items-center gap-2"><Share2 className="h-4 w-4" /> Facebook</span>
@@ -342,7 +342,7 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
       {/* How it works */}
       <section id="how" className="max-w-7xl mx-auto px-4 sm:px-6 py-20">
         <h2 className="text-3xl font-bold text-center">Live in three steps</h2>
-        <p className="text-slate-500 text-center mt-3 max-w-2xl mx-auto">
+        <p className="text-slate-700 text-center mt-3 max-w-2xl mx-auto">
           From signup to your first AI-handled customer conversation in minutes —
           not weeks.
         </p>
@@ -359,7 +359,7 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
                 <s.icon className="h-6 w-6" />
               </span>
               <h3 className="font-semibold text-lg mt-4">{s.title}</h3>
-              <p className="text-slate-500 text-sm mt-2 leading-relaxed">{s.desc}</p>
+              <p className="text-slate-700 text-sm mt-2 leading-relaxed">{s.desc}</p>
             </div>
           ))}
         </div>
@@ -371,7 +371,7 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
           <h2 className="text-3xl font-bold text-center">
             Everything a great support team does
           </h2>
-          <p className="text-slate-500 text-center mt-3 max-w-2xl mx-auto">
+          <p className="text-slate-700 text-center mt-3 max-w-2xl mx-auto">
             One AI agent that sells, supports and follows up — across every
             channel your customers use.
           </p>
@@ -385,7 +385,7 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
                   <f.icon className="h-6 w-6" />
                 </span>
                 <h3 className="font-semibold text-lg mt-4">{f.title}</h3>
-                <p className="text-slate-500 text-sm mt-2 leading-relaxed">{f.desc}</p>
+                <p className="text-slate-700 text-sm mt-2 leading-relaxed">{f.desc}</p>
               </div>
             ))}
           </div>
@@ -395,7 +395,7 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
       {/* Pricing */}
       <section id="pricing" className="max-w-7xl mx-auto px-4 sm:px-6 py-20">
         <h2 className="text-3xl font-bold text-center">Simple, honest pricing</h2>
-        <p className="text-slate-500 text-center mt-3 max-w-2xl mx-auto">
+        <p className="text-slate-700 text-center mt-3 max-w-2xl mx-auto">
           Start free for {TRIAL_DAYS} days. Then pick the plan that fits — cancel anytime.
         </p>
         <div className="grid md:grid-cols-3 gap-6 mt-12 items-stretch">
@@ -416,9 +416,9 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
               <h3 className="font-semibold text-lg">{plan.name}</h3>
               <p className="mt-3">
                 <span className="text-4xl font-bold">{plan.price}</span>
-                <span className="text-slate-500 text-sm"> / month</span>
+                <span className="text-slate-700 text-sm"> / month</span>
               </p>
-              <p className="text-sm text-slate-500 mt-2">{plan.desc}</p>
+              <p className="text-sm text-slate-700 mt-2">{plan.desc}</p>
               <ul className="mt-6 space-y-2.5 text-sm text-slate-600 flex-1">
                 {plan.features.map((f) => (
                   <li key={f} className="flex items-start gap-2">
@@ -440,7 +440,7 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
             </div>
           ))}
         </div>
-        <p className="text-center text-sm text-slate-500 mt-8">
+        <p className="text-center text-sm text-slate-700 mt-8">
           Every plan starts with the same {TRIAL_DAYS}-day free trial — no credit card.
         </p>
       </section>
@@ -453,7 +453,7 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
             {FAQS.map((f) => (
               <div key={f.q} className="bg-white border border-slate-200 rounded-xl p-6">
                 <h3 className="font-semibold">{f.q}</h3>
-                <p className="text-sm text-slate-500 mt-2 leading-relaxed">{f.a}</p>
+                <p className="text-sm text-slate-700 mt-2 leading-relaxed">{f.a}</p>
               </div>
             ))}
           </div>
@@ -479,7 +479,7 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
           >
             Start free trial <ArrowRight className="h-4 w-4" />
           </Link>
-          <p className="text-xs text-slate-400 mt-4">
+          <p className="text-xs font-semibold text-slate-300 mt-4">
             No credit card · Set up in minutes · Cancel anytime
           </p>
         </div>
@@ -499,9 +499,9 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
             <span className="font-semibold text-sm">
               Ride Bangla AI Agent
             </span>
-            <span className="text-xs text-slate-400">by Ride Bangla</span>
+            <span className="text-xs text-slate-600">by Ride Bangla</span>
           </div>
-          <div className="flex items-center gap-6 text-sm text-slate-500">
+          <div className="flex items-center gap-6 text-sm text-slate-700">
             <Link href="/signup" className="hover:text-slate-900">Sign up</Link>
             <Link href="/login" className="hover:text-slate-900">Log in</Link>
             <Link href="/contact" className="hover:text-slate-900">Contact</Link>
@@ -511,7 +511,7 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
               ridebangla.bd
             </a>
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-600">
             © {new Date().getFullYear()} Ride Bangla Limited. All rights reserved.
           </p>
         </div>

@@ -319,7 +319,7 @@ export default function ProfilePage() {
         title="Crop your photo"
         aspects={SQUARE_ONLY}
         defaultAspectId="square"
-        maxOutputSize={1024}
+        maxOutputSize={512}
         onConfirm={(dataUrl) => {
           setCropFile(null);
           if (!isImageDataUrl(dataUrl)) {

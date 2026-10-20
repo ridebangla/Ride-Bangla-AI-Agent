@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runWithBusiness } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { connectMetaAccount } from "@/lib/channels/meta";
+import { verifyMetaOAuthState } from "@/lib/meta-oauth-state";
 
 export const runtime = "nodejs";
 
@@ -37,17 +38,14 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  let businessId: string | null = null;
-  try {
-    const parsed = JSON.parse(
-      Buffer.from(state, "base64url").toString("utf8")
-    ) as { businessId?: string };
-    businessId = parsed.businessId || null;
-  } catch {
-    businessId = null;
-  }
+  // A-to-Z audit 2026-10-20: the state must carry a valid HMAC signature
+  // minted by the authenticated connect route (see @/lib/meta-oauth-state).
+  // The previous unsigned base64 state let anyone bind their own Meta
+  // pages into an arbitrary tenant by forging a businessId.
+  const verified = verifyMetaOAuthState(state);
+  const businessId = verified?.businessId ?? null;
   if (!businessId) {
-    logger.warn("[Meta OAuth] bad state — failing closed");
+    logger.warn("[Meta OAuth] bad or unsigned state — failing closed");
     return NextResponse.redirect(`${appUrl}/channels?meta=error`, {
       status: 302,
     });

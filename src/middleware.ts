@@ -43,6 +43,41 @@ const SECURITY_HEADERS: Record<string, string> = {
 
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "";
 
+/**
+ * Public EMBED endpoints — designed to be called from OTHER origins:
+ * the embeddable chat widget (any tenant website), the first-party AI
+ * endpoint and the shared reviews / firebase-config APIs (sibling
+ * sites). Their auth is the public siteKey carried in the request, never
+ * cookies, so a wildcard CORS policy is safe here — and REQUIRED:
+ * the single-origin CORS_ORIGIN env can never cover every tenant's
+ * website. (A-to-Z audit 2026-10-20: without this, cross-origin embeds
+ * received responses the browser refused to expose — the server stored
+ * the chat and replied, but the visitor only saw "Connection error".)
+ */
+const PUBLIC_EMBED_PREFIXES = [
+  "/api/chat/widget",
+  "/api/chat/vision",
+  "/api/chat/voice",
+  "/api/public/ai/generate",
+  "/api/public/reviews",
+  "/api/public/firebase-config",
+];
+
+function isPublicEmbedPath(pathname: string): boolean {
+  return PUBLIC_EMBED_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
+function applyPublicEmbedCors(response: NextResponse): NextResponse {
+  response.headers.set("Access-Control-Allow-Origin", "*");
+  response.headers.set(
+    "Access-Control-Allow-Methods",
+    "GET, POST, OPTIONS"
+  );
+  response.headers.set("Access-Control-Allow-Headers", "Content-Type");
+  response.headers.set("Access-Control-Max-Age", "86400");
+  return response;
+}
+
 function generateRequestId(): string {
   return crypto.randomUUID();
 }
@@ -110,6 +145,11 @@ export async function middleware(request: NextRequest) {
   }
 
   // CORS preflight
+  if (request.method === "OPTIONS" && isPublicEmbedPath(pathname)) {
+    return applyPublicEmbedCors(
+      addHeaders(new NextResponse(null, { status: 204 }), requestId)
+    );
+  }
   if (request.method === "OPTIONS" && CORS_ORIGIN) {
     return addHeaders(new NextResponse(null, { status: 204 }), requestId);
   }
@@ -218,7 +258,8 @@ export async function middleware(request: NextRequest) {
   }
 
   if (isPublic || isLandingRoot) {
-    return addHeaders(NextResponse.next(), requestId);
+    const res = addHeaders(NextResponse.next(), requestId);
+    return isPublicEmbedPath(pathname) ? applyPublicEmbedCors(res) : res;
   }
 
   // General API rate limiting

@@ -157,7 +157,7 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
         <h2 className="text-3xl font-bold text-center">
           Customers love it / গ্রাহকদের ভালোবাসা
         </h2>
-        <p className="text-slate-500 text-center mt-3 max-w-2xl mx-auto">
+        <p className="text-slate-700 text-center mt-3 max-w-2xl mx-auto">
           Real reviews from businesses using Ride Bangla AI Agent. /
           রাইড বাংলা এআই এজেন্ট ব্যবহার করা ব্যবসাগুলোর আসল রিভিউ।
         </p>
@@ -165,13 +165,13 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
         <div className="flex items-center justify-center gap-3 mt-8">
           <Stars value={average} size={26} />
           <span className="text-2xl font-bold">{average.toFixed(1)}</span>
-          <span className="text-slate-500 text-sm">
+          <span className="text-slate-700 text-sm">
             {count} review{count === 1 ? "" : "s"} / {count} টি রিভিউ
           </span>
         </div>
 
         {loaded && reviews.length === 0 && (
-          <p className="text-center text-slate-500 mt-10">
+          <p className="text-center text-slate-700 mt-10">
             No reviews yet — be the first. / এখনো কোনো রিভিউ নেই — প্রথম
             রিভিউটা আপনিই লিখুন।
           </p>
@@ -196,7 +196,7 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
                 <p className="text-sm text-slate-600 mt-3 leading-relaxed whitespace-pre-line">
                   {r.text}
                 </p>
-                <p className="text-xs text-slate-400 mt-3">
+                <p className="text-xs text-slate-600 mt-3">
                   {new Date(r.createdAt).toLocaleDateString("en-GB", {
                     day: "numeric",
                     month: "short",
@@ -280,7 +280,7 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
             </button>
           </form>
         ) : (
-          <p className="text-center text-sm text-slate-500 mt-12">
+          <p className="text-center text-sm text-slate-700 mt-12">
             Sign in to write a review. / রিভিউ লিখতে সাইন ইন করুন।{" "}
             <a href="/login" className="text-[#4A7C9B] font-medium hover:underline">
               Log in

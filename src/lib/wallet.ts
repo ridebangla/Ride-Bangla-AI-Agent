@@ -30,6 +30,10 @@ import {
   type ClaimKind,
 } from "./manual-payments";
 import {
+  assertTxnIdNotClaimed,
+  DuplicateTxnError,
+} from "./claim-dedupe";
+import {
   PLAN_META,
   isPaidPlanId,
   isBillingInterval,
@@ -172,6 +176,7 @@ export class WalletError extends Error {
     message: string,
     public readonly code:
       | "method_disabled"
+      | "duplicate_txn"
       | "invalid_amount"
       | "insufficient_balance"
       | "not_found"
@@ -221,6 +226,14 @@ export async function createDepositClaim(
   const txnId = input.txnId.trim();
   if (!txnId || txnId.length > 200) {
     throw new WalletError("A valid transaction ID is required.", "invalid_amount");
+  }
+  try {
+    await assertTxnIdNotClaimed(txnId);
+  } catch (err) {
+    if (err instanceof DuplicateTxnError) {
+      throw new WalletError(err.message, "duplicate_txn");
+    }
+    throw err;
   }
 
   const kind: ClaimKind = "wallet_deposit";
@@ -331,6 +344,12 @@ export async function purchaseFromWallet(
         plan: input.plan,
         billingInterval: input.interval,
         subscriptionEndsAt: admin.firestore.Timestamp.fromDate(endsAt),
+        // Parity with approveSubscriptionClaim (A-to-Z audit 2026-10-20):
+        // a wallet purchase starts a fresh billing cycle, so the AI-message
+        // usage period resets too — previously the old count carried over
+        // and could instantly exhaust the new plan's allowance.
+        aiMessagesUsed: 0,
+        usagePeriodStart: admin.firestore.Timestamp.fromDate(now),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }

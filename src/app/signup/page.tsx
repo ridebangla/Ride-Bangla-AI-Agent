@@ -134,7 +134,7 @@ export default function SignupPage() {
             ))}
           </ul>
         </div>
-        <div className="relative flex items-center gap-6 text-xs text-slate-400">
+        <div className="relative flex items-center gap-6 text-xs font-semibold text-slate-300">
           <span className="flex items-center gap-1.5">
             <Clock className="h-3.5 w-3.5" /> {TRIAL_DAYS}-day free trial
           </span>

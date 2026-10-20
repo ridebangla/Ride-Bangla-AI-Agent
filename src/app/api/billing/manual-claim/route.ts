@@ -10,6 +10,7 @@ import {
   type BillingInterval,
 } from "@/lib/plans";
 import {
+  DuplicateTxnError,
   isManualMethodId,
   isMethodEnabled,
   createPaymentClaim,
@@ -203,7 +204,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, claimId, refCode });
     } catch (err) {
       if (err instanceof WalletError) {
-        const status = err.code === "method_disabled" ? 409 : 400;
+        const status =
+          err.code === "method_disabled" || err.code === "duplicate_txn"
+            ? 409
+            : 400;
         return NextResponse.json(
           { error: err.code, message: err.message },
           { status }
@@ -289,6 +293,12 @@ export async function POST(request: NextRequest) {
     kickVisionPreRead(claimId);
     return NextResponse.json({ ok: true, claimId, refCode });
   } catch (err) {
+    if (err instanceof DuplicateTxnError) {
+      return NextResponse.json(
+        { error: err.code, message: err.message },
+        { status: 409 }
+      );
+    }
     logger.error("manual-claim create failed", {
       businessId: auth.businessId,
       plan,
