@@ -57,7 +57,8 @@ export const metadata: Metadata = {
       "AI customer service agent for businesses: instant 24/7 chat support, WhatsApp / Facebook / Instagram / Telegram automation, and a no-code admin dashboard.",
     images: [SITE_URL + "/agent-avatar.png"],
   },
-  icons: {
+  manifest: "/manifest.webmanifest",
+    icons: {
     // New agent-mascot favicon (multi-size .ico + PNG fallbacks). Brand
     // artwork (agent-avatar.png) is untouched elsewhere on purpose.
     icon: [
