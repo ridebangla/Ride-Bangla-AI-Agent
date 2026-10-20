@@ -7,10 +7,11 @@
  * `@/lib/stripe`, which re-exports everything here.
  */
 
-/** Free trial length for every new SaaS signup (user decision 2026-10-19: 7 days).
+/** Free trial length for every new SaaS signup — the FIRST MONTH FREE
+ *  (user decision 2026-10-20: 30 days, superseding the 2026-10-19 7-day rule).
  *  Client-safe (no server-only imports) so marketing pages and the signup
  *  form can render it without bundling server code. */
-export const TRIAL_DAYS = 7;
+export const TRIAL_DAYS = 30;
 
 /** Paid plan ids — matches the Phase 1 `plan` values on the Business doc. */
 export type PaidPlanId = "starter" | "growth" | "pro";

@@ -71,19 +71,27 @@ async function main() {
     "- If you do not know something, say the team will confirm — never guess.",
   ].join("\n");
 
+  const rideBanglaSettings = {
+    businessName: "Ride Bangla",
+    businessDesc:
+      "Ride Bangla is a Bangladesh multi-service platform offering ride sharing (bike/car), food delivery, courier/parcel delivery, and marketplace (food, grocery, medicine from licensed pharmacies with prescription verification). Currently serving Faridpur district only; expanding to Shariatpur and nationwide.",
+    welcomeMessage:
+      "Hello! Welcome to Ride Bangla support. How can I help you today? / আসসালামু আলাইকুম! Ride Bangla সাপোর্টে স্বাগতম। আমি কীভাবে সাহায্য করতে পারি?",
+    tone: "friendly",
+    language: "auto",
+    agentBehavior: RIDE_BANGLA_AGENT_BEHAVIOR,
+  };
+
   await prisma.settings.upsert({
     where: { businessId: bid },
-    update: {},
+    // The update branch MUST write the settings fields: with `update: {}`
+    // a pre-existing settings doc silently kept `agentBehavior = null`
+    // forever (defect K-1) — the seed's behavior text never reached the
+    // live tenant no matter how many times the seed re-ran.
+    update: { ...rideBanglaSettings },
     create: {
       businessId: bid,
-      businessName: "Ride Bangla",
-      businessDesc:
-        "Ride Bangla is a Bangladesh multi-service platform offering ride sharing (bike/car), food delivery, courier/parcel delivery, and marketplace (food, grocery, medicine from licensed pharmacies with prescription verification). Currently serving Faridpur district only; expanding to Shariatpur and nationwide.",
-      welcomeMessage:
-        "Hello! Welcome to Ride Bangla support. How can I help you today? / আসসালামু আলাইকুম! Ride Bangla সাপোর্টে স্বাগতম। আমি কীভাবে সাহায্য করতে পারি?",
-      tone: "friendly",
-      language: "auto",
-      agentBehavior: RIDE_BANGLA_AGENT_BEHAVIOR,
+      ...rideBanglaSettings,
     },
   });
 

@@ -15,9 +15,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/", changeFrequency: "weekly", priority: 1 },
     { path: "/pricing", changeFrequency: "weekly", priority: 0.9 },
     { path: "/signup", changeFrequency: "monthly", priority: 0.9 },
+    { path: "/contact", changeFrequency: "monthly", priority: 0.5 },
     { path: "/privacy", changeFrequency: "monthly", priority: 0.4 },
     { path: "/terms", changeFrequency: "monthly", priority: 0.4 },
-    { path: "/login", changeFrequency: "monthly", priority: 0.3 },
+    // NOTE: /login is intentionally NOT listed — an auth page is not a
+    // landing destination and is noindexed via the (auth) layout.
   ];
   return routes.map((r) => ({
     url: SITE_URL + r.path,

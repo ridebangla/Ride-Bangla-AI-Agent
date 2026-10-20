@@ -1,6 +1,7 @@
 import { Header } from "@/components/layout/header";
 import { StatCard } from "@/components/ui/stat-card";
 import { OnboardingChecklist } from "@/components/ui/onboarding-checklist";
+import { SetupCtaCard } from "@/components/ui/setup-cta-card";
 import { prisma, runWithBusiness } from "@/lib/prisma";
 import {
   MessageSquare,
@@ -96,6 +97,7 @@ export default async function DashboardPage() {
         description="Overview of your customer support activity"
       />
       <div className="flex-1 overflow-auto p-6 space-y-6">
+        <SetupCtaCard />
         <OnboardingChecklist />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

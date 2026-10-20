@@ -6,20 +6,20 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import {
-  Bot,
   Check,
   Clock,
-  Globe,
   MessagesSquare,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
+import { GoogleButton } from "@/components/auth/google-button";
 
 const TRIAL_POINTS = [
   `${TRIAL_DAYS}-day free trial — no credit card required`,
-  "AI learns your business from your website or a short Q&A",
-  "Chat widget for your website + WhatsApp, Facebook, Instagram, Telegram",
-  "Product catalog, order handling and 24/7 customer replies",
+  "One-tap Google signup — no long forms, no tech setup",
+  "Done-for-you setup: our team connects your channels for you",
+  "You never need an API key — we handle all of that",
+  "AI learns your business, handles orders and replies 24/7",
 ];
 
 // Plan names/prices shown when the visitor arrives from /pricing?plan=<id>.
@@ -37,10 +37,8 @@ const PLAN_INFO_YEARLY: Record<string, { name: string; price: string }> = {
 
 export default function SignupPage() {
   const router = useRouter();
-  const [businessName, setBusinessName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [websiteUrl, setWebsiteUrl] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [chosenPlan, setChosenPlan] = useState<string | null>(null);
@@ -72,10 +70,12 @@ export default function SignupPage() {
     setError("");
     setLoading(true);
     try {
+      // Email + password only — no form-filling at signup. The business
+      // details come later, inside the dashboard (Done-for-You Setup).
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessName, email, password, websiteUrl }),
+        body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -83,7 +83,7 @@ export default function SignupPage() {
         setLoading(false);
         return;
       }
-      router.replace("/onboarding");
+      router.replace("/dashboard");
     } catch {
       setError("Network error. Check your connection and try again.");
       setLoading(false);
@@ -120,9 +120,8 @@ export default function SignupPage() {
             <span className="text-[#A8D0E6]"> working 24/7</span>
           </h1>
           <p className="text-slate-300 mt-4 max-w-md">
-            Start your free {TRIAL_DAYS}-day trial today. Connect your
-            website, let the AI learn your business, and never miss a customer
-            message again.
+            Start your free {TRIAL_DAYS}-day trial today. Sign up in one tap —
+            then our team sets everything up for you.
           </p>
           <ul className="mt-8 space-y-3.5">
             {TRIAL_POINTS.map((point) => (
@@ -170,7 +169,8 @@ export default function SignupPage() {
                 Start your free trial
               </h2>
               <p className="text-rbai-text-light text-sm mt-1">
-                {TRIAL_DAYS} days free. No credit card. Set up in minutes.
+                {TRIAL_DAYS} days free. No credit card, no setup forms — after
+                you join, our team sets everything up for you.
               </p>
               {chosenPlan && (
                 <p className="mt-3 rounded-lg bg-rbai-primary-50 border border-rbai-primary/20 px-3.5 py-2.5 text-sm text-rbai-text">
@@ -185,30 +185,32 @@ export default function SignupPage() {
               )}
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div>
-                <label
-                  htmlFor="businessName"
-                  className="block text-sm font-medium text-rbai-text mb-1.5"
-                >
-                  Business name
-                </label>
-                <div className="relative">
-                  <Bot className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-rbai-text-light" />
-                  <input
-                    id="businessName"
-                    type="text"
-                    required
-                    minLength={2}
-                    maxLength={100}
-                    value={businessName}
-                    onChange={(e) => setBusinessName(e.target.value)}
-                    className={`${inputClass} pl-9`}
-                    placeholder="e.g. Dhaka Cake House"
-                  />
-                </div>
+            {error && (
+              <div className="rounded-lg bg-red-50 border border-red-200 px-3.5 py-2.5 text-sm text-red-700 mb-5">
+                {error}
               </div>
+            )}
 
+            {/* Google first — one tap, straight into the dashboard */}
+            <GoogleButton
+              endpoint="/api/auth/google"
+              label="Continue with Google"
+              onError={setError}
+            />
+            <p className="text-xs text-rbai-text-light mt-2.5 text-center">
+              গুগল দিয়ে এক ট্যাপে অ্যাকাউন্ট খুলুন — কোনো ফর্ম নেই। / One tap
+              with Google — no forms at all.
+            </p>
+
+            <div className="flex items-center gap-3 my-6">
+              <span className="h-px flex-1 bg-rbai-border" />
+              <span className="text-xs text-rbai-text-light">
+                or sign up with email
+              </span>
+              <span className="h-px flex-1 bg-rbai-border" />
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-5">
               <div>
                 <label
                   htmlFor="email"
@@ -251,43 +253,6 @@ export default function SignupPage() {
                 />
               </div>
 
-              <div>
-                <label
-                  htmlFor="websiteUrl"
-                  className="block text-sm font-medium text-rbai-text mb-1.5"
-                >
-                  Website URL{" "}
-                  <span className="font-normal text-rbai-text-light">
-                    (optional)
-                  </span>
-                </label>
-                <div className="relative">
-                  <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-rbai-text-light" />
-                  <input
-                    id="websiteUrl"
-                    type="text"
-                    inputMode="url"
-                    value={websiteUrl}
-                    onChange={(e) => setWebsiteUrl(e.target.value)}
-                    className={`${inputClass} pl-9`}
-                    placeholder="yourbusiness.com"
-                  />
-                </div>
-                <p className="text-xs text-rbai-text-light mt-1.5">
-                  The AI can learn your business from your website during setup.
-                </p>
-                <p className="text-xs text-rbai-text mt-1.5 font-semibold">
-                  ওয়েবসাইট না থাকলেও চলবে — আমরা আপনার জন্য তৈরি করে দেব। / No
-                  website? We&apos;ll build one for you.
-                </p>
-              </div>
-
-              {error && (
-                <div className="rounded-lg bg-red-50 border border-red-200 px-3.5 py-2.5 text-sm text-red-700">
-                  {error}
-                </div>
-              )}
-
               <button
                 type="submit"
                 disabled={loading}
@@ -307,7 +272,11 @@ export default function SignupPage() {
               </button>
             </form>
 
-            <p className="text-rbai-text-light text-xs mt-5 text-center">
+            <p className="text-rbai-text text-xs mt-5 font-semibold text-center">
+              আপনার কোনো API key লাগবে না — আমাদের টিম সব সেটআপ করে দেবে। /
+              You never need an API key — our team sets everything up for you.
+            </p>
+            <p className="text-rbai-text-light text-xs mt-2 text-center">
               Your password is stored securely by Firebase Authentication and
               never in our database.
             </p>

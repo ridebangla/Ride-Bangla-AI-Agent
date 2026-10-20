@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import Link from "next/link";
@@ -17,6 +18,13 @@ import { getBillingCountdown } from "@/lib/billing-usage";
 // middleware runs on the edge runtime and cannot query Firestore (see the
 // C-07 comment there). Server components/layouts do the DB check instead.
 export const dynamic = "force-dynamic";
+
+// The whole authenticated dashboard group is private tenant data — never
+// indexable. (The pages are client components and cannot export metadata;
+// this server layout is the group's enforcement point.)
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default async function DashboardLayout({
   children,

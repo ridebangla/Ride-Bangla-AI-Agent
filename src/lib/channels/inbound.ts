@@ -26,10 +26,13 @@ import {
   SubscriptionInactiveError,
 } from "@/lib/subscription";
 import { logger } from "@/lib/logger";
+import { checkMessageLimitExceeded } from "@/lib/billing-usage";
 
 export interface InboundResult extends ChatResult {
   /** true when the message was stored but the AI reply was blocked by the subscription hard-stop. */
   blockedBySubscription?: boolean;
+  /** true when the message was stored but the AI reply was blocked by the plan message limit. */
+  blockedByMessageLimit?: boolean;
 }
 
 /**
@@ -65,6 +68,22 @@ export async function processChannelMessage(
       return { response: "", products: [], silent: true, blockedBySubscription: true };
     }
     throw err;
+  }
+
+  // Plan quota hard-stop (same pattern as the subscription block above):
+  // store the customer's message honestly, spend zero LLM tokens.
+  if (await checkMessageLimitExceeded(businessId)) {
+    await prisma.message.create({
+      data: withBusinessId({
+        conversationId,
+        role: "customer",
+        content: userMessage,
+      }),
+    });
+    logger.warn(
+      `[inbound] message limit reached — stored customer message silently for conversation ${conversationId}`
+    );
+    return { response: "", products: [], silent: true, blockedByMessageLimit: true };
   }
 
   // `chat()` honors conversations.aiEnabled AND the global kill-switch.

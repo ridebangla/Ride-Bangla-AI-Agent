@@ -8,6 +8,7 @@
  */
 
 import { Header } from "@/components/layout/header";
+import { ImageCropper } from "@/components/ui/image-cropper";
 import { cn } from "@/lib/utils";
 import {
   Save,
@@ -23,8 +24,9 @@ import {
   Palette,
   Sparkles,
   LayoutTemplate,
+  ImagePlus,
 } from "lucide-react";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 const inputClasses =
   "w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text placeholder:text-rbai-text-light/60 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-colors";
@@ -240,6 +242,11 @@ export default function LandingPage() {
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [published, setPublished] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Logo upload + crop: a picked file first goes through the cropper; the
+  // cropped data URL then lives in the same logoUrl field (Save persists
+  // it unchanged — PUT /api/landing accepts image data URLs too).
+  const [logoCropFile, setLogoCropFile] = useState<File | null>(null);
+  const logoFileRef = useRef<HTMLInputElement>(null);
   // Premium polish: theme picker + AI enhancement + quality gate.
   const [theme, setTheme] = useState("modern-minimal");
   const [aiSuggestedTheme, setAiSuggestedTheme] = useState<string | null>(null);
@@ -464,15 +471,66 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-rbai-text">Logo URL</label>
-              <input
-                value={logoUrl}
-                onChange={(e) => setLogoUrl(e.target.value)}
-                placeholder="https://…/logo.png"
-                className={inputClasses}
-              />
+              <label className="block text-sm font-medium text-rbai-text">
+                Logo <span className="font-normal text-rbai-text-light">/ লোগো</span>
+              </label>
+              {logoUrl.startsWith("data:image/") ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3 rounded-lg border border-rbai-border bg-rbai-bg px-3 py-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={logoUrl} alt="Logo preview" className="h-9 w-9 rounded-lg object-cover" />
+                    <span className="text-sm text-rbai-text">Uploaded logo attached</span>
+                  </div>
+                  <p className="text-xs text-rbai-text-light">
+                    Upload a new logo to replace it, or paste an image URL instead:
+                  </p>
+                  <input
+                    value=""
+                    onChange={(e) => setLogoUrl(e.target.value)}
+                    placeholder="https://…/logo.png"
+                    className={inputClasses}
+                  />
+                </div>
+              ) : (
+                <input
+                  value={logoUrl}
+                  onChange={(e) => setLogoUrl(e.target.value)}
+                  placeholder="https://…/logo.png"
+                  className={inputClasses}
+                />
+              )}
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  ref={logoFileRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (f) setLogoCropFile(f);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => logoFileRef.current?.click()}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-rbai-border text-rbai-text hover:bg-rbai-bg transition-colors"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  Upload &amp; crop a logo
+                </button>
+                {logoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setLogoUrl("")}
+                    className="px-3 py-2 text-sm rounded-lg text-rbai-text-light hover:text-rbai-text transition-colors"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
               <p className="text-xs text-rbai-text-light">
-                Leave empty to use your business initial. Image upload comes later — a direct image URL works for now.
+                Leave empty to use your business initial. Upload a logo photo and crop it, or paste a direct image URL.
               </p>
             </div>
             <div className="space-y-1.5">
@@ -550,7 +608,8 @@ export default function LandingPage() {
               </button>
               <p className="text-xs text-rbai-text-light">
                 AI rewrites your headlines and picks the best-fitting theme from your real
-                catalog — never invents facts. Works without an API key too (premium template).
+                catalog — never invents facts. Nothing for you to set up: our AI connection
+                runs behind the scenes, managed by our team.
               </p>
             </div>
           </div>
@@ -705,6 +764,24 @@ export default function LandingPage() {
         </div>
       </div>
       <ToastContainer toasts={toasts} />
+      {/* Logo crop step — Confirm feeds the cropped image into the same
+          logoUrl field; Save persists it through the existing PUT flow. */}
+      <ImageCropper
+        open={logoCropFile !== null}
+        file={logoCropFile}
+        title="Crop your logo"
+        defaultAspectId="square"
+        maxOutputSize={1024}
+        onConfirm={(dataUrl) => {
+          setLogoCropFile(null);
+          if (!dataUrl.startsWith("data:image/")) {
+            toast("error", "That image could not be cropped. Please try a different one.");
+            return;
+          }
+          setLogoUrl(dataUrl);
+        }}
+        onCancel={() => setLogoCropFile(null)}
+      />
     </div>
   );
 }

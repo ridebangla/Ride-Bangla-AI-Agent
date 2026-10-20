@@ -5,6 +5,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { getBusinessBySiteKey, enterBusinessContext } from "@/lib/tenant";
 import { getSubscription } from "@/lib/subscription";
 import { prisma, withBusinessId } from "@/lib/prisma";
+import { checkMessageLimitExceeded } from "@/lib/billing-usage";
 import type { MediaInput } from "@/lib/ai/media";
 
 /**
@@ -51,11 +52,21 @@ export async function POST(request: NextRequest) {
       );
       return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
     }
+    if (await checkMessageLimitExceeded(business.id)) {
+      return NextResponse.json({ error: "message_limit_reached" }, { status: 402 });
+    }
     enterBusinessContext(business.id);
 
     const visitor = typeof visitorId === "string" && visitorId.trim() ? visitorId.trim().slice(0, 64) : "anonymous";
+    // visitorId is client-supplied and rotatable — a second bucket keyed by
+    // (siteKey + IP) caps total abuse per network regardless of rotation.
+    const clientIp =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
     const rl = checkRateLimit(`widget:${siteKey}:${visitor}`, WIDGET_RATE_LIMIT);
-    if (!rl.allowed) {
+    const rlIp = checkRateLimit(`widget-ip:${siteKey}:${clientIp}`, { maxRequests: 60, windowMs: 60 * 1000 });
+    if (!rl.allowed || !rlIp.allowed) {
       return NextResponse.json(
         { error: "Too many messages. Please wait a moment and try again." },
         { status: 429 }

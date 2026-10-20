@@ -10,6 +10,7 @@ import {
 } from "@/lib/ai/providers";
 import { transcribeAudio } from "@/lib/ai/media";
 import { logger } from "@/lib/logger";
+import { checkMessageLimitExceeded } from "@/lib/billing-usage";
 
 /**
  * Phase 3 — voice message endpoint (user decision 14).
@@ -59,12 +60,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
     }
 
+    if (await checkMessageLimitExceeded(business.id)) {
+      return NextResponse.json({ error: "message_limit_reached" }, { status: 402 });
+    }
+
     const visitor =
       typeof visitorId === "string" && visitorId.trim()
         ? visitorId.trim().slice(0, 64)
         : "anonymous";
+    const clientIp =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
     const rl = checkRateLimit(`voice:${siteKey}:${visitor}`, VOICE_RATE_LIMIT);
-    if (!rl.allowed) {
+    const rlIp = checkRateLimit(`voice-ip:${siteKey}:${clientIp}`, { maxRequests: 30, windowMs: 60 * 1000 });
+    if (!rl.allowed || !rlIp.allowed) {
       return NextResponse.json(
         { error: "Too many voice messages. Please wait a moment and try again." },
         { status: 429 }

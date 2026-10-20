@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase-client";
+import { GoogleButton } from "@/components/auth/google-button";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -124,8 +125,22 @@ export default function LoginPage() {
           Welcome to Ride Bangla AI Agent
         </h1>
         <p className="text-rbai-text-light text-sm mt-1">
-          Sign in with your Admin Console email
+          Sign in to your dashboard
         </p>
+      </div>
+
+      <GoogleButton
+        endpoint="/api/auth/firebase"
+        label="Continue with Google"
+        onError={setError}
+      />
+
+      <div className="flex items-center gap-3 my-6">
+        <span className="h-px flex-1 bg-rbai-border" />
+        <span className="text-xs text-rbai-text-light">
+          or sign in with email
+        </span>
+        <span className="h-px flex-1 bg-rbai-border" />
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">

@@ -11,6 +11,11 @@
  *        drives the dashboard theme picker.
  * PUT  — update { tagline, brandColor, logoUrl, landingPublished,
  *        websiteUrl, landingTheme, landingQuality }.
+ *        logoUrl accepts either an http(s) URL (max 500 chars) or an
+ *        uploaded logo as an image data URL (data:image/png|jpeg|webp,
+ *        capped below the Firestore 1 MiB document limit — see
+ *        src/lib/data-url.ts); the dashboard landing page now offers
+ *        upload + crop for this field.
  *
  * Permission: settings:read / settings:update (business-level config,
  * admin only). The business row is updated via the UNSCOPED client with an
@@ -21,6 +26,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUnscopedPrisma, runWithBusiness } from "@/lib/prisma";
 import { sanitizeBrandColor } from "@/lib/landing-copy";
+import { checkImageDataUrl } from "@/lib/data-url";
 import {
   sanitizeLandingTheme,
   LANDING_THEMES,
@@ -171,14 +177,25 @@ export async function PUT(request: NextRequest) {
         data.brandColor = raw ? sanitizeBrandColor(raw) : null;
       }
       if (body.logoUrl !== undefined) {
-        const logoUrl = String(body.logoUrl ?? "").trim().slice(0, 500);
-        if (logoUrl && !URL_RE.test(logoUrl)) {
-          return NextResponse.json(
-            { error: "logoUrl must be a valid http(s) URL." },
-            { status: 400 }
-          );
+        const rawLogo = String(body.logoUrl ?? "").trim();
+        if (rawLogo.startsWith("data:")) {
+          // Uploaded + cropped logo (data URL): validate format + size,
+          // never truncate — a sliced data URL is a corrupted image.
+          const check = checkImageDataUrl(rawLogo);
+          if (!check.ok) {
+            return NextResponse.json({ error: check.error }, { status: 400 });
+          }
+          data.logoUrl = rawLogo;
+        } else {
+          const logoUrl = rawLogo.slice(0, 500);
+          if (logoUrl && !URL_RE.test(logoUrl)) {
+            return NextResponse.json(
+              { error: "logoUrl must be a valid http(s) URL." },
+              { status: 400 }
+            );
+          }
+          data.logoUrl = logoUrl || null;
         }
-        data.logoUrl = logoUrl || null;
       }
       if (body.websiteUrl !== undefined) {
         const websiteUrl = String(body.websiteUrl ?? "").trim().slice(0, 300);

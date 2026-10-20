@@ -3,12 +3,14 @@
 /**
  * Dashboard > Catalog (Phase 2).
  * Full CRUD on productCategories + products (tenant-scoped via /api/catalog).
- * Image is a URL field for now — upload comes later.
+ * Product image: paste a direct URL, or upload a photo and crop it first
+ * (ImageCropper) — the cropped result is stored in the same imageUrl field.
  */
 
 import { Header } from "@/components/layout/header";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ImageCropper } from "@/components/ui/image-cropper";
 import { cn } from "@/lib/utils";
 import {
   Plus,
@@ -21,8 +23,9 @@ import {
   FolderPlus,
   Tag,
   Wand2,
+  ImagePlus,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const inputClasses =
   "w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text placeholder:text-rbai-text-light/60 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-colors";
@@ -89,12 +92,15 @@ const emptyProduct = {
 export default function CatalogPage() {
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [uncategorized, setUncategorized] = useState<Product[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [filterCat, setFilterCat] = useState<string>("all");
 
   const [catModal, setCatModal] = useState<null | { id?: string; name: string; description: string }>(null);
   const [prodModal, setProdModal] = useState<null | ({ id?: string } & typeof emptyProduct)>(null);
   const [deleteTarget, setDeleteTarget] = useState<null | { kind: "category" | "product"; id: string; name: string }>(null);
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const imageFileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [autoBusy, setAutoBusy] = useState(false);
 
@@ -109,6 +115,7 @@ export default function CatalogPage() {
     if (!res.ok) throw new Error("Failed to load catalog");
     const json = await res.json();
     setCategories(json.categories ?? []);
+    setUncategorized(json.uncategorized ?? []);
   };
 
   useEffect(() => {
@@ -124,12 +131,16 @@ export default function CatalogPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const allProducts: Product[] = categories.flatMap((c) => c.products ?? []);
+  const allProducts: Product[] = [
+    ...categories.flatMap((c) => c.products ?? []),
+    ...uncategorized,
+  ];
+  const uncategorizedIds = new Set(uncategorized.map((p) => p.id));
   const visibleProducts =
     filterCat === "all"
       ? allProducts
       : filterCat === "none"
-        ? allProducts.filter((p) => !p.categoryId)
+        ? allProducts.filter((p) => uncategorizedIds.has(p.id))
         : allProducts.filter((p) => p.categoryId === filterCat);
 
   const saveCategory = async () => {
@@ -361,7 +372,7 @@ export default function CatalogPage() {
                 : "border-rbai-border text-rbai-text hover:bg-rbai-bg"
             )}
           >
-            Uncategorized ({allProducts.filter((p) => !p.categoryId).length})
+            Uncategorized ({uncategorized.length})
           </button>
         </div>
 
@@ -412,7 +423,7 @@ export default function CatalogPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-rbai-text-light">{cat?.name ?? "—"}</td>
+                      <td className="px-4 py-3 text-rbai-text-light">{cat?.name ?? "Uncategorized"}</td>
                       <td className="px-4 py-3 text-rbai-text">
                         {p.price != null ? `${p.currency ?? "BDT"} ${p.price}` : "—"}
                       </td>
@@ -566,14 +577,51 @@ export default function CatalogPage() {
               </select>
             </div>
             <div className="space-y-1.5 md:col-span-2">
-              <label className="block text-sm font-medium text-rbai-text">Image URL</label>
-              <input
-                value={prodModal.imageUrl}
-                onChange={(e) => setProdModal({ ...prodModal, imageUrl: e.target.value })}
-                placeholder="https://…/cake.jpg"
-                className={inputClasses}
-              />
-              <p className="text-xs text-rbai-text-light">Direct image URL for now — upload comes later.</p>
+              <label className="block text-sm font-medium text-rbai-text">Product image</label>
+              <div className="flex items-start gap-3">
+                {prodModal.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={prodModal.imageUrl}
+                    alt=""
+                    className="h-14 w-14 rounded-lg object-cover border border-rbai-border bg-rbai-bg flex-shrink-0"
+                  />
+                ) : null}
+                <div className="flex-1 space-y-2">
+                  <input
+                    value={prodModal.imageUrl.startsWith("data:") ? "" : prodModal.imageUrl}
+                    onChange={(e) => setProdModal({ ...prodModal, imageUrl: e.target.value })}
+                    placeholder="https://…/cake.jpg"
+                    className={inputClasses}
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => imageFileRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-rbai-border text-rbai-text hover:border-rbai-primary/50 transition-colors"
+                    >
+                      <ImagePlus className="h-3.5 w-3.5" /> Upload &amp; crop a photo
+                    </button>
+                    {prodModal.imageUrl.startsWith("data:") && (
+                      <span className="text-xs text-rbai-text-light">Cropped photo attached</span>
+                    )}
+                    <input
+                      ref={imageFileRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (f) setCropFile(f);
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-rbai-text-light">
+                Paste a direct image URL, or upload a photo and crop it so the product fits perfectly.
+              </p>
             </div>
             <div className="space-y-1.5">
               <label className="block text-sm font-medium text-rbai-text">Category</label>
@@ -641,6 +689,20 @@ export default function CatalogPage() {
           {deleteTarget?.kind === "category" && " Products in it become uncategorized."} This cannot be undone.
         </p>
       </Modal>
+
+      {/* Image crop step — opens after a photo is picked for a product;
+          Confirm feeds the cropped image into the product form's imageUrl. */}
+      <ImageCropper
+        open={cropFile !== null}
+        file={cropFile}
+        title="Crop product photo"
+        defaultAspectId="square"
+        onConfirm={(dataUrl) => {
+          setCropFile(null);
+          setProdModal((m) => (m ? { ...m, imageUrl: dataUrl } : m));
+        }}
+        onCancel={() => setCropFile(null)}
+      />
 
       <ToastContainer toasts={toasts} />
     </div>

@@ -6,6 +6,29 @@ export const metadata = {
   description:
     "The terms for using Ride Bangla AI Agent: trial, subscriptions, payments, and acceptable use.",
   alternates: { canonical: "https://ai.ridebangla.bd/terms" },
+  openGraph: {
+    title: "Terms & Conditions — Ride Bangla AI Agent",
+    description:
+      "The terms for using Ride Bangla AI Agent: trial, subscriptions, payments, and acceptable use.",
+    url: "https://ai.ridebangla.bd/terms",
+    siteName: "Ride Bangla AI Agent",
+    type: "website",
+    images: [
+      {
+        url: "https://ai.ridebangla.bd/agent-avatar.png",
+        width: 680,
+        height: 680,
+        alt: "Ride Bangla AI Agent",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Terms & Conditions — Ride Bangla AI Agent",
+    description:
+      "The terms for using Ride Bangla AI Agent: trial, subscriptions, payments, and acceptable use.",
+    images: ["https://ai.ridebangla.bd/agent-avatar.png"],
+  },
 };
 
 const SECTIONS: { heading: string; body: string[] }[] = [
@@ -25,7 +48,7 @@ const SECTIONS: { heading: string; body: string[] }[] = [
   {
     heading: "3. Free trial",
     body: [
-      "Every new business gets a 7-day free trial with full access — no credit card required. During the trial you can connect channels, teach the AI about your business, and talk to real customers.",
+      "Every new business gets its first month free (a 30-day trial) with full access — no credit card required. During the trial you can connect channels, teach the AI about your business, and talk to real customers.",
       "When the trial ends without a paid subscription, the AI agent pauses for your business and your dashboard will point you to Billing. Your data is kept — nothing is deleted — and everything resumes the moment you subscribe.",
     ],
   },
@@ -47,7 +70,7 @@ const SECTIONS: { heading: string; body: string[] }[] = [
   {
     heading: "6. Refunds",
     body: [
-      "Because every plan starts with a free 7-day trial, we encourage you to evaluate the Service before paying. Subscription payments are generally non-refundable once the billing period has started and the Service has been activated.",
+      "Because every plan starts with a free first month (30-day trial), we encourage you to evaluate the Service before paying. Subscription payments are generally non-refundable once the billing period has started and the Service has been activated.",
       "If you were charged by mistake, paid twice, or never received the Service after a verified payment, write to info@ridebangla.bd within 14 days and we will review your case fairly. Fraudulent payments, chargebacks, or abuse of the refund process will lead to immediate account suspension.",
     ],
   },

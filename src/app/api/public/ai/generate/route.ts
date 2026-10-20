@@ -49,6 +49,7 @@ import { logger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getBusinessBySiteKey } from "@/lib/tenant";
 import { getSubscription } from "@/lib/subscription";
+import { checkMessageLimitExceeded, recordAiMessage } from "@/lib/billing-usage";
 import {
   AllProvidersFailedError,
   completeWithFallback,
@@ -111,13 +112,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "subscription_paused" }, { status: 402 });
   }
 
-  // ---- Rate limit: per site + caller ----
+  // Plan quota hard-stop: this endpoint spends the site owner's LLM keys
+  // but was previously neither metered nor limit-checked — any holder of
+  // the (public) siteKey could burn unlimited shared provider quota.
+  if (await checkMessageLimitExceeded(business.id)) {
+    return NextResponse.json({ ok: false, error: "message_limit_reached" }, { status: 402 });
+  }
+
+  // ---- Rate limit: per site + caller, AND per site + IP ----
+  // callerId is caller-supplied, so keying on it alone let an attacker
+  // rotate callerIds for a fresh bucket every request. The IP bucket
+  // cannot be rotated away from the server's point of view.
   const callerId =
     typeof body.callerId === "string" && body.callerId.trim()
       ? body.callerId.trim().slice(0, 64)
       : "default";
+  const clientIp =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    "unknown";
   const rl = checkRateLimit(`public-ai:${siteKey}:${callerId}`, PUBLIC_AI_RATE_LIMIT);
-  if (!rl.allowed) {
+  const rlIp = checkRateLimit(`public-ai-ip:${siteKey}:${clientIp}`, PUBLIC_AI_RATE_LIMIT);
+  if (!rl.allowed || !rlIp.allowed) {
     return NextResponse.json(
       { ok: false, error: "Too many requests. Please wait a moment and try again." },
       { status: 429 }
@@ -211,6 +227,9 @@ export async function POST(request: NextRequest) {
       { keys, providerHint, label: "public-ai" }
     );
     if (!completion) return degraded(); // cannot happen (keys checked), kept for safety
+    // Meter the spend against the site owner's plan quota (fire-and-forget,
+    // same contract as the chat engine's recordAiMessage call).
+    void recordAiMessage(business.id);
     return NextResponse.json({
       ok: true,
       aiConfigured: true,

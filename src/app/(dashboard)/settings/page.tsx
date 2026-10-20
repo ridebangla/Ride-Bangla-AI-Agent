@@ -2,6 +2,7 @@
 
 import { Header } from "@/components/layout/header";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 import {
   Settings as SettingsIcon,
   Bot,
@@ -16,6 +17,7 @@ import {
   CheckCircle,
   AlertCircle,
   Loader2,
+  ShieldCheck,
 } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 
@@ -83,9 +85,14 @@ const tabs: TabDef[] = [
 ];
 
 // Which fields belong to each section (used for partial saves)
+// Done-for-you model: the AI provider, model and API key are managed by our
+// team — the customer dashboard never reads or writes them. They stay in the
+// data model (settings.aiProvider/aiModel/aiApiKey/aiKeys) for team tooling,
+// but sectionFields below intentionally EXCLUDES them so no customer action
+// can ever touch key material.
 const sectionFields: Record<SectionKey, (keyof SettingsData)[]> = {
   general: ["businessName", "businessDesc", "welcomeMessage", "tone", "language"],
-  ai: ["aiProvider", "aiModel", "aiApiKey", "maxTokens", "temperature", "aiEnabled"],
+  ai: ["aiEnabled", "maxTokens", "temperature"],
   voice: ["elevenLabsKey", "elevenLabsVoice"],
   phone: ["twilioSid", "twilioToken", "twilioPhone"],
   email: [
@@ -430,33 +437,9 @@ function AISection({
   data: SettingsData;
   update: (field: keyof SettingsData, value: string | number | boolean) => void;
 }) {
-  const modelOptions: Record<string, { value: string; label: string }[]> = {
-    openai: [
-      { value: "gpt-4o", label: "GPT-4o" },
-      { value: "gpt-4o-mini", label: "GPT-4o Mini" },
-      { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
-    ],
-    groq: [
-      { value: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Versatile)" },
-      { value: "meta-llama/llama-4-scout-17b-16e-instruct", label: "Llama 4 Scout (Vision)" },
-      { value: "qwen-qwq-32b", label: "Qwen QwQ 32B" },
-    ],
-    gemini: [
-      { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
-      { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-    ],
-    claude: [
-      { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-      { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet" },
-      { value: "claude-3-haiku-20240307", label: "Claude 3 Haiku" },
-    ],
-    ollama: [
-      { value: "llama3", label: "Llama 3" },
-      { value: "mistral", label: "Mistral" },
-      { value: "codellama", label: "Code Llama" },
-    ],
-  };
-
+  // Done-for-you model: the AI provider, model and API key are managed by
+  // our team and never exposed in this UI. Only the kill-switch and the
+  // response shaping sliders stay customer-facing.
   return (
     <div className="space-y-5">
       {/* Phase 5 (user decision 17): GLOBAL AI kill-switch. OFF = the AI
@@ -504,43 +487,29 @@ function AISection({
           />
         </button>
       </div>
-      <FormField label="AI Provider" description="Select which AI provider to use for generating responses.">
-        <SelectInput
-          value={data.aiProvider}
-          onChange={(v) => {
-            update("aiProvider", v);
-            const models = modelOptions[v];
-            if (models && models.length > 0) {
-              update("aiModel", models[0].value);
-            }
-          }}
-          options={[
-            { value: "openai", label: "OpenAI" },
-            { value: "groq", label: "Groq" },
-            { value: "gemini", label: "Gemini (Google)" },
-            { value: "claude", label: "Claude (Anthropic)" },
-            { value: "ollama", label: "Ollama (Local)" },
-          ]}
-        />
-      </FormField>
-      <FormField label="Model" description="The specific model to use for AI responses.">
-        <SelectInput
-          value={data.aiModel}
-          onChange={(v) => update("aiModel", v)}
-          options={modelOptions[data.aiProvider] || []}
-        />
-      </FormField>
-      <FormField label="API Key" description="Your provider API key. Not required for Ollama.">
-        <PasswordInput
-          value={data.aiApiKey}
-          onChange={(v) => update("aiApiKey", v)}
-          placeholder={
-            data.aiProvider === "ollama"
-              ? "Not required for local models"
-              : "Enter your API key"
-          }
-        />
-      </FormField>
+      <div className="p-4 rounded-lg bg-rbai-primary-50/50 border border-rbai-primary/20">
+        <p className="text-sm font-semibold text-rbai-text flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-rbai-primary" />
+          Managed by our team — no API key needed from you
+        </p>
+        <p className="text-sm text-rbai-text-light mt-2">
+          Your AI runs on Ride Bangla&apos;s own AI connection. You never need
+          to find, buy or paste an API key, and there is nothing technical to
+          set up — our team manages the AI models and connection for you. If
+          anything ever needs changing, apply from{" "}
+          <Link
+            href="/setup-application"
+            className="text-rbai-primary font-medium hover:underline"
+          >
+            Done-for-You Setup
+          </Link>{" "}
+          and we&apos;ll handle it.
+        </p>
+        <p className="text-sm text-rbai-text-light mt-2">
+          আপনার কোনো API key লাগবে না — AI সংযোগ ও মডেল আমাদের টিমই পরিচালনা
+          করে। কিছু বদলাতে হলে Done-for-You Setup থেকে জানান, আমরাই করে দেব।
+        </p>
+      </div>
       <FormField label="Max Tokens" description="Maximum number of tokens per AI response.">
         <SliderInput
           value={data.maxTokens}
@@ -565,6 +534,27 @@ function AISection({
   );
 }
 
+// Done-for-you note shown in every service-credential section: the customer
+// never HAS to do this setup themselves — our team does it for them.
+function TeamSetupNote() {
+  return (
+    <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200">
+      <p className="text-sm text-emerald-900">
+        <span className="font-semibold">Prefer hands-off?</span> You don&apos;t
+        need to set any of this up yourself. Apply from{" "}
+        <Link
+          href="/setup-application"
+          className="font-medium underline hover:no-underline"
+        >
+          Done-for-You Setup
+        </Link>{" "}
+        and our team will connect it for you. / নিজে সেটআপ করতে না চাইলে Done-for-You
+        Setup থেকে আবেদন করুন — আমাদের টিম সব করে দেবে।
+      </p>
+    </div>
+  );
+}
+
 function VoiceSection({
   data,
   update,
@@ -579,6 +569,7 @@ function VoiceSection({
           Connect your ElevenLabs account to enable AI-powered voice responses for phone calls.
         </p>
       </div>
+      <TeamSetupNote />
       <FormField label="API Key" description="Your ElevenLabs API key for text-to-speech.">
         <PasswordInput
           value={data.elevenLabsKey}
@@ -611,6 +602,7 @@ function PhoneSection({
           Configure Twilio to enable phone call support. You will need an active Twilio account with a phone number.
         </p>
       </div>
+      <TeamSetupNote />
       <FormField label="Account SID" description="Your Twilio Account SID from the dashboard.">
         <PasswordInput
           value={data.twilioSid}
@@ -645,6 +637,7 @@ function EmailSection({
 }) {
   return (
     <div className="space-y-6">
+      <TeamSetupNote />
       {/* SMTP */}
       <div>
         <h4 className="text-sm font-semibold text-rbai-text mb-4 flex items-center gap-2">
@@ -755,6 +748,7 @@ function WhatsAppSection({
           Choose between WhatsApp Web (free, requires QR scan) or the official WhatsApp Business API (paid, more reliable).
         </p>
       </div>
+      <TeamSetupNote />
       <FormField label="Connection Mode" description="Select how the agent connects to WhatsApp.">
         <SelectInput
           value={data.whatsappMode}
@@ -939,7 +933,7 @@ export default function SettingsPage() {
                 {activeTab === "general" &&
                   "Configure your business identity and communication preferences."}
                 {activeTab === "ai" &&
-                  "Set up the AI model that powers your customer interactions."}
+                  "Your AI is managed by our team — no keys or setup needed from you."}
                 {activeTab === "voice" &&
                   "Configure text-to-speech for voice-based support channels."}
                 {activeTab === "phone" &&

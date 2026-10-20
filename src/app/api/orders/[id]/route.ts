@@ -30,6 +30,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       const order = await setOrderStatus(id, status);
       return NextResponse.json({ order });
     } catch (error) {
+      // Unknown id (or another tenant's id — the update is tenant-scoped,
+      // so both fail closed the same way): the data layer throws a
+      // Prisma-style P2025 "record not found". That is a 404, not a 500.
+      if ((error as { code?: string } | null)?.code === "P2025") {
+        return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      }
       logger.error("Failed to update order:", error);
       return NextResponse.json({ error: "Failed to update order" }, { status: 500 });
     }

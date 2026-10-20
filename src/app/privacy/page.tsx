@@ -6,6 +6,29 @@ export const metadata = {
   description:
     "How Ride Bangla AI Agent collects, uses, and protects your data.",
   alternates: { canonical: "https://ai.ridebangla.bd/privacy" },
+  openGraph: {
+    title: "Privacy Policy — Ride Bangla AI Agent",
+    description:
+      "How Ride Bangla AI Agent collects, uses, and protects your data.",
+    url: "https://ai.ridebangla.bd/privacy",
+    siteName: "Ride Bangla AI Agent",
+    type: "website",
+    images: [
+      {
+        url: "https://ai.ridebangla.bd/agent-avatar.png",
+        width: 680,
+        height: 680,
+        alt: "Ride Bangla AI Agent",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Privacy Policy — Ride Bangla AI Agent",
+    description:
+      "How Ride Bangla AI Agent collects, uses, and protects your data.",
+    images: ["https://ai.ridebangla.bd/agent-avatar.png"],
+  },
 };
 
 const SECTIONS: { heading: string; body: string[] }[] = [

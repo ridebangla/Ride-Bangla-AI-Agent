@@ -44,8 +44,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: SITE_URL + "/agent-avatar.png",
-        width: 1062,
-        height: 1095,
+        width: 680,
+        height: 680,
         alt: "Ride Bangla AI Agent",
       },
     ],
@@ -62,6 +62,7 @@ export const metadata: Metadata = {
     // artwork (agent-avatar.png) is untouched elsewhere on purpose.
     icon: [
       { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon-48x48.png", sizes: "48x48", type: "image/png" },
       { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
       { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
     ],

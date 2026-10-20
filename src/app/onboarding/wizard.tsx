@@ -649,11 +649,11 @@ export default function OnboardingWizard() {
                   </span>
                 </label>
                 <p className="text-xs text-rbai-text-light mt-4 border-t border-rbai-border pt-3">
-                  পেজটি আপনার দেওয়া তথ্য থেকে একটি প্রিমিয়াম টেমপ্লেটে তৈরি হয় — কোনো
-                  AI কী ছাড়াই কাজ করে। OpenAI সংযুক্ত করলে ড্যাশবোর্ড থেকে AI দিয়ে
-                  লেখা আরও উন্নত করতে পারবেন। / Your page is built from your details in
-                  a premium template — no AI key needed. Once OpenAI is connected, you
-                  can refine the copy with AI from your dashboard.
+                  পেজটি আপনার দেওয়া তথ্য থেকে একটি প্রিমিয়াম টেমপ্লেটে তৈরি হয় — আপনার
+                  কোনো API কী লাগবে না; AI-এর সব সংযোগ আমাদের টিমই করে দেবে। / Your
+                  page is built from your details in a premium template — no API key
+                  is ever needed from you; our team handles the AI connection and
+                  makes the copy even better for you.
                 </p>
               </div>
             )}

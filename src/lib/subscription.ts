@@ -1,8 +1,9 @@
 /**
  * subscription.ts — SaaS trial/subscription enforcement foundation (Phase 1).
  *
- * Business rule (user decision 16, business-critical): the first 7 days are
- * free (TRIAL_DAYS in ./plans; user decision 2026-10-19). After the trial ends, payment is MANDATORY — the AI must hard-stop
+ * Business rule (user decision 16, business-critical): the first month is
+ * free — a 30-day trial (TRIAL_DAYS in ./plans; user decision 2026-10-20,
+ * superseding the 2026-10-19 7-day rule). After the trial ends, payment is MANDATORY — the AI must hard-stop
  * replying for that business until they pay ("নয়তো আমরা চলতে পারব না").
  *
  * Active = Super Admin (businessId null, always) OR
@@ -109,7 +110,16 @@ export function isSubscriptionActive(biz: Business | null): boolean {
   const status =
     typeof biz.subscriptionStatus === "string" ? biz.subscriptionStatus : "";
 
-  if (status === "active") return true;
+  if (status === "active") {
+    // Security/billing fix (2026-10-20 attack-test): a locally recorded
+    // paid-period end (set by manual-claim approvals and wallet purchases)
+    // must actually end the subscription. Without this check an "active"
+    // business with a past subscriptionEndsAt stayed active forever —
+    // Stripe-managed businesses record no endsAt and are unaffected.
+    const ends = toDate((biz as { subscriptionEndsAt?: unknown }).subscriptionEndsAt);
+    if (ends !== null && ends.getTime() <= Date.now()) return false;
+    return true;
+  }
 
   if (status === "trialing") {
     const ends = toDate(biz.trialEndsAt);

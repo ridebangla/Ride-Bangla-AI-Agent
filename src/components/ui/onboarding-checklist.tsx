@@ -82,10 +82,10 @@ export function OnboardingChecklist() {
         },
         {
           id: "ai",
-          title: "AI configured",
-          description: "Connect your AI provider with an API key",
+          title: "AI is ready",
+          description: "Our team manages your AI connection — nothing to set up",
           href: "/settings",
-          completed: !!settings.aiApiKey && settings.aiApiKey.length > 0,
+          completed: settings.aiEnabled !== false,
           icon: Bot,
         },
         {

@@ -17,12 +17,21 @@ export const metadata: Metadata = {
     url: SITE_URL + "/contact",
     siteName: "Ride Bangla AI Agent",
     type: "website",
+    images: [
+      {
+        url: SITE_URL + "/agent-avatar.png",
+        width: 680,
+        height: 680,
+        alt: "Ride Bangla AI Agent",
+      },
+    ],
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "Contact Us — Ride Bangla AI Agent",
     description:
       "Questions, payment issues or feedback? Contact the Ride Bangla AI Agent support team.",
+    images: [SITE_URL + "/agent-avatar.png"],
   },
 };
 

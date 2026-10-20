@@ -2,12 +2,27 @@ import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 
 /**
- * Normalize a phone number for consistent matching.
+ * Normalize a phone number for consistent matching AND storage.
  * Strips WhatsApp suffixes (@c.us, @s.whatsapp.net) and non-digit chars (except leading +).
+ *
+ * Bangladeshi mobile numbers are canonicalized to "+880" + the 10-digit
+ * national number, so every written form of the same subscriber —
+ * "+880 1711-111111", "+8801711111111", "8801711111111",
+ * "8801711111111@c.us", "01711111111", "1711111111" — collapses to ONE
+ * value. Without this, storing contacts verbatim fragments one person
+ * into multiple Customer records whenever channels report different
+ * formats (defect M-1). Non-BD numbers keep the legacy normalization.
  */
 export function normalizePhone(input: string): string {
   const cleaned = input.replace(/@(c\.us|s\.whatsapp\.net)$/, "");
-  return cleaned.replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
+  const legacy = cleaned.replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
+  const digits = legacy.replace(/\D/g, "");
+  let national: string | null = null;
+  if (/^8801\d{9}$/.test(digits)) national = digits.slice(3);
+  else if (/^01\d{9}$/.test(digits)) national = digits.slice(1);
+  else if (/^1\d{9}$/.test(digits)) national = digits;
+  if (national) return `+880${national}`;
+  return legacy;
 }
 
 /**
@@ -47,16 +62,38 @@ export async function resolveCustomer(
         await updateExistingCustomer(phoneMatch.id, channel, customerContact, customerName);
         return phoneMatch.id;
       }
+      // Legacy rows written before write-normalization may hold the same
+      // number without the leading "+" (e.g. "8801711111111@c.us"): retry
+      // with the bare-digits form so those rows still resolve to one person.
+      const digits = normalized.replace(/\D/g, "");
+      if (digits.length >= 10 && digits !== normalized) {
+        const legacyMatch = await prisma.customer.findFirst({
+          where: {
+            OR: [
+              { phone: { contains: digits } },
+              { whatsapp: { contains: digits } },
+            ],
+          },
+        });
+        if (legacyMatch) {
+          await updateExistingCustomer(legacyMatch.id, channel, customerContact, customerName);
+          return legacyMatch.id;
+        }
+      }
     }
   }
 
   // Step 3: Cross-field fallback (search all contact fields)
+  const normalizedContact =
+    channel === "phone" || channel === "whatsapp"
+      ? normalizePhone(customerContact)
+      : customerContact;
   const crossMatch = await prisma.customer.findFirst({
     where: {
       OR: [
         { email: { equals: customerContact, mode: "insensitive" } },
-        { phone: customerContact },
-        { whatsapp: customerContact },
+        { phone: normalizedContact },
+        { whatsapp: normalizedContact },
       ],
     },
   });
@@ -76,12 +113,13 @@ async function findByChannelField(channel: string, contact: string) {
         where: { email: { equals: contact, mode: "insensitive" } },
       });
     case "whatsapp":
+      // Stored values are normalized on write — match on the same form.
       return prisma.customer.findFirst({
-        where: { whatsapp: contact },
+        where: { whatsapp: normalizePhone(contact) },
       });
     case "phone":
       return prisma.customer.findFirst({
-        where: { phone: contact },
+        where: { phone: normalizePhone(contact) },
       });
     default:
       return null;
@@ -99,8 +137,11 @@ async function createCustomer(
       firstContact: new Date(),
       lastContact: new Date(),
       ...(channel === "email" ? { email: contact } : {}),
-      ...(channel === "whatsapp" ? { whatsapp: contact } : {}),
-      ...(channel === "phone" ? { phone: contact } : {}),
+      // Phone/WhatsApp contacts are stored ONLY in normalized form (M-1):
+      // verbatim storage of "+880 1711-111111" / "…@c.us" values is what
+      // fragmented one person into duplicate Customer records.
+      ...(channel === "whatsapp" ? { whatsapp: normalizePhone(contact) } : {}),
+      ...(channel === "phone" ? { phone: normalizePhone(contact) } : {}),
     }),
   });
 
@@ -131,8 +172,30 @@ async function updateExistingCustomer(
   if (!customer) return;
 
   if (channel === "email" && !customer.email) update.email = contact;
-  if (channel === "whatsapp" && !customer.whatsapp) update.whatsapp = contact;
-  if (channel === "phone" && !customer.phone) update.phone = contact;
+  if (channel === "whatsapp") {
+    const canonical = normalizePhone(contact);
+    if (!customer.whatsapp) {
+      update.whatsapp = canonical;
+    } else if (
+      customer.whatsapp !== canonical &&
+      normalizePhone(customer.whatsapp) === canonical
+    ) {
+      // Self-heal rows written before write-normalization (e.g. a stored
+      // "8801711111111@c.us"): same number, rewrite in canonical form.
+      update.whatsapp = canonical;
+    }
+  }
+  if (channel === "phone") {
+    const canonical = normalizePhone(contact);
+    if (!customer.phone) {
+      update.phone = canonical;
+    } else if (
+      customer.phone !== canonical &&
+      normalizePhone(customer.phone) === canonical
+    ) {
+      update.phone = canonical;
+    }
+  }
 
   // Update name if current is "Unknown" and we have a better one
   if (customer.name === "Unknown" && name && name !== "Unknown") {

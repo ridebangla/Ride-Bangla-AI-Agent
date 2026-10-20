@@ -92,8 +92,13 @@ export async function POST(request: NextRequest) {
       typeof visitorId === "string" && visitorId.trim()
         ? visitorId.trim().slice(0, 64)
         : "anonymous";
+    const clientIp =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
     const rl = checkRateLimit(`vision:${siteKey}:${visitor}`, VISION_RATE_LIMIT);
-    if (!rl.allowed) {
+    const rlIp = checkRateLimit(`vision-ip:${siteKey}:${clientIp}`, { maxRequests: 30, windowMs: 60 * 1000 });
+    if (!rl.allowed || !rlIp.allowed) {
       return NextResponse.json(
         { error: "Too many uploads. Please wait a moment and try again." },
         { status: 429 }

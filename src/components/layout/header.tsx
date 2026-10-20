@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Search, Sun, Moon, LogOut, User } from "lucide-react";
+import { Bell, Search, Sun, Moon, LogOut, User, Settings } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useTheme } from "@/lib/hooks/use-theme";
 import { useRouter } from "next/navigation";
@@ -14,9 +14,39 @@ interface HeaderProps {
 export function Header({ title, description, actions }: HeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  // Profile photo + display name for the avatar (set on the Profile page).
+  // Best-effort only: any failure leaves the letter avatar untouched.
+  const [profile, setProfile] = useState<{ name: string; photo: string } | null>(null);
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/profile");
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        setProfile({
+          name:
+            (typeof json.business?.contactName === "string" && json.business.contactName) ||
+            (typeof json.admin?.name === "string" ? json.admin.name : "") ||
+            "",
+          photo:
+            typeof json.business?.profilePhoto === "string"
+              ? json.business.profilePhoto
+              : "",
+        });
+      } catch {
+        /* avatar falls back to the letter mark */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -86,9 +116,15 @@ export function Header({ title, description, actions }: HeaderProps) {
         <div className="relative" ref={menuRef}>
           <button
             onClick={() => setUserMenuOpen(!userMenuOpen)}
-            className="flex items-center justify-center w-8 h-8 rounded-full bg-rbai-primary text-white text-sm font-medium hover:bg-rbai-primary-dark transition-colors"
+            className="flex items-center justify-center w-8 h-8 rounded-full bg-rbai-primary text-white text-sm font-medium hover:bg-rbai-primary-dark transition-colors overflow-hidden"
+            title={profile?.name ? profile.name : "Account"}
           >
-            A
+            {profile?.photo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={profile.photo} alt="" className="h-8 w-8 rounded-full object-cover" />
+            ) : (
+              (profile?.name || "A").trim().charAt(0).toUpperCase()
+            )}
           </button>
 
           {userMenuOpen && (
@@ -96,12 +132,22 @@ export function Header({ title, description, actions }: HeaderProps) {
               <button
                 onClick={() => {
                   setUserMenuOpen(false);
-                  router.push("/settings");
+                  router.push("/profile");
                 }}
                 className="flex items-center gap-2 w-full px-4 py-2 text-sm text-rbai-text hover:bg-rbai-primary-50 transition-colors"
               >
                 <User className="h-4 w-4" />
-                Profile & Settings
+                My Profile
+              </button>
+              <button
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  router.push("/settings");
+                }}
+                className="flex items-center gap-2 w-full px-4 py-2 text-sm text-rbai-text hover:bg-rbai-primary-50 transition-colors"
+              >
+                <Settings className="h-4 w-4" />
+                Settings
               </button>
               <div className="border-t border-rbai-border my-1" />
               <button

@@ -6,6 +6,7 @@ import { verifySessionToken } from "@/lib/auth";
 import { getUnscopedPrisma } from "@/lib/prisma";
 import { getSubscription } from "@/lib/subscription";
 import { TRIAL_DAYS } from "@/lib/plans";
+import ReviewsSection from "@/components/marketing/reviews-section";
 import {
   ArrowRight,
   Bot,
@@ -41,7 +42,7 @@ const SOFTWARE_APP_JSON_LD = {
     "@type": "Offer",
     price: "19",
     priceCurrency: "USD",
-    description: "Plans from $19/month. 7-day free trial, no credit card.",
+    description: "Plans from $19/month. First month free, no credit card.",
   },
   provider: {
     "@type": "Organization",
@@ -72,6 +73,18 @@ export default async function RootPage() {
       }
     }
   }
+  // The reviews section needs the platform's own public siteKey; resolve it
+  // server-side (logged-out visitors never authenticate).
+  let reviewsSiteKey: string | null = null;
+  try {
+    const biz = await getUnscopedPrisma().business.findUnique({
+      where: { slug: "ride-bangla" },
+      select: { siteKey: true },
+    });
+    reviewsSiteKey = biz?.siteKey ?? null;
+  } catch {
+    reviewsSiteKey = null;
+  }
   return (
     <>
       <script
@@ -80,7 +93,7 @@ export default async function RootPage() {
           __html: JSON.stringify(SOFTWARE_APP_JSON_LD),
         }}
       />
-      <MarketingLanding />
+      <MarketingLanding reviewsSiteKey={reviewsSiteKey} />
     </>
   );
 }
@@ -177,7 +190,7 @@ const FAQS = [
   },
 ];
 
-function MarketingLanding() {
+function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null }) {
   return (
     <div className="min-h-screen bg-white text-slate-900 antialiased">
       {/* Nav */}
@@ -197,6 +210,7 @@ function MarketingLanding() {
             <a href="#how" className="hover:text-slate-900">How it works</a>
             <a href="#features" className="hover:text-slate-900">Features</a>
             <a href="#pricing" className="hover:text-slate-900">Pricing</a>
+            <a href="#reviews" className="hover:text-slate-900">Reviews</a>
             <a href="#faq" className="hover:text-slate-900">FAQ</a>
             <Link href="/contact" className="hover:text-slate-900">Contact</Link>
           </nav>
@@ -445,6 +459,9 @@ function MarketingLanding() {
           </div>
         </div>
       </section>
+
+      {/* Reviews */}
+      <ReviewsSection siteKey={reviewsSiteKey} />
 
       {/* CTA */}
       <section className="bg-[#0F172A] text-white">

@@ -94,6 +94,67 @@ export async function recordAiMessage(businessId: string | null): Promise<void> 
   }
 }
 
+/**
+ * Period-aware effective usage: mirrors recordAiMessage's reset semantics
+ * (a missing or >30-day-old usagePeriodStart means the count restarts at 0).
+ */
+export function effectiveAiMessagesUsed(
+  biz: BusinessUsageFields & { usagePeriodStart?: unknown },
+  nowMs: number = Date.now()
+): number {
+  const used =
+    typeof biz.aiMessagesUsed === "number" && biz.aiMessagesUsed >= 0
+      ? Math.trunc(biz.aiMessagesUsed)
+      : 0;
+  if (used === 0) return 0;
+  const startMs = toDate(biz.usagePeriodStart)?.getTime() ?? 0;
+  if (!startMs || nowMs - startMs > USAGE_PERIOD_MS) return 0;
+  return used;
+}
+
+/** Pure gate: true when the business has used up its plan's AI messages. */
+export function isMessageLimitExceeded(
+  biz: BusinessUsageFields & { usagePeriodStart?: unknown },
+  nowMs: number = Date.now()
+): boolean {
+  const plan = typeof biz.plan === "string" && biz.plan ? biz.plan : "unknown";
+  const limit = messagesLimitForPlan(plan === "trial" ? "trial" : plan);
+  if (limit === null) return false; // unknown/legacy plan: subscription gate covers it
+  return effectiveAiMessagesUsed(biz, nowMs) >= limit;
+}
+
+/**
+ * Point-of-use gate for every AI-spend entry point. Returns true when the
+ * limit is exceeded and the caller must hard-stop (402 / silence) BEFORE
+ * spending LLM tokens. Never throws: on a metering read error it fails
+ * OPEN with a warning — the subscription gate in the same request already
+ * read the same business doc fail-closed, so availability is preserved
+ * without weakening the billing hard-stop. Super Admin (null) never blocked.
+ */
+export async function checkMessageLimitExceeded(
+  businessId: string | null
+): Promise<boolean> {
+  if (!businessId) return false;
+  try {
+    const biz = (await getUnscopedPrisma().business.findUnique({
+      where: { id: businessId },
+      select: {
+        plan: true,
+        aiMessagesUsed: true,
+        usagePeriodStart: true,
+      },
+    })) as unknown as (BusinessUsageFields & { usagePeriodStart?: unknown }) | null;
+    if (!biz) return false;
+    return isMessageLimitExceeded(biz);
+  } catch (err) {
+    logger.warn("[metering] message-limit check failed (allowing request)", {
+      businessId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
 export type CountdownNotice =
   | {
       type: "days";

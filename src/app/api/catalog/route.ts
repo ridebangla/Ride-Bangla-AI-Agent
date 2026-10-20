@@ -24,7 +24,20 @@ export async function GET(request: NextRequest) {
         },
         orderBy: { name: "asc" },
       });
-      return NextResponse.json({ categories });
+      // Products not nested under any category (categoryId null, or pointing
+      // at a category that no longer exists) are returned separately so the
+      // UI can list them under "Uncategorized" — previously they never
+      // appeared anywhere in the catalog.
+      const nestedIds = new Set(
+        categories.flatMap((c) =>
+          ((c as { products?: Array<{ id: string }> }).products ?? []).map((p) => p.id)
+        )
+      );
+      const everyProduct = await prisma.product.findMany({
+        orderBy: { name: "asc" },
+      });
+      const uncategorized = everyProduct.filter((p) => !nestedIds.has(p.id));
+      return NextResponse.json({ categories, uncategorized });
     } catch (error) {
       logger.error("Failed to fetch catalog:", error);
       return NextResponse.json({ error: "Failed to fetch catalog" }, { status: 500 });

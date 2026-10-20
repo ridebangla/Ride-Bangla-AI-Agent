@@ -22,10 +22,194 @@ import {
   Info,
   Copy,
   RefreshCw,
+  Sparkles,
 } from "lucide-react";
-import { FacebookIcon, InstagramIcon, XBrandIcon } from "@/components/ui/channel-icons";
+import { FacebookIcon, InstagramIcon, XBrandIcon, MessengerIcon, YoutubeIcon, LinkedinIcon } from "@/components/ui/channel-icons";
 import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
+
+// ---------------------------------------------------------------------------
+// Done-for-you banner — the customer never needs an API key.
+// ---------------------------------------------------------------------------
+
+function DoneForYouBanner() {
+  return (
+    <div className="mb-6 rounded-2xl border border-rbai-primary/30 bg-gradient-to-r from-rbai-primary-50 to-rbai-surface p-5 flex flex-col sm:flex-row sm:items-center gap-4 max-w-7xl">
+      <div className="flex items-start gap-3 flex-1">
+        <span className="p-2.5 rounded-xl bg-rbai-primary text-white shrink-0">
+          <Sparkles className="h-5 w-5" />
+        </span>
+        <div>
+          <h3 className="font-semibold text-rbai-text">
+            No API keys needed — ever / আপনার কোনো API key লাগবে না
+          </h3>
+          <p className="text-sm text-rbai-text-light mt-0.5">
+            You never need to find, buy or paste an API key. Apply for our
+            done-for-you setup and our team will connect every channel for you.
+          </p>
+        </div>
+      </div>
+      <Link
+        href="/setup-application"
+        className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg bg-rbai-primary text-white px-4 py-2.5 text-sm font-medium hover:opacity-90 transition-opacity"
+      >
+        <Sparkles className="h-4 w-4" />
+        Apply for setup
+      </Link>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// All-channels overview — every channel the customer can have, with honest
+// status: connected, or "our team will connect it for you" (never faked).
+// ---------------------------------------------------------------------------
+
+interface ChannelOverviewEntry {
+  id: string;
+  name: string;
+  icon: React.ElementType;
+  iconClass: string;
+  capability: string;
+  connected: boolean;
+  teamManaged: boolean;
+}
+
+function ChannelOverviewGrid({
+  meta,
+  x,
+  whatsappCloud,
+  whatsappLegacy,
+}: {
+  meta: ConnectStatus["meta"] | null;
+  x: ConnectStatus["x"] | null;
+  whatsappCloud: ConnectStatus["whatsappCloud"] | null;
+  whatsappLegacy: ChannelData;
+}) {
+  const fbConnected = (meta?.accounts || []).some((a) => a.platform === "facebook");
+  const igConnected = (meta?.accounts || []).some((a) => a.platform === "instagram");
+  const waConnected = !!whatsappCloud?.configured || whatsappLegacy.status === "connected";
+
+  const entries: ChannelOverviewEntry[] = [
+    {
+      id: "facebook",
+      name: "Facebook",
+      icon: FacebookIcon,
+      iconClass: "bg-blue-50 text-[#1877F2]",
+      capability: "AI replies to Page comments + Messenger messages",
+      connected: fbConnected,
+      teamManaged: false,
+    },
+    {
+      id: "messenger",
+      name: "Messenger",
+      icon: MessengerIcon,
+      iconClass: "bg-indigo-50 text-indigo-600",
+      capability: "AI replies to direct messages via your Page",
+      connected: fbConnected,
+      teamManaged: false,
+    },
+    {
+      id: "instagram",
+      name: "Instagram",
+      icon: InstagramIcon,
+      iconClass: "bg-pink-50 text-pink-600",
+      capability: "AI replies to comments + DMs",
+      connected: igConnected,
+      teamManaged: false,
+    },
+    {
+      id: "whatsapp",
+      name: "WhatsApp",
+      icon: MessageCircle,
+      iconClass: "bg-green-50 text-green-600",
+      capability: "AI replies to customer messages",
+      connected: waConnected,
+      teamManaged: false,
+    },
+    {
+      id: "youtube",
+      name: "YouTube",
+      icon: YoutubeIcon,
+      iconClass: "bg-red-50 text-red-600",
+      capability: "AI replies to video comments",
+      connected: false,
+      teamManaged: true,
+    },
+    {
+      id: "linkedin",
+      name: "LinkedIn",
+      icon: LinkedinIcon,
+      iconClass: "bg-sky-50 text-sky-700",
+      capability: "AI replies to Page comments + messages",
+      connected: false,
+      teamManaged: true,
+    },
+    {
+      id: "x",
+      name: "X",
+      icon: XBrandIcon,
+      iconClass: "bg-slate-100 text-slate-700",
+      capability: "Posts, replies and DMs",
+      connected: !!x?.configured,
+      teamManaged: false,
+    },
+  ];
+
+  return (
+    <div className="mb-8 max-w-7xl">
+      <h2 className="text-lg font-semibold text-rbai-text mb-1">
+        All your channels
+      </h2>
+      <p className="text-sm text-rbai-text-light mb-4">
+        Everywhere your AI can talk to customers. Channels without a live
+        connection yet are connected by our team — nothing is faked.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {entries.map((e) => (
+          <div
+            key={e.id}
+            className="bg-rbai-surface rounded-xl border border-rbai-border p-4 flex flex-col gap-3"
+          >
+            <div className="flex items-center justify-between">
+              <div className={cn("p-2.5 rounded-lg", e.iconClass)}>
+                <e.icon className="h-5 w-5" />
+              </div>
+              {e.connected ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rbai-success/10 text-rbai-success">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rbai-success" />
+                  Connected
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  {e.teamManaged ? "Team connects it" : "Not connected"}
+                </span>
+              )}
+            </div>
+            <div>
+              <h3 className="font-semibold text-rbai-text text-sm">{e.name}</h3>
+              <p className="text-xs text-rbai-text-light mt-0.5">
+                {e.capability}
+              </p>
+            </div>
+            {!e.connected && (
+              <Link
+                href="/setup-application"
+                className="mt-auto text-xs font-medium text-rbai-primary hover:underline"
+              >
+                {e.teamManaged
+                  ? "Our team will connect this for you →"
+                  : "Connect it, or let our team do it →"}
+              </Link>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -338,6 +522,16 @@ function WhatsAppCard({
           </div>
         ) : (
           <div className="space-y-3">
+            <p className="text-xs text-rbai-text-light rounded-lg bg-rbai-bg border border-rbai-border p-3">
+              Prefer hands-off? You don&apos;t have to set this up yourself —{" "}
+              <Link
+                href="/setup-application"
+                className="text-rbai-primary font-medium hover:underline"
+              >
+                apply for done-for-you setup
+              </Link>{" "}
+              and our team will connect WhatsApp for you.
+            </p>
             <FieldInput
               label="API Key"
               value={apiKey}
@@ -1427,6 +1621,14 @@ export default function ChannelsPage() {
             </button>
           </div>
         ) : (
+          <>
+          <DoneForYouBanner />
+          <ChannelOverviewGrid
+            meta={connectStatus?.meta || null}
+            x={connectStatus?.x || null}
+            whatsappCloud={connectStatus?.whatsappCloud || null}
+            whatsappLegacy={getChannel("whatsapp")}
+          />
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl">
             <WhatsAppCard
               channel={getChannel("whatsapp")}
@@ -1452,6 +1654,7 @@ export default function ChannelsPage() {
             <WhatsAppCloudCard status={connectStatus?.whatsappCloud || null} />
             <XCard status={connectStatus?.x || null} />
           </div>
+          </>
         )}
       </div>
 

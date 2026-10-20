@@ -6,6 +6,7 @@ import {
   handleWhatsAppCloudWebhook,
   resolveWebhookBusiness,
 } from "@/lib/channels/whatsapp-cloud";
+import { verifyMetaSignature } from "@/lib/channels/meta";
 
 // Node.js runtime (consistent with the other provider webhooks).
 export const runtime = "nodejs";
@@ -37,9 +38,30 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  // WhatsApp Cloud events are delivered by Meta and DO carry an
+  // X-Hub-Signature-256 HMAC (same META_APP_SECRET as /api/webhooks/meta).
+  // Previously this route accepted unsigned POSTs from anyone who knew a
+  // business slug — forged inbound messages, fake conversations and
+  // attacker-triggered AI spend. When the app secret is configured the
+  // signature is REQUIRED (fail-closed); when it is not configured we log
+  // an error-level alert and fall back to the legacy verify-token trust
+  // model so an unconfigured install is not silently broken.
+  const rawBody = await request.text();
+  if (process.env.META_APP_SECRET) {
+    const signature = request.headers.get("x-hub-signature-256");
+    if (!verifyMetaSignature(rawBody, signature)) {
+      logger.warn("[WhatsAppCloud webhook] bad or missing signature — event rejected");
+      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    }
+  } else {
+    logger.error(
+      "[WhatsAppCloud webhook] ALERT: META_APP_SECRET is NOT configured — webhook signature cannot be verified. Set META_APP_SECRET to enforce signed delivery."
+    );
+  }
+
   let payload: unknown;
   try {
-    payload = await request.json();
+    payload = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }

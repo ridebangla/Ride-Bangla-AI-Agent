@@ -7,6 +7,7 @@ import {
   requireActiveSubscription,
   SubscriptionInactiveError,
 } from "@/lib/subscription";
+import { checkMessageLimitExceeded } from "@/lib/billing-usage";
 
 export async function POST(request: NextRequest) {
   // C-07: /api/chat previously had no auth — anyone could burn LLM tokens
@@ -27,6 +28,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
     }
     throw err;
+  }
+
+  // Plan quota hard-stop: metering alone never refused a message before
+  // this gate — a tenant could send unlimited AI messages on any plan.
+  if (await checkMessageLimitExceeded(auth.businessId)) {
+    return NextResponse.json({ error: "message_limit_reached" }, { status: 402 });
   }
 
   return runWithBusiness(auth.businessId, async () => {

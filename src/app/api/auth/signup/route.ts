@@ -46,7 +46,7 @@ function slugify(name: string): string {
 // Creates, in order:
 //   1. a Firebase Auth user (Admin SDK; password lives ONLY in Firebase Auth,
 //      this app never stores it — same shared project as the Admin Console),
-//   2. a `businesses` doc on a 7-day free trial (TRIAL_DAYS)
+//   2. a `businesses` doc on a 30-day free trial (first month free; TRIAL_DAYS)
 //      { plan:'trial', subscriptionStatus:'trialing', trialEndsAt: now+TRIAL_MS },
 //   3. an `admins` doc { role:'admin', businessId } — NEVER super_admin here.
 // On any failure after step 1, the Firebase user + business doc are rolled
@@ -67,9 +67,23 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const businessName = String(body.businessName || "").trim();
+    // Done-for-you model: signup takes email + password only. The business
+    // name is optional here — the customer can set it from the dashboard
+    // (Done-for-You Setup application). Never required at signup.
+    let businessName = String(body.businessName || "").trim();
     const email = String(body.email || "").toLowerCase().trim();
     const password = String(body.password || "");
+    if (!businessName) {
+      // Friendly default from the email address (editable later).
+      businessName = email
+        .split("@")[0]
+        .replace(/[._-]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+        .slice(0, 100);
+      if (businessName.length < 2) businessName = "My Business";
+    }
     const websiteUrl = String(body.websiteUrl || "").trim();
 
     if (businessName.length < 2 || businessName.length > 100) {

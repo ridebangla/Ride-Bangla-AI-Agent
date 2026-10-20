@@ -50,7 +50,10 @@ export async function GET() {
   // get only `{ status }` — enough for load balancers / uptime monitors,
   // nothing useful to an attacker. Full details require an admin session.
   const user = await getCurrentUser().catch(() => null);
-  if (user?.role !== "admin") {
+  // Details (environment, memory, service internals) are platform-operator
+  // data: only the Super Admin gets them. Tenant admins (role "admin" —
+  // every paying customer) get the same minimal { status } as the public.
+  if (user?.role !== "super_admin") {
     return NextResponse.json({ status });
   }
 

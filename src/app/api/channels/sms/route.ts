@@ -31,8 +31,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Return TwiML response
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${response}</Message></Response>`;
+    // Return TwiML response. The AI reply is influenced by the sender's
+    // own message and business data, so it MUST be XML-escaped before
+    // interpolation — an unescaped "</Message>" would let a sender break
+    // out of the element and inject extra TwiML verbs/messages.
+    const escaped = response
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escaped}</Message></Response>`;
 
     return new NextResponse(twiml, {
       headers: { "Content-Type": "text/xml" },

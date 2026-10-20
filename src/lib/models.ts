@@ -61,6 +61,15 @@ export interface Business {
   tagline?: string;
   brandColor?: string;
   logoUrl?: string;
+  /** Profile photo: cropped 1:1 photo data URL (set from the dashboard
+      Profile page; the same data-URL-in-Firestore pattern the catalog
+      uses for product images — no upload endpoint exists). */
+  profilePhoto?: string;
+  /** Contact details shown to customers, editable from the dashboard
+      Profile page (contact email is the admin's sign-in email instead). */
+  contactName?: string;
+  contactPhone?: string;
+  contactAddress?: string;
   landingPublished?: boolean;
   /** Premium polish: visual theme id for /p/[slug] (see src/lib/landing-themes.ts). */
   landingTheme?: string;
@@ -773,4 +782,53 @@ export interface LeadSettings {
   requireApproval: boolean;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * Done-for-you setup application. Submitted by the customer from the
+ * dashboard after signup; the Ride Bangla team contacts them and connects
+ * everything (channels, integrations) — the customer never touches keys.
+ */
+export interface SetupApplication {
+
+  [key: string]: unknown;  id: string;
+  businessId: string;
+  businessName: string;
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+  /** Channel ids the customer wants connected (e.g. "facebook", "whatsapp", "youtube"). */
+  channelsWanted: string[];
+  /** "whatsapp" | "phone" | "email" */
+  preferredContact: string;
+  notes: string;
+  /** "pending" | "contacted" | "in_progress" | "completed" | "cancelled" */
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Public site review. Written by a logged-in customer from the marketing
+ * landing page of one of our public sites (AI agent site, Tools, Studio).
+ * Only `status: "published"` reviews are ever returned by the public API —
+ * nothing seeded, nothing fake.
+ */
+export interface SiteReview {
+  [key: string]: unknown;
+  id: string;
+  /** "tools" | "ai" | "studio" — which public site this review is about. */
+  site: string;
+  /** Firebase uid of the reviewer (one review per uid per site per 24h). */
+  uid: string;
+  /** Display name chosen by the reviewer (1–80 chars). */
+  name: string;
+  photoURL: string;
+  /** 1–5. */
+  rating: number;
+  /** Review text (1–1000 chars). */
+  text: string;
+  /** "published" — reserved for future moderation states. */
+  status: string;
+  createdAt: Date;
 }

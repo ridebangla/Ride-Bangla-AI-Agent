@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
+  Sparkles,
   BookOpen,
   Users,
   Contact,
@@ -30,6 +31,7 @@ import {
   ClipboardList,
   Inbox,
   Target,
+  UserRound,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -42,6 +44,8 @@ const sections: NavSection[] = [
   {
     items: [
       { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+      { name: "Done-for-You Setup", href: "/setup-application", icon: Sparkles },
+      { name: "Profile", href: "/profile", icon: UserRound },
       { name: "Inbox", href: "/inbox", icon: Inbox },
       { name: "Conversations", href: "/conversations", icon: MessageSquare },
       { name: "Customers", href: "/customers", icon: Contact },

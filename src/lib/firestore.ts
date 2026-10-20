@@ -82,6 +82,8 @@ import type {
   Lead,
   LeadDraft,
   LeadSettings,
+  SetupApplication,
+  SiteReview,
 } from "./models";
 
 // ---------------------------------------------------------------------------
@@ -373,6 +375,24 @@ const MODEL_META: Record<string, ModelMeta> = {
     hasUpdatedAt: true,
     defaults: { keySuffix: "", scopes: [], isActive: true },
     uniques: ["keyHash"],
+  }),
+  // Done-for-you setup application (customer submits it from the dashboard
+  // after signup; the team works the queue from the Admin Console). One
+  // application history per business is kept; the customer edits their
+  // latest pending one instead of creating duplicates.
+  setupApplication: M("setupApplications", {
+    hasUpdatedAt: true,
+    defaults: {
+      businessName: "", contactName: "", contactPhone: "", contactEmail: "",
+      channelsWanted: [], preferredContact: "whatsapp", notes: "",
+      status: "pending",
+    },
+  }),
+  // Public site reviews (ai / tools / studio). Public, cross-business data
+  // keyed by `site` — deliberately NOT tenant-scoped; always read/write via
+  // getUnscopedPrisma() from the /api/public/reviews route.
+  siteReview: M("site_reviews", {
+    defaults: { photoURL: "", status: "published" },
   }),
   internalNote: M("internalNotes", { defaults: { authorName: "Admin" } }),
   campaign: M("campaigns", {
@@ -1384,6 +1404,8 @@ export interface DbClient {
   lead: ModelDelegate<Lead>;
   leadDraft: ModelDelegate<LeadDraft>;
   leadSettings: ModelDelegate<LeadSettings>;
+  setupApplication: ModelDelegate<SetupApplication>;
+  siteReview: ModelDelegate<SiteReview>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   $queryRaw(...args: any[]): Promise<any>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1480,6 +1502,7 @@ const TENANT_MODELS = new Set([
   "lead",
   "leadDraft",
   "leadSettings",
+  "setupApplication",
 ]);
 
 export class TenantContextError extends Error {
@@ -1613,9 +1636,12 @@ function wrapModel(model: string, delegate: Record<string, unknown>) {
 
         if (op === "create") {
           const data = a.data as Record<string, unknown>;
+          // Always stamp the AMBIENT tenant id — never trust a businessId
+          // carried in the payload (a caller-supplied foreign id would
+          // otherwise plant the row inside another tenant).
           return (orig as (...x: unknown[]) => unknown)({
             ...a,
-            data: data.businessId ? data : { ...data, businessId },
+            data: { ...data, businessId },
           });
         }
 
@@ -1623,7 +1649,7 @@ function wrapModel(model: string, delegate: Record<string, unknown>) {
           const data = a.data as Record<string, unknown>[];
           return (orig as (...x: unknown[]) => unknown)({
             ...a,
-            data: data.map((d) => (d.businessId ? d : { ...d, businessId })),
+            data: data.map((d) => ({ ...d, businessId })),
           });
         }
 
@@ -1670,7 +1696,7 @@ function wrapModel(model: string, delegate: Record<string, unknown>) {
             const cdata = create as Record<string, unknown>;
             return (delegate["create"] as (...x: unknown[]) => Promise<unknown>)({
               ...rest,
-              data: cdata.businessId ? cdata : { ...cdata, businessId },
+              data: { ...cdata, businessId },
             });
           })();
         }

@@ -1,3 +1,13 @@
+import type { Metadata } from "next";
+
+// Auth surfaces (/login, /setup) are not marketing pages — keep them out of
+// the index. This layout is a server component, so the noindex metadata for
+// the whole (auth) group lives here (the pages themselves are client
+// components and cannot export metadata).
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
+
 export default function AuthLayout({
   children,
 }: {

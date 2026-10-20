@@ -20,8 +20,8 @@ export const metadata = {
     images: [
       {
         url: SITE_URL + "/agent-avatar.png",
-        width: 1062,
-        height: 1095,
+        width: 680,
+        height: 680,
         alt: "Ride Bangla AI Agent",
       },
     ],
@@ -30,7 +30,7 @@ export const metadata = {
     card: "summary_large_image",
     title: "Pricing — Ride Bangla AI Agent",
     description:
-      "Starter $19, Growth $49, Pro $99 — every plan includes the complete platform. 7-day free trial.",
+      "Starter $19, Growth $49, Pro $99 — every plan includes the complete platform. First month free.",
     images: [SITE_URL + "/agent-avatar.png"],
   },
 };

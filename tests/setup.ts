@@ -119,6 +119,8 @@ function createMockPrismaClient() {
     "productCategory",
     "product",
     "order",
+    "setupApplication",
+    "siteReview",
   ];
 
   const client: Record<string, unknown> = {
