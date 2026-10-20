@@ -53,7 +53,7 @@ async function main() {
   // Per-business settings
   // The agent's behavior for Ride Bangla: polite Sir/Ma'am addressing,
   // convince-and-retain (never a dead end), and strict honesty rules
-  // (only quotable fares, Faridpur-only coverage, roadmap = coming soon).
+  // (never quote fare figures, Faridpur-only coverage, roadmap = coming soon).
   const RIDE_BANGLA_AGENT_BEHAVIOR = [
     "CUSTOMER ADDRESS — MANDATORY:",
     "- Address EVERY customer as স্যার (Sir) / ম্যাডাম (Ma'am) in every reply. Never use casual or familiar forms.",
@@ -65,16 +65,16 @@ async function main() {
     "- Your goal: the customer always leaves with interest and a clear next step — never empty-handed.",
     "",
     "HONESTY — NEVER HALLUCINATE:",
-    "- Fares you may quote: delivery/courier 0–5 km = ৳50, 5–7 km = ৳70. For distances ABOVE 7 km, say the team calculates the fare manually for each order — NEVER invent a per-km rate or any other number.",
-    "- Coverage: Faridpur district ONLY right now. Shariatpur and nationwide expansion are roadmap (coming soon) — never present them as live.",
-    "- Roadmap items (Studio, expansions, new modules) are ALWAYS \"coming soon / শীঘ্রই আসছে\" — never live, never with a launch date.",
+    "- Fares: NEVER quote any fare figure or amount. There is NO public rate chart — every delivery/ride charge is calculated from the road distance and confirmed with the customer when they order. If asked the charge, explain exactly that and offer the phone/WhatsApp (+880 1309-587749) for the exact fare for their trip. NEVER invent a per-km rate or any other number.",
+    "- Coverage: Faridpur district ONLY right now. Expansion to other districts is roadmap (coming soon) — never present it as live, never name a district as served, never promise a date.",
+    "- Roadmap items (the apps, Ride Bangla Pay, area expansion) are ALWAYS \"coming soon / শীঘ্রই আসছে\" — never live, never with a launch date. Studio, the AI Agent, Tools and the IT Team are LIVE today — never present them as coming soon.",
     "- If you do not know something, say the team will confirm — never guess.",
   ].join("\n");
 
   const rideBanglaSettings = {
     businessName: "Ride Bangla",
     businessDesc:
-      "Ride Bangla is a Bangladesh multi-service platform offering ride sharing (bike/car), food delivery, courier/parcel delivery, and marketplace (food, grocery, medicine from licensed pharmacies with prescription verification). Currently serving Faridpur district only; expanding to Shariatpur and nationwide.",
+      "Ride Bangla is a Bangladesh multi-service platform offering ride sharing (bike/car), food delivery, courier/parcel delivery, and marketplace (food, grocery, medicine from licensed pharmacies with prescription verification). Currently serving Faridpur district only; expanding gradually to other districts.",
     welcomeMessage:
       "Hello! Welcome to Ride Bangla support. How can I help you today? / আসসালামু আলাইকুম! Ride Bangla সাপোর্টে স্বাগতম। আমি কীভাবে সাহায্য করতে পারি?",
     tone: "friendly",
@@ -184,7 +184,7 @@ async function main() {
       categoryId: "cat-services",
       title: "Our Services",
       content:
-        "Ride Bangla Limited — Faridpur's multi-service platform. CURRENT services (all live now, Faridpur district only): (1) Food delivery — order from local restaurants; (2) Ride sharing — bike rides and car rentals (all transport follows Bangladesh road and BRTA rules); (3) Courier/parcel delivery — send parcels and documents; (4) Marketplace — food, grocery, and medicine from licensed pharmacies (a valid prescription is verified for every medicine order). Everything is booked through the Ride Bangla customer app. / রাইড বাংলা লিমিটেড — ফরিদপুরের মাল্টি-সার্ভিস প্ল্যাটফর্ম। বর্তমান সার্ভিস (শুধু ফরিদপুর জেলায়): (১) ফুড ডেলিভারি; (২) রাইড শেয়ারিং — বাইক ও কার; (৩) কুরিয়ার/পার্সেল ডেলিভারি; (৪) মার্কেটপ্লেস — খাবার, গ্রোসারি ও লাইসেন্সপ্রাপ্ত ফার্মেসির ঔষধ (প্রেসক্রিপশন যাচাই বাধ্যতামূলক)।",
+        "Ride Bangla Limited — Faridpur's multi-service platform. CURRENT services (all live now, Faridpur district only): (1) Food delivery — order from local restaurants; (2) Ride sharing — bike rides and car rentals (all transport follows Bangladesh road and BRTA rules); (3) Courier/parcel delivery — send parcels and documents; (4) Marketplace — food, grocery, and medicine from licensed pharmacies (a valid prescription is verified for every medicine order). Order by phone or WhatsApp (+880 1309-587749) or through the Customer website (customer.ridebangla.bd) — the Ride Bangla apps are coming soon, not launched yet. / রাইড বাংলা লিমিটেড — ফরিদপুরের মাল্টি-সার্ভিস প্ল্যাটফর্ম। বর্তমান সার্ভিস (শুধু ফরিদপুর জেলায়): (১) ফুড ডেলিভারি; (২) রাইড শেয়ারিং — বাইক ও কার; (৩) কুরিয়ার/পার্সেল ডেলিভারি; (৪) মার্কেটপ্লেস — খাবার, গ্রোসারি ও লাইসেন্সপ্রাপ্ত ফার্মেসির ঔষধ (প্রেসক্রিপশন যাচাই বাধ্যতামূলক)।",
       priority: 10,
     },
     {
@@ -198,9 +198,9 @@ async function main() {
     {
       id: "entry-fares",
       categoryId: "cat-fares",
-      title: "Fares — what the agent may quote",
+      title: "Fares — distance-based, never quote figures",
       content:
-        "Delivery/courier fare the AGENT MAY QUOTE: 0–5 km = ৳50, 5–7 km = ৳70. ABOVE 7 km: the team calculates the fare manually for each order — the agent must NEVER invent a per-km rate or any other number. COURIER rule: the CUSTOMER declares the product's value — Ride Bangla NEVER sets the product's price; the company only charges the carrying (delivery) fare. MARKETPLACE rule: the PARTNER sets the product price; the customer pays product price + delivery fare. The fare is always confirmed with the customer before payment.",
+        "FARES — NEVER QUOTE FIGURES: there is NO public rate chart and Ride Bangla does not publish fixed fare amounts. Every delivery/ride charge is calculated from the delivery (road) distance and confirmed with the customer when they order. If a customer asks what the charge will be, explain that it is distance-based and confirmed at booking, and give the phone/WhatsApp (+880 1309-587749) for the exact fare for their trip. NEVER invent a per-km rate or any taka amount. COURIER rule: the CUSTOMER declares what they are sending and its value — Ride Bangla NEVER sets the product's price; the company only charges the carrying (delivery) fare. MARKETPLACE rule: the PARTNER sets the product price; the customer pays product price + delivery fare.",
       priority: 9,
     },
     {
@@ -208,7 +208,7 @@ async function main() {
       categoryId: "cat-roadmap",
       title: "Coming soon (roadmap — NEVER live)",
       content:
-        "COMING SOON — always presented as \"শীঘ্রই আসছে / coming soon\", NEVER as live, NEVER with a launch date: (1) Area expansion — Shariatpur next, then nationwide across Bangladesh gradually; (2) Ride Bangla Studio — AI video + picture ad creation for businesses (product ads, company ads); (3) More AI platform modules over time. When a customer asks about any of these: present it warmly as coming soon, offer to note their interest and phone number so the team notifies them at launch.",
+        "LIVE TODAY (never present as coming soon): Ride Bangla AI Agent (ai.ridebangla.bd), Ride Bangla Studio (studio.ridebangla.bd), Ride Bangla Tools (tools.ridebangla.bd) and the Ride Bangla IT Team (it.ridebangla.bd) — see their own knowledge entries. COMING SOON — always presented as \"শীঘ্রই আসছে / coming soon\", NEVER as live, NEVER with a launch date: (1) the Ride Bangla apps (customer, rider, partner, agent — not launched yet, no date announced); (2) Ride Bangla Pay (digital wallet — not launched yet); (3) area expansion beyond Faridpur, gradually, announced on the website Updates page. When a customer asks about a coming-soon item: present it warmly as coming soon, offer to note their interest and phone number so the team notifies them at launch.",
       priority: 8,
     },
     {
@@ -216,7 +216,7 @@ async function main() {
       categoryId: "cat-contact",
       title: "Contact Information",
       content:
-        "URGENT or SAFETY issues: call the hotline +880 1309-587749 FIRST (call or WhatsApp) — before anything else. General inquiries: IT Team +880 1825-234644. Website: https://ridebangla.bd. / জরুরি বা নিরাপত্তা বিষয়ে: প্রথমেই হটলাইন +880 1309-587749-এ কল করুন।",
+        "URGENT or SAFETY issues: call the hotline +880 1309-587749 FIRST (call or WhatsApp) — before anything else. General inquiries: IT Team +880 1825-234644. Email: info@ridebangla.bd (general) and support@ridebangla.bd (support). Website: https://ridebangla.bd. / জরুরি বা নিরাপত্তা বিষয়ে: প্রথমেই হটলাইন +880 1309-587749-এ কল করুন।",
       priority: 8,
     },
     {
@@ -238,7 +238,7 @@ async function main() {
   ];
 
   for (const e of entries) {
-    await prisma.knowledgeEntry.upsert({ where: { id: e.id }, update: {}, create: { ...e, businessId: bid } });
+    await prisma.knowledgeEntry.upsert({ where: { id: e.id }, update: { ...e }, create: { ...e, businessId: bid } });
   }
 
   // Tags

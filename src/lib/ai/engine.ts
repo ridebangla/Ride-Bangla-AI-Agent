@@ -47,6 +47,15 @@ export interface ChatResult {
   response: string;
   products: ProductCard[];
   silent: boolean;
+  /**
+   * Help-Center adapter support (2026-10-20): `false` ONLY on the
+   * no-provider-key graceful-degradation path below, so API consumers
+   * (e.g. the main website's Help Center server function) can tell "the
+   * business has no AI provider key configured" apart from a real AI
+   * answer and render their own honest not-set-up message.
+   * Undefined/true = a brain answered.
+   */
+  aiConfigured?: boolean;
 }
 
 function toProductCard(p: CatalogProduct): ProductCard {
@@ -280,6 +289,7 @@ export async function chat(
       response: fallbackResponse,
       products: attached.products,
       silent: false,
+      aiConfigured: false,
     };
   }
 

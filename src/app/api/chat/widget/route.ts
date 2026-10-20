@@ -130,6 +130,11 @@ export async function POST(request: NextRequest) {
       response: result.response,
       products: result.products,
       silent: result.silent,
+      // Help-Center adapter support (2026-10-20): false only when the
+      // business has no AI provider key configured (engine fallback path),
+      // so server-side consumers can render their own honest degradation
+      // instead of the widget-oriented fallback text. True otherwise.
+      aiConfigured: result.aiConfigured !== false,
     });
   } catch (error) {
     logger.error("Widget chat failed:", error);
