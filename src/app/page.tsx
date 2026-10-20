@@ -154,20 +154,20 @@ const PLANS = [
     name: "Starter",
     price: "$19",
     desc: "For small businesses getting started with AI support.",
-    features: ["1 website + 2 social channels", "1,000 AI conversations / month", "Product catalog", "Email support"],
+    features: ["1 website widget + 1 social channel", "1,000 AI messages / month", "Product catalog", "Email support"],
   },
   {
     name: "Growth",
     price: "$49",
     desc: "For growing businesses that live on customer chat.",
-    features: ["Everything in Starter", "All social channels", "10,000 AI conversations / month", "Order handling + advance payments", "Priority support"],
+    features: ["Everything in Starter", "3 social channels", "5,000 AI messages / month", "Order handling + advance payments", "Priority support"],
     popular: true,
   },
   {
     name: "Pro",
     price: "$99",
     desc: "For high-volume businesses and teams.",
-    features: ["Everything in Growth", "Unlimited AI conversations", "Team inbox + roles", "Advanced analytics", "Dedicated support"],
+    features: ["Everything in Growth", "All social channels", "15,000 AI messages / month", "Team inbox + roles", "Advanced analytics", "Dedicated support"],
   },
 ];
 
