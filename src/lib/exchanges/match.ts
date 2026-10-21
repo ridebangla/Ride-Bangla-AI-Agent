@@ -40,17 +40,26 @@ export interface NormalizedDeposit {
   final: boolean;
 }
 
-/** Parse a decimal amount string ("19.00000000") to integer cents. */
+/**
+ * Parse a decimal amount string ("19.00000000") to integer cents —
+ * EXACTLY (attack-test 2026-10-21): fraction digits beyond cents are
+ * accepted only when they are all zeros. The old Math.round parsing
+ * rounded 18.995 UP to 1900, so a deposit (or receipt) short by up to
+ * a cent matched a $19.00 claim as "exact".
+ */
 export function amountToCents(raw: unknown): number | null {
   if (typeof raw === "number") {
-    return Number.isFinite(raw) ? Math.round(raw * 100) : null;
+    return Number.isFinite(raw) && raw > 0 ? Math.round(raw * 100) : null;
   }
   if (typeof raw !== "string") return null;
   const clean = raw.replace(/,/g, "").trim();
-  if (!/^\d+(\.\d+)?$/.test(clean)) return null;
-  const value = Number(clean);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return Math.round(value * 100);
+  const m = /^(\d+)(?:\.(\d+))?$/.exec(clean);
+  if (!m) return null;
+  const frac = m[2] ?? "";
+  if (frac.length > 2 && !/^0*$/.test(frac.slice(2))) return null;
+  const cents =
+    Number(m[1]) * 100 + Number((frac + "00").slice(0, 2) || "0");
+  return Number.isSafeInteger(cents) && cents > 0 ? cents : null;
 }
 
 export function matchDeposits(

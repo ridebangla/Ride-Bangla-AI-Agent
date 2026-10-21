@@ -55,21 +55,45 @@ class RefCodeCollisionError extends Error {
  *
  * Returns the new document id and the assigned refCode.
  */
+export interface CreateWithRefCodeOptions {
+  /**
+   * Extra check run INSIDE the creation transaction, after all reads
+   * and before the write (attack-test 2026-10-21). Throwing aborts the
+   * creation — used for the transaction-ID uniqueness guard, which a
+   * pre-transaction query cannot enforce against concurrent claims.
+   */
+  guard?: (tx: admin.firestore.Transaction) => Promise<void>;
+  /**
+   * Serializer/ownership doc (payment_claim_locks/{txnLockId}) read
+   * and written inside the same transaction: concurrent creations for
+   * the same transaction ID contend on this one doc, one retries, and
+   * the retry's guard sees the winner's committed claim.
+   */
+  lockRef?: admin.firestore.DocumentReference;
+  lockData?: Record<string, unknown>;
+}
+
 export async function createWithUniqueRefCode(
   db: admin.firestore.Firestore,
   collection: string,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  opts?: CreateWithRefCodeOptions
 ): Promise<{ id: string; refCode: string }> {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const refCode = generateRefCode();
     try {
       const id = await db.runTransaction(async (tx) => {
+        if (opts?.lockRef) await tx.get(opts.lockRef);
         const existing = await tx.get(
           db.collection(collection).where("refCode", "==", refCode).limit(1)
         );
         if (!existing.empty) throw new RefCodeCollisionError();
+        if (opts?.guard) await opts.guard(tx);
         const ref = db.collection(collection).doc();
         tx.set(ref, { ...data, refCode });
+        if (opts?.lockRef) {
+          tx.set(opts.lockRef, { ...(opts.lockData ?? {}), claimId: ref.id });
+        }
         return ref.id;
       });
       return { id, refCode };

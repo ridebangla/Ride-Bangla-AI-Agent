@@ -48,23 +48,48 @@ export interface ReceiptExtraction {
 }
 
 function field(text: string, label: string): string | null {
-  const m = new RegExp(`^\\s*${label}\\s*:\\s*(.+)$`, "im").exec(text);
-  if (!m) return null;
-  const v = m[1].trim();
+  // LAST match wins (attack-test 2026-10-21): a screenshot can carry
+  // printed text that a vision model transcribes BEFORE its own answer
+  // block; the model's own labeled answer is the final block, so an
+  // injected first block must never be the one parsed.
+  const re = new RegExp(`^\\s*${label}\\s*:\\s*(.+)$`, "gim");
+  let v: string | null = null;
+  for (const m of text.matchAll(re)) {
+    const candidate = m[1].trim();
+    if (candidate) v = candidate;
+  }
   if (!v || /^unknown$/i.test(v)) return null;
   return v;
+}
+
+/**
+ * Parse a receipt amount into integer cents — EXACTLY (attack-test
+ * 2026-10-21). A negative amount (refund / reversal receipts show one)
+ * is never a payment, and sub-cent precision (18.995) must not round
+ * UP into an exact match: fraction digits beyond cents are accepted
+ * only when they are all zeros ("19.00000000").
+ */
+export function parseAmountToCents(raw: string): number | null {
+  const cleaned = raw.replace(/[$€£¥₹৳,\s]/g, "");
+  if (!cleaned || cleaned.includes("-")) return null;
+  const m = /^(\d+)(?:\.(\d+))?$/.exec(cleaned);
+  if (!m) return null;
+  const frac = m[2] ?? "";
+  if (frac.length > 2 && !/^0*$/.test(frac.slice(2))) return null;
+  const cents =
+    Number(m[1]) * 100 + Number((frac + "00").slice(0, 2) || "0");
+  return Number.isSafeInteger(cents) && cents > 0 ? cents : null;
 }
 
 /** Parse the labeled vision answer into structured receipt fields. */
 export function parseReceiptExtraction(text: string): ReceiptExtraction {
   const receiptLine = field(text, "RECEIPT");
-  const isReceipt = receiptLine ? /^y/i.test(receiptLine) : true;
+  // Only an explicit YES counts (attack-test 2026-10-21): a missing or
+  // UNKNOWN RECEIPT line used to default to "is a receipt", skipping
+  // the only receipt-ness gate for non-receipt images / failed reads.
+  const isReceipt = receiptLine ? /^yes$/i.test(receiptLine.trim()) : false;
   const amountRaw = field(text, "AMOUNT");
-  let amountCents: number | null = null;
-  if (amountRaw) {
-    const n = Number(amountRaw.replace(/[^0-9.]/g, ""));
-    if (Number.isFinite(n) && n > 0) amountCents = Math.round(n * 100);
-  }
+  const amountCents = amountRaw ? parseAmountToCents(amountRaw) : null;
   const dateText = field(text, "DATE");
   let date: Date | null = null;
   if (dateText) {
@@ -204,10 +229,16 @@ export function evaluateReceiptChecks(
     ex.txnId !== null &&
     normalizeTxn(ex.txnId) === normalizeTxn(input.claimTxnId) &&
     normalizeTxn(input.claimTxnId).length >= 6;
+  // An empty/short refCode must never satisfy this check vacuously
+  // (attack-test 2026-10-21): every string "contains" an empty refCode,
+  // which let legacy claims without a refCode auto-approve on a wrong
+  // transaction id.
+  const refNeedle = input.refCode.trim().toUpperCase();
   const refVisible =
-    ex.raw.toUpperCase().includes(input.refCode.toUpperCase()) ||
-    (ex.noteText !== null &&
-      ex.noteText.toUpperCase().includes(input.refCode.toUpperCase()));
+    refNeedle.length >= 6 &&
+    (ex.raw.toUpperCase().includes(refNeedle) ||
+      (ex.noteText !== null &&
+        ex.noteText.toUpperCase().includes(refNeedle)));
   checks.push({
     name: "txn_or_ref_match",
     ok: txnMatch || refVisible,

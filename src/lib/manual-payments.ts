@@ -27,8 +27,13 @@
  */
 
 import admin from "firebase-admin";
-import { assertTxnIdNotClaimed } from "./claim-dedupe";
-export { DuplicateTxnError } from "./claim-dedupe";
+import {
+  assertTxnIdNotClaimed,
+  DuplicateTxnError,
+  txnLockId,
+  txnNormOf,
+} from "./claim-dedupe";
+export { DuplicateTxnError };
 
 /** Manual payment method ids — one Firestore doc each. */
 export type ManualMethodId =
@@ -256,9 +261,11 @@ export async function createPaymentClaim(input: {
   regularAmountCents?: number;
 }): Promise<{ claimId: string; refCode: string }> {
   await assertTxnIdNotClaimed(input.txnId);
+  const db = getAdminDb();
+  const txnNorm = txnNormOf(input.txnId);
   const { createWithUniqueRefCode } = await import("./ref-codes");
   const { id, refCode } = await createWithUniqueRefCode(
-    getAdminDb(),
+    db,
     "payment_claims",
     {
       businessId: input.businessId,
@@ -281,12 +288,49 @@ export async function createPaymentClaim(input: {
         : {}),
       reference: input.reference,
       txnId: input.txnId,
+      // Normalized txn identity — uniqueness is enforced on this form,
+      // never the raw string (attack-test 2026-10-21; claim-dedupe.ts).
+      txnIdNorm: txnNorm,
       screenshotDataUrl: input.screenshotDataUrl,
       status: "pending" as ClaimStatus,
       autoVerify: { status: "pending" as const },
       visionPreRead: { status: "pending" as const },
       createdBy: input.createdBy ?? `tenant:${input.businessId}`,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    {
+      // In-transaction uniqueness guard + serializer lock (attack-test
+      // 2026-10-21): the pre-check above is a fast path only — two
+      // concurrent submissions used to both pass it and both activate.
+      lockRef: db.collection("payment_claim_locks").doc(txnLockId(txnNorm)),
+      lockData: {
+        product: "ai",
+        txnId: input.txnId,
+        txnIdNorm: txnNorm,
+        businessId: input.businessId,
+        claimedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      guard: async (tx) => {
+        const queries = [
+          tx.get(
+            db
+              .collection("payment_claims")
+              .where("txnIdNorm", "==", txnNorm)
+              .limit(10)
+          ),
+          tx.get(
+            db.collection("payment_claims").where("txnId", "==", input.txnId.trim()).limit(10)
+          ),
+        ];
+        for (const q of queries) {
+          const snap = await q;
+          const clash = snap.docs.some((d) => {
+            const s = (d.data() as { status?: unknown }).status;
+            return s === "pending" || s === "approved";
+          });
+          if (clash) throw new DuplicateTxnError(input.txnId);
+        }
+      },
     }
   );
   return { claimId: id, refCode };

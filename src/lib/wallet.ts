@@ -32,6 +32,8 @@ import {
 import {
   assertTxnIdNotClaimed,
   DuplicateTxnError,
+  txnLockId,
+  txnNormOf,
 } from "./claim-dedupe";
 import {
   PLAN_META,
@@ -241,27 +243,70 @@ export async function createDepositClaim(
   }
 
   const kind: ClaimKind = "wallet_deposit";
-  const { id: claimId, refCode } = await createWithUniqueRefCode(
-    getAdminDb(),
-    "payment_claims",
-    {
-      businessId,
-      kind,
-      plan: "",
-      interval: "",
-      method: input.method,
-      amount: input.amountCents / 100,
-      amountCents: input.amountCents,
-      reference: "",
-      txnId,
-      screenshotDataUrl: input.screenshotDataUrl,
-      status: "pending",
-      autoVerify: { status: "pending" },
-      visionPreRead: { status: "pending" },
-      createdBy: `tenant:${businessId}`,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  const db = getAdminDb();
+  const txnNorm = txnNormOf(txnId);
+  let createdClaim: { id: string; refCode: string };
+  try {
+    createdClaim = await createWithUniqueRefCode(
+      db,
+      "payment_claims",
+      {
+        businessId,
+        kind,
+        plan: "",
+        interval: "",
+        method: input.method,
+        amount: input.amountCents / 100,
+        amountCents: input.amountCents,
+        reference: "",
+        txnId,
+        // Normalized txn identity (attack-test 2026-10-21).
+        txnIdNorm: txnNorm,
+        screenshotDataUrl: input.screenshotDataUrl,
+        status: "pending",
+        autoVerify: { status: "pending" },
+        visionPreRead: { status: "pending" },
+        createdBy: `tenant:${businessId}`,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      {
+        // Same in-transaction uniqueness guard + serializer lock as
+        // subscription claims (attack-test 2026-10-21).
+        lockRef: db.collection("payment_claim_locks").doc(txnLockId(txnNorm)),
+        lockData: {
+          product: "ai",
+          txnId,
+          txnIdNorm: txnNorm,
+          businessId,
+          claimedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        guard: async (tx) => {
+          const queries = [
+            tx.get(
+              db.collection("payment_claims").where("txnIdNorm", "==", txnNorm).limit(10)
+            ),
+            tx.get(
+              db.collection("payment_claims").where("txnId", "==", txnId).limit(10)
+            ),
+          ];
+          for (const q of queries) {
+            const snap = await q;
+            const clash = snap.docs.some((d) => {
+              const s = (d.data() as { status?: unknown }).status;
+              return s === "pending" || s === "approved";
+            });
+            if (clash) throw new DuplicateTxnError(txnId);
+          }
+        },
+      }
+    );
+  } catch (err) {
+    if (err instanceof DuplicateTxnError) {
+      throw new WalletError(err.message, "duplicate_txn");
     }
-  );
+    throw err;
+  }
+  const { id: claimId, refCode } = createdClaim;
 
   // Monitoring + Tier-2 pre-read: async, never block or fail the claim.
   const base = {

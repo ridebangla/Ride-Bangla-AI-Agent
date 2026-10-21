@@ -52,6 +52,7 @@ import { perceiveMedia, describeImageWithVision } from "./ai/media";
 import { hasAnyProviderKey, resolveSiteKeys, type ProviderKeys } from "./ai/providers";
 import { isPaidPlanId, isBillingInterval } from "./plans";
 import { getCatalogPlan } from "./plan-catalog";
+import { txnLockId, txnNormOf } from "./claim-dedupe";
 import {
   RECEIPT_QUESTION,
   parseReceiptExtraction,
@@ -97,7 +98,7 @@ function toDate(value: unknown): Date | null {
 export async function approveSubscriptionClaim(
   claimId: string,
   approvedBy: string
-): Promise<{ approved: boolean }> {
+): Promise<{ approved: boolean; conflict?: boolean }> {
   const db = getAdminDb();
   const claimRef = db.collection("payment_claims").doc(claimId);
 
@@ -153,6 +154,28 @@ export async function approveSubscriptionClaim(
     const bizData = bizSnap.exists
       ? (bizSnap.data() as Record<string, unknown>)
       : undefined;
+    // One transaction ID funds at most ONE approval (attack-test
+    // 2026-10-21): the shared txn lock doc is read (and taken, when a
+    // legacy claim predates creation locks) INSIDE this transaction.
+    // A lock owned by a DIFFERENT claim aborts the approval — this is
+    // what serializes two concurrent decisions on claims that share a
+    // payment, which the non-transactional uniqueness query cannot.
+    const claimTxnId = typeof claim.txnId === "string" ? claim.txnId : "";
+    const txnNorm = txnNormOf(claimTxnId);
+    let lockRef: admin.firestore.DocumentReference | null = null;
+    let lockNeedsWrite = false;
+    if (txnNorm) {
+      lockRef = db.collection("payment_claim_locks").doc(txnLockId(txnNorm));
+      const lockSnap = await tx.get(lockRef);
+      if (lockSnap.exists) {
+        const owner = (lockSnap.data() as { claimId?: unknown }).claimId;
+        if (typeof owner === "string" && owner !== claimId) {
+          return { approved: false, conflict: true };
+        }
+      } else {
+        lockNeedsWrite = true;
+      }
+    }
     const activationSnapshot = {
       existed: bizSnap.exists,
       subscriptionStatus:
@@ -166,6 +189,12 @@ export async function approveSubscriptionClaim(
           : null,
       subscriptionEndsAt: toDate(bizData?.subscriptionEndsAt)?.toISOString() ?? null,
       isActive: typeof bizData?.isActive === "boolean" ? bizData.isActive : null,
+      // Activation resets the usage period (below) — capture the
+      // pre-activation values too, or a reversal can never restore
+      // them exactly (attack-test 2026-10-21).
+      aiMessagesUsed:
+        typeof bizData?.aiMessagesUsed === "number" ? bizData.aiMessagesUsed : null,
+      usagePeriodStart: toDate(bizData?.usagePeriodStart)?.toISOString() ?? null,
     };
     tx.set(
       bizRef,
@@ -188,6 +217,16 @@ export async function approveSubscriptionClaim(
       approvedAt: admin.firestore.FieldValue.serverTimestamp(),
       activationSnapshot,
     });
+    if (lockRef && lockNeedsWrite) {
+      tx.set(lockRef, {
+        product: "ai",
+        txnId: claimTxnId,
+        txnIdNorm: txnNorm,
+        claimId,
+        businessId,
+        claimedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
 
     logger.info("[auto-verify] subscription claim approved", {
       claimId,
@@ -375,7 +414,37 @@ async function processCryptoClaim(
     { name: "exchange_deposit_match", ok: true, detail: match.note },
   ];
   try {
-    const { approved } = await approveSubscriptionClaim(claimId, "auto-verify");
+    const { approved, conflict } = await approveSubscriptionClaim(claimId, "auto-verify");
+    if (conflict) {
+      // The deposit matched THIS claim's refCode, but the claim's
+      // transaction ID is already owned by another claim (attack-test
+      // 2026-10-21) — never activate; a human untangles it.
+      const conflictChecks: DecisionCheck[] = [
+        ...checks,
+        {
+          name: "txn_unique",
+          ok: false,
+          detail:
+            "This transaction ID is already claimed by another payment claim — blocked from auto-activation.",
+        },
+      ];
+      const wrote = await recordDecision(db, claimId, claim.decision, {
+        by: "ai",
+        outcome: "human_review",
+        checks: conflictChecks,
+      }).catch(() => false);
+      if (wrote) {
+        await writeAutoVerifyAudit(db, {
+          claimId,
+          outcome: "human_review",
+          note:
+            `Exchange deposit matched ${method} payment (${(amountCents / 100).toFixed(2)} USD, ` +
+            `ref ${refCode}) for business ${String(claim.businessId ?? "")}, but the claim's ` +
+            `transaction ID is already claimed by another claim — routed to human review.`,
+        });
+      }
+      return { action: "human_review", note: "txn id claimed by another claim" };
+    }
     if (approved) {
       const wrote = await recordDecision(db, claimId, claim.decision, {
         by: "ai",
@@ -442,16 +511,35 @@ async function decideReceiptClaim(
 
   // One transaction ID funds at most one subscription: if another
   // claim was already APPROVED with this txnId, never auto-activate.
+  // The comparison is on the NORMALIZED txn form (attack-test
+  // 2026-10-21): the old exact-string query let a re-cased / re-dashed
+  // variant of an approved payment sail through as "unique".
   let txnAlreadyApprovedElsewhere = false;
   if (claimTxnId) {
     try {
-      const dup = await db
+      const norm = txnNormOf(claimTxnId);
+      const byExact = await db
         .collection("payment_claims")
         .where("txnId", "==", claimTxnId)
         .where("status", "==", "approved")
         .limit(5)
         .get();
-      txnAlreadyApprovedElsewhere = dup.docs.some((d) => d.id !== claimId);
+      let docs = byExact.docs;
+      if (norm) {
+        const byNorm = await db
+          .collection("payment_claims")
+          .where("txnIdNorm", "==", norm)
+          .where("status", "==", "approved")
+          .limit(5)
+          .get();
+        docs = [...docs, ...byNorm.docs];
+      }
+      txnAlreadyApprovedElsewhere = docs.some((d) => {
+        if (d.id === claimId) return false;
+        if (!norm) return true;
+        const other = (d.data() as { txnId?: unknown }).txnId;
+        return txnNormOf(typeof other === "string" ? other : "") === norm;
+      });
     } catch (err) {
       logger.warn("[auto-verify] txn uniqueness check failed", {
         claimId,
@@ -514,7 +602,42 @@ async function decideReceiptClaim(
 
   if (decision.outcome === "auto_approve") {
     try {
-      const { approved } = await approveSubscriptionClaim(claimId, "auto-verify");
+      const { approved, conflict } = await approveSubscriptionClaim(claimId, "auto-verify");
+      if (conflict) {
+        // Another claim owns this transaction ID (attack-test
+        // 2026-10-21): the approval-time lock caught what the
+        // pre-check query could not (concurrent claims). Route to a
+        // human with the txn_unique check flipped to failed.
+        const checks: DecisionCheck[] = decision.checks.map((c) =>
+          c.name === "txn_unique"
+            ? {
+                ...c,
+                ok: false,
+                detail:
+                  "This transaction ID is already claimed by another payment claim — blocked from auto-activation.",
+              }
+            : c
+        );
+        const wrote = await recordDecision(db, claimId, claim.decision, {
+          by: "ai",
+          outcome: "human_review",
+          checks,
+        }).catch(() => false);
+        if (wrote) {
+          await writeAutoVerifyAudit(db, {
+            claimId,
+            outcome: "human_review",
+            note:
+              `Receipt checks passed for ${method} payment (${(amountCents / 100).toFixed(2)} USD, ` +
+              `ref ${refCode || "n/a"}, txn ${maskTxn(claimTxnId)}) for business ${businessId}, ` +
+              `but the transaction ID is already claimed by another claim — routed to human review.`,
+          });
+        }
+        return {
+          action: "human_review",
+          note: "txn id claimed by another claim — left pending for human review",
+        };
+      }
       if (!approved) {
         return {
           action: "skipped",
