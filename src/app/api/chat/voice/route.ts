@@ -68,10 +68,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "message_limit_reached" }, { status: 402 });
     }
 
+    // Same identity rule as the widget chat route: "anonymous" is a
+    // public constant, not an ownership proof — a missing/reserved
+    // visitorId gets a server-generated unguessable identity.
+    const suppliedVisitor =
+      typeof visitorId === "string" ? visitorId.trim().slice(0, 64) : "";
     const visitor =
-      typeof visitorId === "string" && visitorId.trim()
-        ? visitorId.trim().slice(0, 64)
-        : "anonymous";
+      suppliedVisitor && suppliedVisitor.toLowerCase() !== "anonymous"
+        ? suppliedVisitor
+        : `anon-${crypto.randomUUID()}`;
     const clientIp =
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
       request.headers.get("x-real-ip") ||

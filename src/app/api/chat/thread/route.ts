@@ -54,6 +54,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // "anonymous" was the widget endpoints' shared default identity — a
+    // public constant, never a proof of ownership. Threads owned by it
+    // are not readable here (same empty-thread shape as any not-owned
+    // thread, so nothing leaks). Attack test 2026-10-21.
+    if (visitorId.trim().toLowerCase() === "anonymous") {
+      return NextResponse.json({ messages: [], aiEnabled: true });
+    }
+
     const clientIp =
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
       request.headers.get("x-real-ip") ||

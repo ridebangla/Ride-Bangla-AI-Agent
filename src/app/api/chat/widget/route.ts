@@ -63,7 +63,20 @@ export async function POST(request: NextRequest) {
     }
     enterBusinessContext(business.id);
 
-    const visitor = typeof visitorId === "string" && visitorId.trim() ? visitorId.trim().slice(0, 64) : "anonymous";
+    // Visitor identity is the thread-ownership proof (the thread endpoint
+    // requires customerContact === visitorId), so it must never be a
+    // publicly known constant: "anonymous" was the shared default, which
+    // made every no-visitorId conversation readable/appendable by anyone
+    // who knew that string + the conversationId (attack test 2026-10-21).
+    // A missing or reserved visitorId gets a server-generated unguessable
+    // identity instead; it is returned in the response so a caller that
+    // omitted one can still own and read back its own thread.
+    const suppliedVisitor =
+      typeof visitorId === "string" ? visitorId.trim().slice(0, 64) : "";
+    const visitor =
+      suppliedVisitor && suppliedVisitor.toLowerCase() !== "anonymous"
+        ? suppliedVisitor
+        : `anon-${crypto.randomUUID()}`;
     // visitorId is client-supplied and rotatable — a second bucket keyed by
     // (siteKey + IP) caps total abuse per network regardless of rotation.
     const clientIp =
@@ -158,6 +171,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       conversationId: convId,
+      visitorId: visitor,
       response: result.response,
       products: result.products,
       silent: result.silent,

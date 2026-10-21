@@ -121,6 +121,30 @@ describe("GET /api/chat/thread", () => {
     expect(data.messages).toEqual([]);
   });
 
+  it("never serves a thread under the public 'anonymous' identity", async () => {
+    // Legacy conversations created without a visitorId are owned by the
+    // literal string "anonymous" — public knowledge, not a credential.
+    mockPrisma.conversation.findUnique.mockResolvedValue({
+      id: "c-anon",
+      channel: "widget",
+      customerContact: "anonymous",
+      aiEnabled: true,
+    });
+    mockPrisma.message.findMany.mockResolvedValue([
+      { id: "m-1", role: "customer", content: "secret", createdAt: T0 },
+    ]);
+    const { GET } = await import("@/app/api/chat/thread/route");
+    const res = await GET(
+      createRequest("/api/chat/thread", {
+        searchParams: { siteKey: "good-key", conversationId: "c-anon", visitorId: "anonymous" },
+      })
+    );
+    const data = await parseJsonResponse(res);
+    expect(res.status).toBe(200);
+    expect(data.messages).toEqual([]);
+    expect(mockPrisma.message.findMany).not.toHaveBeenCalled();
+  });
+
   it("returns an empty thread for an unknown conversation id", async () => {
     const { GET } = await import("@/app/api/chat/thread/route");
     const res = await GET(
