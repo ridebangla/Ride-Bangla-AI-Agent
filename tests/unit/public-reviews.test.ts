@@ -231,3 +231,54 @@ describe("GET /api/public/firebase-config", () => {
     });
   });
 });
+
+describe("photo + Google-verification contract", () => {
+  it("GET surfaces photoURL and verifiedGoogle only from stored proof", async () => {
+    const googleReview = {
+      ...REVIEW_1,
+      photoURL: "https://example.com/karim.png",
+      verifiedGoogle: true,
+    };
+    // Legacy record: neither field was ever captured — the API must
+    // report verifiedGoogle: false and photoURL: "" (never fabricated).
+    const legacyReview = { ...REVIEW_2 } as Record<string, unknown>;
+    delete legacyReview.photoURL;
+    delete legacyReview.verifiedGoogle;
+    db.siteReview.findMany.mockResolvedValue([googleReview, legacyReview]);
+    const res = await reviewsGET(get(`/api/public/reviews?site=ai&siteKey=${KEY}`));
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.reviews[0]).toMatchObject({
+      name: "Karim",
+      photoURL: "https://example.com/karim.png",
+      verifiedGoogle: true,
+    });
+    expect(body.reviews[1]).toMatchObject({ photoURL: "", verifiedGoogle: false });
+  });
+
+  it("POST stores verifiedGoogle=true + photo for a Google-claim token", async () => {
+    verifyIdToken.mockResolvedValue({
+      uid: "google-user",
+      email: "g@example.com",
+      name: "Google User",
+      picture: "https://example.com/g.png",
+      firebase: { sign_in_provider: "google.com" },
+    });
+    const res = await reviewsPOST(
+      post({ siteKey: KEY, site: "ai", idToken: "tok", rating: 5, text: "Loved it!" })
+    );
+    expect(res.status).toBe(200);
+    const data = db.siteReview.create.mock.calls[0][0].data;
+    expect(data.verifiedGoogle).toBe(true);
+    expect(data.photoURL).toBe("https://example.com/g.png");
+  });
+
+  it("POST stores verifiedGoogle=false when the token has no Google claim", async () => {
+    const res = await reviewsPOST(
+      post({ siteKey: KEY, site: "ai", idToken: "tok", rating: 4, text: "Good." })
+    );
+    expect(res.status).toBe(200);
+    const data = db.siteReview.create.mock.calls[0][0].data;
+    expect(data.verifiedGoogle).toBe(false);
+  });
+});

@@ -8,16 +8,42 @@
  * signed in with Firebase on this device (their existing session); they post
  * with their ID token. BN+EN copy (this repo's bilingual convention).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { Star } from "lucide-react";
 import { getFirebaseAuth } from "@/lib/firebase-client";
 
 interface PublicReview {
   name: string;
+  /** Reviewer's profile photo captured at submission; "" when none. */
+  photoURL?: string;
+  /** True only when the stored record proves Google sign-in. */
+  verifiedGoogle?: boolean;
   rating: number;
   text: string;
   createdAt: string;
+}
+
+/** Reviewer avatar: their profile photo when the record carries one;
+ *  an initial circle otherwise (same pattern as the main website). */
+function Avatar({ name, photoURL }: { name: string; photoURL?: string }) {
+  const [broken, setBroken] = useState(false);
+  if (photoURL && !broken) {
+    return (
+      <img
+        src={photoURL}
+        alt={name}
+        referrerPolicy="no-referrer"
+        onError={() => setBroken(true)}
+        className="h-10 w-10 shrink-0 rounded-full object-cover"
+      />
+    );
+  }
+  return (
+    <span className="h-10 w-10 shrink-0 rounded-full bg-[#4A7C9B] text-white flex items-center justify-center font-semibold">
+      {(name || "?").charAt(0).toUpperCase()}
+    </span>
+  );
 }
 
 function Stars({ value, size = 16 }: { value: number; size?: number }) {
@@ -51,6 +77,36 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
   const [posting, setPosting] = useState(false);
   const [formError, setFormError] = useState("");
   const [formOk, setFormOk] = useState("");
+
+  // One-row sliding carousel (same behaviour as the main website):
+  // cards in a single horizontal line, advancing one card at a time.
+  const [slide, setSlide] = useState(0);
+  const [carouselPaused, setCarouselPaused] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(2);
+  useEffect(() => {
+    const update = () => setVisibleCount(window.innerWidth >= 1024 ? 4 : 2);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  const maxSlide = Math.max(0, reviews.length - visibleCount);
+  const safeSlide = Math.min(slide, maxSlide);
+  const maxSlideRef = useRef(maxSlide);
+  maxSlideRef.current = maxSlide;
+  useEffect(() => {
+    if (carouselPaused || maxSlide <= 0) return;
+    const timer = setInterval(() => {
+      const max = maxSlideRef.current;
+      if (max <= 0) return;
+      setSlide((prev) => (prev >= max ? 0 : prev + 1));
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [carouselPaused, maxSlide]);
+  const goToSlide = (index: number) => {
+    const max = maxSlideRef.current;
+    if (max <= 0) return;
+    setSlide(((index % (max + 1)) + (max + 1)) % (max + 1));
+  };
 
   const load = useCallback(async () => {
     if (!siteKey) {
@@ -178,33 +234,117 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
         )}
 
         {reviews.length > 0 && (
-          <div className="mt-10 flex gap-5 overflow-x-auto pb-4 snap-x">
-            {reviews.map((r, i) => (
-              <article
-                key={`${r.createdAt}-${i}`}
-                className="snap-start shrink-0 w-[320px] max-w-[85vw] bg-white border border-slate-200 rounded-2xl p-6"
+          <div
+            className="relative mt-10"
+            onMouseEnter={() => setCarouselPaused(true)}
+            onMouseLeave={() => setCarouselPaused(false)}
+            onTouchStart={() => setCarouselPaused(true)}
+            onTouchEnd={() => setCarouselPaused(false)}
+          >
+            <div className="overflow-hidden">
+              <div
+                className="-mx-2.5 flex transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                style={{
+                  transform: `translateX(-${safeSlide * (100 / visibleCount)}%)`,
+                }}
               >
-                <div className="flex items-center gap-3">
-                  <span className="h-10 w-10 rounded-full bg-[#4A7C9B] text-white flex items-center justify-center font-semibold">
-                    {(r.name || "?").charAt(0).toUpperCase()}
-                  </span>
-                  <div>
-                    <p className="font-semibold text-sm">{r.name}</p>
-                    <Stars value={r.rating} size={13} />
+                {reviews.map((r, i) => (
+                  <div
+                    key={`${r.createdAt}-${i}`}
+                    className="w-1/2 shrink-0 px-2.5 lg:w-1/4"
+                  >
+                    <article className="h-full bg-white border border-slate-200 rounded-2xl p-6">
+                      <div className="flex items-center gap-3">
+                        <Avatar name={r.name} photoURL={r.photoURL} />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm truncate">
+                            {r.name}
+                          </p>
+                          <Stars value={r.rating} size={13} />
+                        </div>
+                      </div>
+                      <p className="text-sm text-slate-600 mt-3 leading-relaxed whitespace-pre-line">
+                        {r.text}
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {r.verifiedGoogle === true && (
+                          <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                            Verified Google account / যাচাইকৃত Google
+                            অ্যাকাউন্ট
+                          </span>
+                        )}
+                        <p className="text-xs text-slate-600">
+                          {new Date(r.createdAt).toLocaleDateString("en-GB", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </p>
+                      </div>
+                    </article>
                   </div>
+                ))}
+              </div>
+            </div>
+            {maxSlide > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => goToSlide(safeSlide - 1)}
+                  aria-label="Previous reviews"
+                  className="absolute -left-2 top-1/2 z-10 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white shadow-md transition hover:bg-slate-50 sm:-left-4"
+                >
+                  <svg
+                    className="h-4 w-4 text-slate-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M15 19l-7-7 7-7"
+                    />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goToSlide(safeSlide + 1)}
+                  aria-label="Next reviews"
+                  className="absolute -right-2 top-1/2 z-10 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white shadow-md transition hover:bg-slate-50 sm:-right-4"
+                >
+                  <svg
+                    className="h-4 w-4 text-slate-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </button>
+                <div className="mt-4 flex items-center justify-center gap-1.5">
+                  {Array.from({ length: maxSlide + 1 }).map((_, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => goToSlide(idx)}
+                      aria-label={`Go to slide ${idx + 1}`}
+                      className={`h-1.5 rounded-full transition-all ${
+                        idx === safeSlide
+                          ? "w-6 bg-[#4A7C9B]"
+                          : "w-1.5 bg-slate-300 hover:bg-slate-400"
+                      }`}
+                    />
+                  ))}
                 </div>
-                <p className="text-sm text-slate-600 mt-3 leading-relaxed whitespace-pre-line">
-                  {r.text}
-                </p>
-                <p className="text-xs text-slate-600 mt-3">
-                  {new Date(r.createdAt).toLocaleDateString("en-GB", {
-                    day: "numeric",
-                    month: "short",
-                    year: "numeric",
-                  })}
-                </p>
-              </article>
-            ))}
+              </>
+            )}
           </div>
         )}
 
