@@ -30,8 +30,9 @@
  *
  * The message texts are MINIMAL functional defaults proposed for owner
  * approval (listed verbatim in final-verification/
- * admin-tenant-control.md); bilingual EN + BN composed like the
- * existing blockTenant notice.
+ * admin-tenant-control.md). TEXTS carries EN + BN variants, but the
+ * composed tenant notice renders ENGLISH ONLY (language rule
+ * 2026-10-21: default UI language is English, no mixing).
  */
 
 import { getAdminDb } from "@/lib/admin-db";
@@ -202,10 +203,11 @@ const TEXTS: Record<
   },
 };
 
-/** The exact message written to adminNotice.message for a kind. */
+/** The exact message written to adminNotice.message for a kind.
+ *  English only — the BN variants stay in TEXTS as the bn resource. */
 export function autoNoticeMessage(kind: AutoNoticeKind): string {
   const t = TEXTS[kind];
-  return `${t.titleEn} — ${t.bodyEn} / ${t.titleBn} — ${t.bodyBn}`;
+  return `${t.titleEn} — ${t.bodyEn}`;
 }
 
 export interface InactiveNotifyResult {

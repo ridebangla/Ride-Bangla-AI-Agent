@@ -10,6 +10,7 @@
 import { Header } from "@/components/layout/header";
 import { ImageCropper } from "@/components/ui/image-cropper";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 import {
   Save,
   Eye,
@@ -472,7 +473,7 @@ export default function LandingPage() {
             </div>
             <div className="space-y-1.5">
               <label className="block text-sm font-medium text-rbai-text">
-                Logo <span className="font-normal text-rbai-text-light">/ লোগো</span>
+                {t("landing.logo_label")}
               </label>
               {logoUrl.startsWith("data:image/") ? (
                 <div className="space-y-2">

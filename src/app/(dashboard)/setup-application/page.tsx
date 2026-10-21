@@ -27,6 +27,7 @@ import {
   XBrandIcon,
 } from "@/components/ui/channel-icons";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 
 interface Application {
   id: string;
@@ -56,9 +57,9 @@ const CHANNEL_OPTIONS = [
 ];
 
 const CONTACT_OPTIONS = [
-  { id: "whatsapp", label: "WhatsApp", desc: "হোয়াটসঅ্যাপ / Fastest" },
-  { id: "phone", label: "Phone call", desc: "ফোন কল / We'll call you" },
-  { id: "email", label: "Email", desc: "ইমেইল / We'll write to you" },
+  { id: "whatsapp", label: "WhatsApp", descKey: "setup.contact_whatsapp_desc" },
+  { id: "phone", label: "Phone call", descKey: "setup.contact_phone_desc" },
+  { id: "email", label: "Email", descKey: "setup.contact_email_desc" },
 ];
 
 const inputClass =
@@ -188,13 +189,12 @@ export default function SetupApplicationPage() {
   }
 
   const field = (
-    label: string,
-    bn: string,
+    labelKey: string,
     children: React.ReactNode
   ) => (
     <div>
       <label className="block text-sm font-medium text-rbai-text mb-1.5">
-        {label} <span className="font-normal text-rbai-text-light">/ {bn}</span>
+        {t(labelKey)}
       </label>
       {children}
     </div>
@@ -226,8 +226,7 @@ export default function SetupApplicationPage() {
                         Your setup request
                       </h2>
                       <p className="text-sm text-rbai-text-light mt-0.5">
-                        আমাদের টিম আপনার সাথে যোগাযোগ করে সব সেটআপ করে দেবে —{" "}
-                        আপনাকে কিছুই করতে হবে না।
+                        {t("setup.request_subtitle")}
                       </p>
                     </div>
                   </div>
@@ -237,7 +236,7 @@ export default function SetupApplicationPage() {
                 <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div>
                     <p className="text-xs font-medium text-rbai-text-light mb-1">
-                      Business / ব্যবসা
+                      {t("setup.business_label")}
                     </p>
                     <p className="text-rbai-text font-medium">
                       {app.businessName}
@@ -245,7 +244,7 @@ export default function SetupApplicationPage() {
                   </div>
                   <div>
                     <p className="text-xs font-medium text-rbai-text-light mb-1">
-                      Contact / যোগাযোগ
+                      {t("setup.contact_label")}
                     </p>
                     <p className="text-rbai-text font-medium">
                       {app.contactName}
@@ -255,7 +254,7 @@ export default function SetupApplicationPage() {
                   </div>
                   <div className="sm:col-span-2">
                     <p className="text-xs font-medium text-rbai-text-light mb-1">
-                      Channels to connect / যেসব চ্যানেল যুক্ত করতে হবে
+                      {t("setup.channels_label")}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
                       {app.channelsWanted.length === 0 ? (
@@ -277,7 +276,7 @@ export default function SetupApplicationPage() {
                   {app.notes && (
                     <div className="sm:col-span-2">
                       <p className="text-xs font-medium text-rbai-text-light mb-1">
-                        Notes / নোট
+                        {t("setup.notes_label")}
                       </p>
                       <p className="text-rbai-text">{app.notes}</p>
                     </div>
@@ -289,7 +288,7 @@ export default function SetupApplicationPage() {
                     {app.status === "completed"
                       ? "Your setup is complete! Check your Channels page to review everything."
                       : app.status === "pending"
-                        ? "আপনার আবেদন আমাদের কাছে পৌঁছেছে। আমাদের টিম শীঘ্রই আপনার পছন্দের মাধ্যমে যোগাযোগ করবে — তারপর Facebook, WhatsApp, Instagram সহ সবকিছু আমাদের টিম নিজে সেটআপ করে দেবে। / We've received your request. Our team will reach out on your preferred channel soon and set up Facebook, WhatsApp, Instagram and everything else for you."
+                        ? t("setup.received_body")
                         : "Our team is working on your setup and will reach out on your preferred channel."}
                   </p>
                 </div>
@@ -326,16 +325,14 @@ export default function SetupApplicationPage() {
                     We set everything up for you
                   </h2>
                   <p className="text-sm text-rbai-text-light mt-0.5">
-                    আপনার তথ্য দিন — বাকিটা আমাদের টিম করবে। কোনো API key বা
-                    টেকনিক্যাল সেটিংস আপনার লাগবে না।
+                    {t("setup.form_subtitle")}
                   </p>
                 </div>
               </div>
 
               <form onSubmit={handleSubmit} className="mt-6 space-y-5">
                 {field(
-                  "Business name",
-                  "ব্যবসার নাম",
+                  "setup.business_name_label",
                   <input
                     value={businessName}
                     onChange={(e) => setBusinessName(e.target.value)}
@@ -349,8 +346,7 @@ export default function SetupApplicationPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {field(
-                    "Your name",
-                    "আপনার নাম",
+                    "setup.your_name_label",
                     <input
                       value={contactName}
                       onChange={(e) => setContactName(e.target.value)}
@@ -362,8 +358,7 @@ export default function SetupApplicationPage() {
                     />
                   )}
                   {field(
-                    "Phone / WhatsApp",
-                    "ফোন / হোয়াটসঅ্যাপ",
+                    "setup.phone_label",
                     <input
                       value={contactPhone}
                       onChange={(e) => setContactPhone(e.target.value)}
@@ -375,8 +370,7 @@ export default function SetupApplicationPage() {
                 </div>
 
                 {field(
-                  "Email",
-                  "ইমেইল",
+                  "setup.email_label",
                   <input
                     value={contactEmail}
                     onChange={(e) => setContactEmail(e.target.value)}
@@ -388,10 +382,7 @@ export default function SetupApplicationPage() {
 
                 <div>
                   <p className="block text-sm font-medium text-rbai-text mb-2">
-                    Which channels should we connect?{" "}
-                    <span className="font-normal text-rbai-text-light">
-                      / কোন কোন চ্যানেল যুক্ত করবো?
-                    </span>
+                    {t("setup.channels_question")}
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {CHANNEL_OPTIONS.map((c) => {
@@ -416,18 +407,13 @@ export default function SetupApplicationPage() {
                     })}
                   </div>
                   <p className="text-xs text-rbai-text-light mt-2">
-                    কিছু না বাছলেও সমস্যা নেই — আমাদের টিম আপনার সাথে কথা বলে
-                    সব ঠিক করে দেবে। / Leave it empty if you're unsure — our
-                    team will figure it out with you.
+                    {t("setup.channels_empty_note")}
                   </p>
                 </div>
 
                 <div>
                   <p className="block text-sm font-medium text-rbai-text mb-2">
-                    How should our team contact you?{" "}
-                    <span className="font-normal text-rbai-text-light">
-                      / আমরা কীভাবে যোগাযোগ করবো?
-                    </span>
+                    {t("setup.contact_question")}
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {CONTACT_OPTIONS.map((c) => (
@@ -453,7 +439,7 @@ export default function SetupApplicationPage() {
                           {c.label}
                         </span>
                         <span className="block text-xs text-rbai-text-light mt-0.5">
-                          {c.desc}
+                          {t(c.descKey)}
                         </span>
                       </button>
                     ))}
@@ -461,8 +447,7 @@ export default function SetupApplicationPage() {
                 </div>
 
                 {field(
-                  "Anything else?",
-                  "আর কিছু জানাতে চান?",
+                  "setup.anything_else_label",
                   <textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}

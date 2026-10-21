@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import ContactBody from "./body";
+import { t } from "@/lib/i18n";
 
 const SITE_URL = "https://ai.ridebangla.bd";
 
 export const metadata: Metadata = {
   title: "Contact Us — Ride Bangla AI Agent",
   description:
-    "যোগাযোগ করুন — Questions, payment issues or feedback? Contact the Ride Bangla AI Agent support team by form, email, phone or hotline.",
+    t("contact.meta_description"),
   alternates: { canonical: SITE_URL + "/contact" },
   openGraph: {
     title: "Contact Us — Ride Bangla AI Agent",
@@ -79,12 +80,10 @@ export default function ContactPage() {
       <section className="bg-[#0F172A] text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
           <h1 className="text-3xl sm:text-4xl font-bold">
-            যোগাযোগ করুন <span className="text-slate-600 font-medium">/ Contact Us</span>
+            {t("contact.hero_title")}
           </h1>
           <p className="text-slate-300 mt-3 max-w-xl mx-auto">
-            প্রশ্ন, পেমেন্ট সমস্যা বা মতামত — নিচের ফর্মটি পূরণ করুন, আমাদের টিম
-            শীঘ্রই উত্তর দেবে। / Questions, payment issues or feedback — fill in
-            the form below and our team will get back to you.
+            {t("contact.hero_subtitle")}
           </p>
         </div>
       </section>

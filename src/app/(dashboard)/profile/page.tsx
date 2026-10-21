@@ -20,6 +20,7 @@ import { ImageCropper } from "@/components/ui/image-cropper";
 import { Camera, Trash2, Save, Loader2, UserRound, CheckCircle, AlertCircle, ImagePlus } from "lucide-react";
 import Link from "next/link";
 import { isImageDataUrl } from "@/lib/data-url";
+import { t } from "@/lib/i18n";
 
 const inputClass =
   "w-full rounded-lg border border-rbai-border bg-rbai-bg px-3.5 py-2.5 text-sm text-rbai-text placeholder:text-rbai-text-light focus:outline-none focus:ring-2 focus:ring-rbai-primary focus:border-transparent transition-shadow";
@@ -44,11 +45,11 @@ interface Toast {
   message: string;
 }
 
-function field(label: string, bn: string, children: React.ReactNode) {
+function field(labelKey: string, children: React.ReactNode) {
   return (
     <div>
       <label className="block text-sm font-medium text-rbai-text mb-1.5">
-        {label} <span className="font-normal text-rbai-text-light">/ {bn}</span>
+        {t(labelKey)}
       </label>
       {children}
     </div>
@@ -120,7 +121,7 @@ export default function ProfilePage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Save failed.");
-      toast("success", "Profile saved. / প্রোফাইল সেভ হয়েছে।");
+      toast("success", t("profile.saved_toast"));
     } catch (e) {
       toast("error", e instanceof Error ? e.message : "Save failed.");
     } finally {
@@ -156,10 +157,10 @@ export default function ProfilePage() {
                 </p>
               </div>
               <div className="mt-6 space-y-4">
-                {field("Name", "নাম", (
+                {field("profile.name_label", (
                   <input value={profile.adminName} readOnly className={inputClass} />
                 ))}
-                {field("Email", "ইমেইল", (
+                {field("profile.email_label", (
                   <input value={profile.adminEmail} readOnly className={inputClass} />
                 ))}
               </div>
@@ -174,7 +175,7 @@ export default function ProfilePage() {
                   </span>
                   <div>
                     <h3 className="font-semibold text-rbai-text">
-                      Profile photo <span className="font-normal text-rbai-text-light">/ প্রোফাইল ছবি</span>
+                      {t("profile.photo_title")}
                     </h3>
                     <p className="text-xs text-rbai-text-light mt-0.5">
                       Your face appears next to your name across the dashboard.
@@ -215,7 +216,7 @@ export default function ProfilePage() {
                       className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-rbai-primary text-white hover:bg-rbai-primary-dark transition-colors"
                     >
                       <ImagePlus className="h-4 w-4" />
-                      {photo ? "Change photo / ছবি বদলান" : "Upload a photo / ছবি আপলোড করুন"}
+                      {photo ? t("profile.change_photo") : t("profile.upload_photo")}
                     </button>
                     {photo && (
                       <button
@@ -228,7 +229,7 @@ export default function ProfilePage() {
                     )}
                     <p className="text-xs text-rbai-text-light leading-relaxed">
                       After you pick a photo, a crop window opens: <strong>center your face inside the square</strong> — that
-                      square is exactly what gets saved. / ছবি বেছে নিলে ক্রপ স্ক্রিন আসবে — আপনার মুখটা মাঝখানে রেখে সেভ করুন।
+                      square is exactly what gets saved.
                     </p>
                   </div>
                 </div>
@@ -242,7 +243,7 @@ export default function ProfilePage() {
                   </span>
                   <div>
                     <h3 className="font-semibold text-rbai-text">
-                      Contact details <span className="font-normal text-rbai-text-light">/ যোগাযোগের তথ্য</span>
+                      {t("profile.contact_details_title")}
                     </h3>
                     <p className="text-xs text-rbai-text-light mt-0.5">
                       You can change these any time — a profile is never locked after creation.
@@ -251,7 +252,7 @@ export default function ProfilePage() {
                 </div>
 
                 <div className="space-y-4">
-                  {field("Contact name", "নাম", (
+                  {field("profile.contact_name_label", (
                     <input
                       value={contactName}
                       onChange={(e) => setContactName(e.target.value)}
@@ -260,7 +261,7 @@ export default function ProfilePage() {
                       className={inputClass}
                     />
                   ))}
-                  {field("Email", "ইমেইল", (
+                  {field("profile.email_label", (
                     <>
                       <input value={profile.adminEmail} readOnly className={`${inputClass} opacity-70`} />
                       <p className="text-xs text-rbai-text-light mt-1.5">
@@ -268,7 +269,7 @@ export default function ProfilePage() {
                       </p>
                     </>
                   ))}
-                  {field("Phone", "ফোন", (
+                  {field("profile.phone_label", (
                     <input
                       value={contactPhone}
                       onChange={(e) => setContactPhone(e.target.value)}
@@ -277,7 +278,7 @@ export default function ProfilePage() {
                       className={inputClass}
                     />
                   ))}
-                  {field("Address", "ঠিকানা", (
+                  {field("profile.address_label", (
                     <textarea
                       value={contactAddress}
                       onChange={(e) => setContactAddress(e.target.value)}
@@ -297,7 +298,7 @@ export default function ProfilePage() {
                     className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-lg bg-rbai-primary text-white hover:bg-rbai-primary-dark transition-colors disabled:opacity-50"
                   >
                     {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    {saving ? "Saving…" : "Save profile / সেভ করুন"}
+                    {saving ? "Saving…" : t("profile.save_button")}
                   </button>
                   <Link
                     href="/landing"

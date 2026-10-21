@@ -8,6 +8,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, CheckCircle, Clock, Sparkles } from "lucide-react";
+import { t } from "@/lib/i18n";
 
 interface AppState {
   status: string;
@@ -44,8 +45,8 @@ export function SetupCtaCard() {
             {state
               ? state.status === "completed"
                 ? "Our team has connected your channels. You can review them anytime on the Channels page."
-                : "Our team will contact you and connect your channels — you don't need to do anything technical. / আমাদের টিম যোগাযোগ করে সব চ্যানেল যুক্ত করে দেবে।"
-              : "Facebook, WhatsApp, Instagram and the rest — tell us about your business and our team connects everything. No API keys, no technical setup for you. / আপনার কোনো API key লাগবে না — সব সেটআপ আমাদের টিম করে দেবে।"}
+                : t("cta.received_body")
+              : t("cta.apply_body")}
           </p>
         </div>
       </div>

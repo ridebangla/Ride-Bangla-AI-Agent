@@ -28,6 +28,7 @@ import { FacebookIcon, InstagramIcon, XBrandIcon, MessengerIcon, YoutubeIcon, Li
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 
 // ---------------------------------------------------------------------------
 // Done-for-you banner — the customer never needs an API key.
@@ -42,7 +43,7 @@ function DoneForYouBanner() {
         </span>
         <div>
           <h3 className="font-semibold text-rbai-text">
-            No API keys needed — ever / আপনার কোনো API key লাগবে না
+            {t("channels.no_api_keys_title")}
           </h3>
           <p className="text-sm text-rbai-text-light mt-0.5">
             You never need to find, buy or paste an API key. Apply for our

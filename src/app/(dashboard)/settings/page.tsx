@@ -568,10 +568,6 @@ function AISection({
           </Link>{" "}
           and we&apos;ll handle it.
         </p>
-        <p className="text-sm text-rbai-text-light mt-2">
-          আপনার কোনো API key লাগবে না — AI সংযোগ ও মডেল আমাদের টিমই পরিচালনা
-          করে। কিছু বদলাতে হলে Done-for-You Setup থেকে জানান, আমরাই করে দেব।
-        </p>
       </div>
       <FormField label="Max Tokens" description="Maximum number of tokens per AI response.">
         <SliderInput
@@ -675,8 +671,7 @@ function TeamSetupNote() {
         >
           Done-for-You Setup
         </Link>{" "}
-        and our team will connect it for you. / নিজে সেটআপ করতে না চাইলে Done-for-You
-        Setup থেকে আবেদন করুন — আমাদের টিম সব করে দেবে।
+        and our team will connect it for you.
       </p>
     </div>
   );

@@ -4,8 +4,9 @@ import de from "./locales/de";
 import es from "./locales/es";
 import ar from "./locales/ar";
 import fr from "./locales/fr";
+import bn from "./locales/bn";
 
-export const SUPPORTED_LOCALES = ["en", "tr", "de", "es", "ar", "fr"] as const;
+export const SUPPORTED_LOCALES = ["en", "bn", "tr", "de", "es", "ar", "fr"] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 export const DEFAULT_LOCALE: Locale = "en";
 
@@ -18,6 +19,7 @@ const translations: Record<Locale, Record<string, string>> = {
   es,
   ar,
   fr,
+  bn,
 };
 
 /**

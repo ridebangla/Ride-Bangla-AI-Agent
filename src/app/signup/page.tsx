@@ -13,6 +13,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { GoogleButton } from "@/components/auth/google-button";
+import { t } from "@/lib/i18n";
 
 const TRIAL_POINTS = [
   `${TRIAL_DAYS}-day free trial — no credit card required`,
@@ -198,8 +199,7 @@ export default function SignupPage() {
               onError={setError}
             />
             <p className="text-xs text-rbai-text-light mt-2.5 text-center">
-              গুগল দিয়ে এক ট্যাপে অ্যাকাউন্ট খুলুন — কোনো ফর্ম নেই। / One tap
-              with Google — no forms at all.
+              {t("signup.google_note")}
             </p>
 
             <div className="flex items-center gap-3 my-6">
@@ -273,8 +273,7 @@ export default function SignupPage() {
             </form>
 
             <p className="text-rbai-text text-xs mt-5 font-semibold text-center">
-              আপনার কোনো API key লাগবে না — আমাদের টিম সব সেটআপ করে দেবে। /
-              You never need an API key — our team sets everything up for you.
+              {t("signup.no_api_key_note")}
             </p>
             <p className="text-rbai-text-light text-xs mt-2 text-center">
               Your password is stored securely by Firebase Authentication and

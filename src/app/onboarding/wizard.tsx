@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { LANDING_THEMES, type LandingThemeId } from "@/lib/landing-themes";
+import { t } from "@/lib/i18n";
 
 interface QAPair {
   question: string;
@@ -44,36 +45,37 @@ type Method = "url" | "guided";
 // file instead of filling the form — same analysis pipeline.
 type GuidedInput = "form" | "text" | "file";
 
-const METHODS: { id: Method; icon: React.ElementType; title: string; desc: string }[] = [
+const METHODS: { id: Method; icon: React.ElementType; titleKey: string; descKey: string }[] = [
   {
     id: "url",
     icon: Globe,
-    title: "আমার ওয়েবসাইট আছে / I have a website",
-    desc: "ওয়েবসাইটের ঠিকানা দিন — আমরা আপনার পেজগুলো পড়ে AI-কে ব্যবসা শিখিয়ে দেব। / Enter your website URL — we fetch your pages and the AI learns your business automatically.",
+    titleKey: "wizard.method_url_title",
+    descKey: "wizard.method_url_desc",
   },
   {
     id: "guided",
     icon: PencilLine,
-    title: "আমার ওয়েবসাইট নেই / I don't have a website",
-    desc: "ব্যবসার ধরন বেছে নিয়ে সংক্ষেপে বর্ণনা দিন — AI আপনার জন্য একটি প্রিমিয়াম ল্যান্ডিং পেজ বানিয়ে দেবে; আপনি দেখে অনুমোদন দেবেন। / Choose your business category and describe it — the AI builds a premium landing page for you; you review and approve it.",
+    titleKey: "wizard.method_guided_title",
+    descKey: "wizard.method_guided_desc",
   },
 ];
 
-// Common business categories (bilingual). "other" reveals a free-text input.
+// Common business categories. "other" reveals a free-text input.
+// (Labels are i18n keys; the value stays the English data value.)
 const CATEGORIES = [
-  { value: "", label: "বেছে নিন / Choose…" },
-  { value: "Restaurant & Food", label: "রেস্টুরেন্ট ও খাবার / Restaurant & Food" },
-  { value: "Fashion & Clothing", label: "ফ্যাশন ও পোশাক / Fashion & Clothing" },
-  { value: "Grocery & Daily Needs", label: "মুদি ও নিত্যপ্রয়োজনীয় / Grocery & Daily Needs" },
-  { value: "Electronics & Gadgets", label: "ইলেকট্রনিক্স ও গ্যাজেট / Electronics & Gadgets" },
-  { value: "Beauty & Cosmetics", label: "বিউটি ও কসমেটিকস / Beauty & Cosmetics" },
-  { value: "Health & Pharmacy", label: "স্বাস্থ্য ও ফার্মেসি / Health & Pharmacy" },
-  { value: "Education & Training", label: "শিক্ষা ও প্রশিক্ষণ / Education & Training" },
-  { value: "Travel & Tourism", label: "ভ্রমণ ও পর্যটন / Travel & Tourism" },
-  { value: "Real Estate", label: "রিয়েল এস্টেট / Real Estate" },
-  { value: "Home Services", label: "হোম সার্ভিস / Home Services" },
-  { value: "Automotive", label: "অটোমোটিভ / Automotive" },
-  { value: "other", label: "অন্যান্য / Other…" },
+  { value: "", labelKey: "wizard.category_choose" },
+  { value: "Restaurant & Food", labelKey: "wizard.category_restaurant" },
+  { value: "Fashion & Clothing", labelKey: "wizard.category_fashion" },
+  { value: "Grocery & Daily Needs", labelKey: "wizard.category_grocery" },
+  { value: "Electronics & Gadgets", labelKey: "wizard.category_electronics" },
+  { value: "Beauty & Cosmetics", labelKey: "wizard.category_beauty" },
+  { value: "Health & Pharmacy", labelKey: "wizard.category_health" },
+  { value: "Education & Training", labelKey: "wizard.category_education" },
+  { value: "Travel & Tourism", labelKey: "wizard.category_travel" },
+  { value: "Real Estate", labelKey: "wizard.category_real_estate" },
+  { value: "Home Services", labelKey: "wizard.category_home_services" },
+  { value: "Automotive", labelKey: "wizard.category_automotive" },
+  { value: "other", labelKey: "wizard.category_other" },
 ];
 
 const inputClass =
@@ -439,11 +441,10 @@ export default function OnboardingWizard() {
         {step === "method" && (
           <div className="animate-fade-in">
             <h1 className="text-2xl font-bold text-rbai-text text-center">
-              আপনার ব্যবসার ওয়েবসাইট আছে? / Does your business have a website?
+              {t("wizard.method_heading")}
             </h1>
             <p className="text-rbai-text-light text-center mt-2 mb-8">
-              একটি বেছে নিন — AI সেখান থেকে শিখে আপনার গ্রাহকদের উত্তর দেবে। / Pick
-              one — the AI learns from it and starts answering your customers.
+              {t("wizard.method_subtitle")}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
               {METHODS.map((m) => (
@@ -456,10 +457,10 @@ export default function OnboardingWizard() {
                     <m.icon className="h-6 w-6" />
                   </span>
                   <span className="block font-semibold text-rbai-text mt-4">
-                    {m.title}
+                    {t(m.titleKey)}
                   </span>
                   <span className="block text-sm text-rbai-text-light mt-1">
-                    {m.desc}
+                    {t(m.descKey)}
                   </span>
                 </button>
               ))}
@@ -555,7 +556,7 @@ export default function OnboardingWizard() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-rbai-text mb-1.5">
-                    ব্যবসার ধরন / Business category
+                    {t("wizard.category_label")}
                   </label>
                   <select
                     value={fields.category}
@@ -566,7 +567,7 @@ export default function OnboardingWizard() {
                   >
                     {CATEGORIES.map((c) => (
                       <option key={c.value} value={c.value}>
-                        {c.label}
+                        {t(c.labelKey)}
                       </option>
                     ))}
                   </select>
@@ -576,7 +577,7 @@ export default function OnboardingWizard() {
                       onChange={(e) =>
                         setFields({ ...fields, customCategory: e.target.value })
                       }
-                      placeholder="আপনার ব্যবসার ধরন লিখুন / Type your business category"
+                      placeholder={t("wizard.category_custom_placeholder")}
                       maxLength={60}
                       className={`${inputClass} mt-2`}
                     />
@@ -804,11 +805,7 @@ export default function OnboardingWizard() {
                   </span>
                 </label>
                 <p className="text-xs text-rbai-text-light mt-4 border-t border-rbai-border pt-3">
-                  পেজটি আপনার দেওয়া তথ্য থেকে একটি প্রিমিয়াম টেমপ্লেটে তৈরি হয় — আপনার
-                  কোনো API কী লাগবে না; AI-এর সব সংযোগ আমাদের টিমই করে দেবে। / Your
-                  page is built from your details in a premium template — no API key
-                  is ever needed from you; our team handles the AI connection and
-                  makes the copy even better for you.
+                  {t("wizard.landing_note")}
                 </p>
               </div>
             )}

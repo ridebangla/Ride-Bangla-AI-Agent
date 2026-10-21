@@ -6,12 +6,13 @@
  * (GET /api/public/reviews?site=ai&siteKey=…) — published reviews only, no
  * seeded/fake data. The write-review form is shown only to customers who are
  * signed in with Firebase on this device (their existing session); they post
- * with their ID token. BN+EN copy (this repo's bilingual convention).
+ * with their ID token. UI copy via i18n (English default; bn in locales/bn.ts).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { Star } from "lucide-react";
 import { getFirebaseAuth } from "@/lib/firebase-client";
+import { t, tf, DEFAULT_LOCALE } from "@/lib/i18n";
 
 interface PublicReview {
   name: string;
@@ -161,11 +162,11 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
     setFormError("");
     setFormOk("");
     if (!name.trim()) {
-      setFormError("আপনার নাম লিখুন / Please write your name.");
+      setFormError(t("reviews.name_required"));
       return;
     }
     if (!text.trim()) {
-      setFormError("আপনার রিভিউ লিখুন / Please write your review.");
+      setFormError(t("reviews.text_required"));
       return;
     }
     setPosting(true);
@@ -187,18 +188,18 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
       if (!res.ok || !data?.ok) {
         setFormError(
           data?.error ||
-            "রিভিউ পাঠানো যায়নি — আবার চেষ্টা করুন / Could not post your review. Please try again."
+            t("reviews.post_failed")
         );
         return;
       }
       setText("");
       setFormOk(
-        "ধন্যবাদ! আপনার রিভিউ প্রকাশ হয়েছে / Thank you! Your review is now live."
+        t("reviews.post_success")
       );
       await load();
     } catch {
       setFormError(
-        "রিভিউ পাঠানো যায়নি — ইন্টারনেট সংযোগ যাচাই করে আবার চেষ্টা করুন / Could not post your review. Check your connection and try again."
+        t("reviews.post_failed_network")
       );
     } finally {
       setPosting(false);
@@ -211,25 +212,23 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
     <section id="reviews" className="border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-20">
         <h2 className="text-3xl font-bold text-center">
-          Customers love it / গ্রাহকদের ভালোবাসা
+          {t("reviews.heading")}
         </h2>
         <p className="text-slate-700 text-center mt-3 max-w-2xl mx-auto">
-          Real reviews from businesses using Ride Bangla AI Agent. /
-          রাইড বাংলা এআই এজেন্ট ব্যবহার করা ব্যবসাগুলোর আসল রিভিউ।
+          {t("reviews.subheading")}
         </p>
 
         <div className="flex items-center justify-center gap-3 mt-8">
           <Stars value={average} size={26} />
           <span className="text-2xl font-bold">{average.toFixed(1)}</span>
           <span className="text-slate-700 text-sm">
-            {count} review{count === 1 ? "" : "s"} / {count} টি রিভিউ
+            {tf(count === 1 ? "reviews.count_one" : "reviews.count_other", DEFAULT_LOCALE, { count })}
           </span>
         </div>
 
         {loaded && reviews.length === 0 && (
           <p className="text-center text-slate-700 mt-10">
-            No reviews yet — be the first. / এখনো কোনো রিভিউ নেই — প্রথম
-            রিভিউটা আপনিই লিখুন।
+            {t("reviews.empty")}
           </p>
         )}
 
@@ -269,8 +268,7 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         {r.verifiedGoogle === true && (
                           <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                            Verified Google account / যাচাইকৃত Google
-                            অ্যাকাউন্ট
+                            {t("reviews.verified_badge")}
                           </span>
                         )}
                         <p className="text-xs text-slate-600">
@@ -355,10 +353,10 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
             className="mt-12 max-w-2xl mx-auto bg-white border border-slate-200 rounded-2xl p-7"
           >
             <h3 className="font-semibold text-lg">
-              Write a review / রিভিউ লিখুন
+              {t("reviews.write_heading")}
             </h3>
             <label className="block text-sm font-medium text-slate-700 mt-5">
-              Your name / আপনার নাম
+              {t("reviews.your_name")}
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -368,7 +366,7 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
             </label>
             <div className="mt-4">
               <span className="block text-sm font-medium text-slate-700">
-                Your rating / আপনার রেটিং
+                {t("reviews.your_rating")}
               </span>
               <div className="flex gap-1 mt-2">
                 {[1, 2, 3, 4, 5].map((i) => (
@@ -391,7 +389,7 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
               </div>
             </div>
             <label className="block text-sm font-medium text-slate-700 mt-4">
-              Your review / আপনার রিভিউ
+              {t("reviews.your_review")}
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -416,12 +414,12 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
               disabled={posting}
               className="mt-5 w-full rounded-lg bg-[#4A7C9B] text-white font-medium py-3 text-sm hover:bg-[#2D5A7B] transition-colors disabled:opacity-60"
             >
-              {posting ? "Posting…" : "Post review / রিভিউ পোস্ট করুন"}
+              {posting ? "Posting…" : t("reviews.post_button")}
             </button>
           </form>
         ) : (
           <p className="text-center text-sm text-slate-700 mt-12">
-            Sign in to write a review. / রিভিউ লিখতে সাইন ইন করুন।{" "}
+            {t("reviews.signin_prompt")}{" "}
             <a href="/login" className="text-[#4A7C9B] font-medium hover:underline">
               Log in
             </a>

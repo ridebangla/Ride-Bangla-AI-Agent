@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { t } from "@/lib/i18n";
 import {
   Mail,
   Phone,
@@ -85,10 +86,10 @@ async function passVideo(file: File): Promise<Attachment> {
 }
 
 const TOPICS = [
-  { id: "general", bn: "সাধারণ জিজ্ঞাসা", en: "General" },
-  { id: "payment", bn: "পেমেন্ট সমস্যা", en: "Payment issue" },
-  { id: "technical", bn: "কারিগরি সমস্যা", en: "Technical issue" },
-  { id: "feedback", bn: "মতামত", en: "Feedback" },
+  { id: "general", labelKey: "contact.topic_general" },
+  { id: "payment", labelKey: "contact.topic_payment" },
+  { id: "technical", labelKey: "contact.topic_technical" },
+  { id: "feedback", labelKey: "contact.topic_feedback" },
 ] as const;
 
 export default function ContactBody() {
@@ -122,12 +123,12 @@ export default function ContactBody() {
     e.target.value = "";
     if (!files.length) return;
     if (attachments.length + files.length > 3) {
-      setFileError("সর্বোচ্চ ৩টি ফাইল যুক্ত করা যাবে / You can attach at most 3 files.");
+      setFileError(t("contact.max_files"));
       return;
     }
     for (const f of files) {
       if (!ALLOWED.has(f.type)) {
-        setFileError(`"${f.name}" — এই ধরনের ফাইল সমর্থিত নয় / Unsupported file type.`);
+        setFileError(`"${f.name}" — ${t("contact.file_unsupported")}`);
         continue;
       }
       try {
@@ -135,15 +136,15 @@ export default function ContactBody() {
           ? await compressImage(f)
           : await passVideo(f);
         if (att.dataBase64.length > MAX_B64_BYTES) {
-          setFileError(`"${f.name}" — ফাইলটি বড় হয়ে গেছে / File too large.`);
+          setFileError(`"${f.name}" — ${t("contact.file_too_large")}`);
           continue;
         }
         setAttachments((prev) => [...prev, att]);
       } catch (err) {
         if (err instanceof Error && err.message === "video-too-large") {
-          setFileError("ভিডিওটি বড় — ছোট ক্লিপ পাঠান / The video is too large — please send a shorter clip.");
+          setFileError(t("contact.video_too_large"));
         } else {
-          setFileError(`"${f.name}" — ফাইলটি প্রসেস করা যায়নি / Could not process this file.`);
+          setFileError(`"${f.name}" — ${t("contact.file_process_failed")}`);
         }
       }
     }
@@ -169,13 +170,13 @@ export default function ContactBody() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.message || data.error || "পাঠানো যায়নি। আবার চেষ্টা করুন। / Couldn't send. Please try again.");
+        setError(data.message || data.error || t("contact.send_failed"));
         setBusy(false);
         return;
       }
       setDone(true);
     } catch {
-      setError("নেটওয়ার্ক সমস্যা। সংযোগ চেক করে আবার চেষ্টা করুন। / Network error. Check your connection and try again.");
+      setError(t("contact.network_error"));
       setBusy(false);
     }
   }
@@ -197,7 +198,7 @@ export default function ContactBody() {
                   <Mail className="h-5 w-5" />
                 </span>
                 <span>
-                  <span className="block text-xs text-slate-700">ইমেইল / Email</span>
+                  <span className="block text-xs text-slate-700">{t("contact.card_email")}</span>
                   <span className="block text-sm font-medium break-all">{contacts.email}</span>
                 </span>
               </a>
@@ -211,7 +212,7 @@ export default function ContactBody() {
                   <Phone className="h-5 w-5" />
                 </span>
                 <span>
-                  <span className="block text-xs text-slate-700">ফোন / Phone</span>
+                  <span className="block text-xs text-slate-700">{t("contact.card_phone")}</span>
                   <span className="block text-sm font-medium">{contacts.phone}</span>
                 </span>
               </a>
@@ -225,7 +226,7 @@ export default function ContactBody() {
                   <PhoneCall className="h-5 w-5" />
                 </span>
                 <span>
-                  <span className="block text-xs text-slate-700">হটলাইন / Hotline</span>
+                  <span className="block text-xs text-slate-700">{t("contact.card_hotline")}</span>
                   <span className="block text-sm font-medium">{contacts.hotline}</span>
                 </span>
               </a>
@@ -239,17 +240,16 @@ export default function ContactBody() {
             <div className="text-center py-10">
               <CheckCircle2 className="h-14 w-14 text-emerald-500 mx-auto" />
               <h2 className="text-xl font-bold mt-4">
-                বার্তা পাঠানো হয়েছে / Message sent
+                {t("contact.sent_title")}
               </h2>
               <p className="text-sm text-slate-700 mt-2 max-w-md mx-auto">
-                ধন্যবাদ! আমাদের সাপোর্ট টিম শীঘ্রই আপনার সাথে যোগাযোগ করবে। /
-                Thank you — our support team will get back to you soon.
+                {t("contact.sent_body")}
               </p>
               <Link
                 href="/"
                 className="inline-block mt-6 text-sm font-medium text-[#4A7C9B] hover:underline"
               >
-                ← Back to home / হোমে ফিরুন
+                {t("contact.back_home")}
               </Link>
             </div>
           ) : (
@@ -257,7 +257,7 @@ export default function ContactBody() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div>
                   <label htmlFor="name" className="block text-sm font-medium text-slate-700 mb-1.5">
-                    নাম / Name <span className="text-red-500">*</span>
+                    {t("contact.name_label")} <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="name"
@@ -268,12 +268,12 @@ export default function ContactBody() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className={inputClass}
-                    placeholder="আপনার নাম / Your name"
+                    placeholder={t("contact.name_placeholder")}
                   />
                 </div>
                 <div>
                   <label htmlFor="contact" className="block text-sm font-medium text-slate-700 mb-1.5">
-                    ইমেইল বা ফোন / Email or phone <span className="text-red-500">*</span>
+                    {t("contact.contact_label")} <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="contact"
@@ -290,7 +290,7 @@ export default function ContactBody() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div>
                   <label htmlFor="topic" className="block text-sm font-medium text-slate-700 mb-1.5">
-                    বিষয় / Topic <span className="text-red-500">*</span>
+                    {t("contact.topic_label")} <span className="text-red-500">*</span>
                   </label>
                   <select
                     id="topic"
@@ -298,9 +298,9 @@ export default function ContactBody() {
                     onChange={(e) => setTopic(e.target.value)}
                     className={inputClass}
                   >
-                    {TOPICS.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.bn} / {t.en}
+                    {TOPICS.map((topicOption) => (
+                      <option key={topicOption.id} value={topicOption.id}>
+                        {t(topicOption.labelKey)}
                       </option>
                     ))}
                   </select>
@@ -308,7 +308,7 @@ export default function ContactBody() {
                 {topic === "payment" && (
                   <div>
                     <label htmlFor="refCode" className="block text-sm font-medium text-slate-700 mb-1.5">
-                      পেমেন্ট রেফারেন্স / Reference
+                      {t("contact.reference_label")}
                     </label>
                     <input
                       id="refCode"
@@ -320,7 +320,7 @@ export default function ContactBody() {
                       maxLength={20}
                     />
                     <p className="text-xs text-slate-700 mt-1.5">
-                      পেমেন্টের সময় পাওয়া রেফারেন্স কোডটি দিন / Enter the reference code from your payment.
+                      {t("contact.reference_hint")}
                     </p>
                   </div>
                 )}
@@ -328,7 +328,7 @@ export default function ContactBody() {
 
               <div>
                 <label htmlFor="message" className="block text-sm font-medium text-slate-700 mb-1.5">
-                  বার্তা / Message <span className="text-red-500">*</span>
+                  {t("contact.message_label")} <span className="text-red-500">*</span>
                 </label>
                 <textarea
                   id="message"
@@ -339,14 +339,14 @@ export default function ContactBody() {
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   className={`${inputClass} resize-y`}
-                  placeholder="আপনার বার্তা বিস্তারিত লিখুন (কমপক্ষে ১০ অক্ষর) / Describe your message in detail (at least 10 characters)"
+                  placeholder={t("contact.message_placeholder")}
                 />
               </div>
 
               <div>
                 <span className="block text-sm font-medium text-slate-700 mb-1.5">
-                  ছবি/ভিডিও যুক্ত করুন / Attach photos or video{" "}
-                  <span className="font-normal text-slate-600">(সর্বোচ্চ ৩টি / max 3)</span>
+                  {t("contact.attach_label")}{" "}
+                  <span className="font-normal text-slate-600">({t("contact.attach_max")})</span>
                 </span>
                 <input
                   ref={fileRef}
@@ -362,7 +362,7 @@ export default function ContactBody() {
                   className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-600 hover:border-[#4A7C9B] hover:text-[#4A7C9B] transition-colors"
                 >
                   <Paperclip className="h-4 w-4" />
-                  ফাইল বেছে নিন / Choose files
+                  {t("contact.choose_files")}
                 </button>
                 {fileError && (
                   <p className="text-xs text-red-600 mt-2">{fileError}</p>
@@ -391,7 +391,7 @@ export default function ContactBody() {
                   </ul>
                 )}
                 <p className="text-xs text-slate-600 mt-2">
-                  ছবি স্বয়ংক্রিয়ভাবে ছোট করা হয় (JPEG, ১২৮০px) / Images are compressed automatically (JPEG, 1280px).
+                  {t("contact.compress_note")}
                 </p>
               </div>
 
@@ -409,12 +409,12 @@ export default function ContactBody() {
                 {busy ? (
                   <span className="flex items-center justify-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    পাঠানো হচ্ছে… / Sending…
+                    {t("contact.sending")}
                   </span>
                 ) : (
                   <span className="flex items-center justify-center gap-2">
                     <Send className="h-4 w-4" />
-                    বার্তা পাঠান / Send message
+                    {t("contact.send_message")}
                   </span>
                 )}
               </button>

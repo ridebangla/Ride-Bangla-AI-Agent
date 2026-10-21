@@ -29,6 +29,7 @@ import {
   Hammer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 
 interface WebsiteItem {
   id: string;
@@ -293,10 +294,7 @@ export default function WebsitesManager() {
           <Globe className="h-5 w-5" /> Your websites
         </h3>
         <p className="text-sm text-rbai-text-light mt-1">
-          আপনার সব ওয়েবসাইট যোগ করুন — এজেন্ট প্রতিটি সাইট থেকে আপনার
-          ব্যবসার বিবরণ শিখবে। Add every website your business has — there
-          is no limit — and your agent learns your business from all of
-          them.
+          {t("websites.intro")}
         </p>
 
         <div className="mt-4 space-y-3">
@@ -421,9 +419,7 @@ export default function WebsitesManager() {
           <Hammer className="h-5 w-5" /> No website yet?
         </h3>
         <p className="text-sm text-rbai-text-light mt-1">
-          ওয়েবসাইট না থাকলে আমাদের IT টিম আপনার জন্য তৈরি করে দেবে —
-          Apply here and the Ride Bangla IT Team will build your website
-          for you. This is a separate service from your AI subscription.
+          {t("websites.no_website_note")}
         </p>
 
         {requests.length > 0 && (
