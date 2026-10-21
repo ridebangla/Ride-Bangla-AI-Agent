@@ -30,6 +30,7 @@ const PLAN_LABEL: Record<string, string> = {
   starter: "Starter",
   growth: "Growth",
   pro: "Pro",
+  internal: "Internal — Ride Bangla (owner)",
   super_admin: "Super Admin",
   unknown: "—",
 };
@@ -39,6 +40,7 @@ const PLAN_PRICE_MONTHLY: Record<string, string> = {
   starter: "$19 / month",
   growth: "$49 / month",
   pro: "$99 / month",
+  internal: "$0 — internal account, never billed",
 };
 
 /** Price line for the current plan + billing interval (yearly = 2 months free). */
@@ -211,6 +213,14 @@ export default async function BillingPage() {
                 </div>
               </div>
 
+              {sub.isInternal && (
+                <div className="mt-6 rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-800">
+                  This is Ride Bangla&apos;s internal owner account —
+                  permanently free. No plan, trial or payment applies to it,
+                  and there are no AI message limits.
+                </div>
+              )}
+
               {!sub.isActive && (
                 <div className="mt-6 rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-800">
                   Your free trial has ended, so the AI agent is paused for your
@@ -220,45 +230,49 @@ export default async function BillingPage() {
               )}
             </div>
 
-            {/* Payments — real Stripe wiring (Phase 4). The client
-                component calls /api/billing/checkout and /api/billing/portal;
-                when Stripe keys are absent it says so honestly instead of
-                rendering fake buttons. */}
-            <div className="mt-6 bg-rbai-surface border border-rbai-border rounded-2xl p-6 sm:p-8">
-              <BillingActions
-                subscriptionStatus={sub.subscriptionStatus}
-                plan={sub.plan}
-                isActive={sub.isActive}
-                billingConfigured={billingConfigured}
-                canPay={canPay}
-              />
-            </div>
+            {!sub.isInternal && (
+              <>
+                {/* Payments — real Stripe wiring (Phase 4). The client
+                    component calls /api/billing/checkout and /api/billing/portal;
+                    when Stripe keys are absent it says so honestly instead of
+                    rendering fake buttons. */}
+                <div className="mt-6 bg-rbai-surface border border-rbai-border rounded-2xl p-6 sm:p-8">
+                  <BillingActions
+                    subscriptionStatus={sub.subscriptionStatus}
+                    plan={sub.plan}
+                    isActive={sub.isActive}
+                    billingConfigured={billingConfigured}
+                    canPay={canPay}
+                  />
+                </div>
 
-            {/* Manual payments — bank transfer / crypto / WeChat Pay
-                (Phase 4b). Rendered from the user-configured methods; when
-                none are enabled it says so honestly. */}
-            <div className="mt-6">
-              <ManualPay
-                methods={manualMethods}
-                defaultPlan={isPaidPlanId(sub.plan) ? sub.plan : "growth"}
-                reference={manualReference}
-                canPay={canPay}
-              />
-            </div>
+                {/* Manual payments — bank transfer / crypto / WeChat Pay
+                    (Phase 4b). Rendered from the user-configured methods; when
+                    none are enabled it says so honestly. */}
+                <div className="mt-6">
+                  <ManualPay
+                    methods={manualMethods}
+                    defaultPlan={isPaidPlanId(sub.plan) ? sub.plan : "growth"}
+                    reference={manualReference}
+                    canPay={canPay}
+                  />
+                </div>
 
-            {/* Wallet — top up the balance, then pay for plans from it
-                (Billing Phase 2). */}
-            <div className="mt-6">
-              <WalletBilling
-                balanceCents={wallet.balanceCents}
-                defaultPlan={isPaidPlanId(sub.plan) ? sub.plan : "growth"}
-                defaultInterval={
-                  sub.billingInterval === "yearly" ? "yearly" : "monthly"
-                }
-                methods={manualMethods}
-                canPay={canPay}
-              />
-            </div>
+                {/* Wallet — top up the balance, then pay for plans from it
+                    (Billing Phase 2). */}
+                <div className="mt-6">
+                  <WalletBilling
+                    balanceCents={wallet.balanceCents}
+                    defaultPlan={isPaidPlanId(sub.plan) ? sub.plan : "growth"}
+                    defaultInterval={
+                      sub.billingInterval === "yearly" ? "yearly" : "monthly"
+                    }
+                    methods={manualMethods}
+                    canPay={canPay}
+                  />
+                </div>
+              </>
+            )}
 
             <p className="text-xs text-rbai-text-light mt-6 text-center">
               Questions about billing? Contact us through your dashboard.

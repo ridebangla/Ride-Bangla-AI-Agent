@@ -7,6 +7,8 @@
  * replying for that business until they pay ("নয়তো আমরা চলতে পারব না").
  *
  * Active = Super Admin (businessId null, always) OR
+ *          isInternalAccount == true (the company's OWN account — owner
+ *          rule 2026-10-21: free forever, no plan, no trial expiry) OR
  *          manualActiveOverride == true (admin kept tenant active w/o payment) OR
  *          subscriptionStatus == 'active' OR
  *          (subscriptionStatus == 'trialing' AND trialEndsAt > now).
@@ -75,7 +77,7 @@ export type SubscriptionStatus =
 export interface SubscriptionInfo {
   /** null = Super Admin (no business row needed, always active). */
   businessId: string | null;
-  /** 'trial' | 'starter' | 'growth' | 'pro' | 'super_admin' | 'unknown' */
+  /** 'trial' | 'starter' | 'growth' | 'pro' | 'super_admin' | 'unknown' | 'internal' */
   plan: string;
   subscriptionStatus: SubscriptionStatus | "super_admin" | "unknown";
   trialEndsAt: Date | null;
@@ -84,6 +86,13 @@ export interface SubscriptionInfo {
   isActive: boolean;
   /** 'monthly' | 'yearly' — from the business doc; null when not applicable. */
   billingInterval: "monthly" | "yearly" | null;
+  /**
+   * Internal owner comp (owner rule 2026-10-21): the company's own
+   * account — free forever, unlimited, never billed. True only when the
+   * business doc itself carries `isInternalAccount === true` (set
+   * server-side / by the Admin Console Super Admin, audit-logged).
+   */
+  isInternal: boolean;
 }
 
 function toDate(value: unknown): Date | null {
@@ -103,6 +112,11 @@ export function isSubscriptionActive(biz: Business | null): boolean {
   // Super Admin (businessId null) — always active, never billed.
   if (biz === null) return true;
   if (!biz.isActive) return false;
+  // Internal owner comp (owner rule 2026-10-21): the company's own
+  // account is always active — no plan, no trial, no expiry. The flag
+  // lives on THIS doc (keyed by business id); nothing client-supplied
+  // (email, request field) can set it.
+  if (biz.isInternalAccount === true) return true;
   // Manual override (Admin Console, Super Admin only, audit-logged):
   // the admin chose to keep this tenant active even without payment.
   if (biz.manualActiveOverride === true) return true;
@@ -147,6 +161,7 @@ export async function getSubscription(
       trialDaysRemaining: 0,
       isActive: true,
       billingInterval: null,
+      isInternal: false,
     };
   }
 
@@ -164,6 +179,23 @@ export async function getSubscription(
       trialDaysRemaining: 0,
       isActive: false,
       billingInterval: null,
+      isInternal: false,
+    };
+  }
+
+  // Internal owner account: display truthfully as "Internal" — never
+  // "Trial" (its trial date is meaningless once comped) and never a
+  // paid plan it did not buy.
+  if (biz.isInternalAccount === true) {
+    return {
+      businessId,
+      plan: "internal",
+      subscriptionStatus: "active",
+      trialEndsAt: null,
+      trialDaysRemaining: 0,
+      isActive: isSubscriptionActive(biz),
+      billingInterval: null,
+      isInternal: true,
     };
   }
 
@@ -191,6 +223,7 @@ export async function getSubscription(
     trialDaysRemaining,
     isActive: isSubscriptionActive(biz),
     billingInterval,
+    isInternal: false,
   };
 }
 

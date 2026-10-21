@@ -26,6 +26,8 @@ export interface BusinessUsageFields {
   subscriptionEndsAt?: unknown;
   aiMessagesUsed?: unknown;
   usagePeriodStart?: unknown;
+  /** Internal owner comp flag (owner rule 2026-10-21) — see models.ts. */
+  isInternalAccount?: unknown;
   adminNotice?: {
     message?: string;
     createdAt?: unknown;
@@ -117,6 +119,9 @@ export function isMessageLimitExceeded(
   biz: BusinessUsageFields & { usagePeriodStart?: unknown },
   nowMs: number = Date.now()
 ): boolean {
+  // Internal owner account (owner rule 2026-10-21): usage is recorded
+  // by recordAiMessage but NEVER blocks — no plan limit applies.
+  if (biz.isInternalAccount === true) return false;
   const plan = typeof biz.plan === "string" && biz.plan ? biz.plan : "unknown";
   const limit = messagesLimitForPlan(plan === "trial" ? "trial" : plan);
   if (limit === null) return false; // unknown/legacy plan: subscription gate covers it
@@ -142,6 +147,7 @@ export async function checkMessageLimitExceeded(
         plan: true,
         aiMessagesUsed: true,
         usagePeriodStart: true,
+        isInternalAccount: true,
       },
     })) as unknown as (BusinessUsageFields & { usagePeriodStart?: unknown }) | null;
     if (!biz) return false;
@@ -194,6 +200,33 @@ export function buildCountdown(
   biz: BusinessUsageFields,
   nowMs: number = Date.now()
 ): BillingCountdown {
+  const rawNotice = biz.adminNotice;
+  const adminNotice =
+    rawNotice && typeof rawNotice.message === "string" && rawNotice.message.trim()
+      ? {
+          message: rawNotice.message.trim(),
+          createdAt: toDate(rawNotice.createdAt),
+          createdBy:
+            typeof rawNotice.createdBy === "string" ? rawNotice.createdBy : "team",
+        }
+      : null;
+
+  // Internal owner account (owner rule 2026-10-21): no countdown
+  // exists — no trial days, no message limit, no end date, no
+  // threshold notices (a team-posted adminNotice still shows).
+  if (biz.isInternalAccount === true) {
+    return {
+      plan: "internal",
+      daysRemaining: null,
+      messagesRemaining: null,
+      messagesLimit: null,
+      percentUsed: null,
+      notices: [],
+      adminNotice,
+      subscriptionEndsAt: null,
+    };
+  }
+
   const status = typeof biz.subscriptionStatus === "string" ? biz.subscriptionStatus : "";
   const plan = typeof biz.plan === "string" && biz.plan ? biz.plan : "unknown";
 
@@ -234,17 +267,6 @@ export function buildCountdown(
     }
   }
 
-  const raw = biz.adminNotice;
-  const adminNotice =
-    raw && typeof raw.message === "string" && raw.message.trim()
-      ? {
-          message: raw.message.trim(),
-          createdAt: toDate(raw.createdAt),
-          createdBy:
-            typeof raw.createdBy === "string" ? raw.createdBy : "team",
-        }
-      : null;
-
   return {
     plan,
     daysRemaining,
@@ -272,6 +294,7 @@ export async function getBillingCountdown(
         subscriptionEndsAt: true,
         aiMessagesUsed: true,
         usagePeriodStart: true,
+        isInternalAccount: true,
         adminNotice: true,
       },
     })) as unknown as BusinessUsageFields | null;

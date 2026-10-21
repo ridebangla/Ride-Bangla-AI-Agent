@@ -43,6 +43,17 @@ export interface Business {
   manualActiveOverrideBy?: string;
   manualActiveOverrideAt?: Date | null;
   manualActiveOverrideReason?: string;
+  /** Internal owner comp (owner rule 2026-10-21): the company's OWN
+      account — completely free forever: no plan, no message limits, no
+      trial expiry, never billed. Set ONLY server-side or by the Admin
+      Console Super Admin (audit-logged there); no client request path
+      can write these fields, and enforcement reads them from THIS doc
+      (keyed by business id) — never from an email string. Usage is
+      still metered (aiMessagesUsed) but never blocked or billed. */
+  isInternalAccount?: boolean;
+  internalGrantedBy?: string;
+  internalGrantedAt?: Date | null;
+  internalGrantReason?: string;
   /** Billing Phase 2: AI-message metering — count of finalized AI replies
       in the current 30-day usage period (see usagePeriodStart). */
   aiMessagesUsed?: number;
