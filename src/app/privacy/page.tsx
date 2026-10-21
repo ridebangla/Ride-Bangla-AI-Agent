@@ -16,8 +16,8 @@ export const metadata = {
     images: [
       {
         url: "https://ai.ridebangla.bd/agent-avatar.png",
-        width: 680,
-        height: 680,
+        width: 1024,
+        height: 1024,
         alt: "Ride Bangla AI Agent",
       },
     ],
