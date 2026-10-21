@@ -303,10 +303,29 @@ export async function chat(
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         logger.warn("[brain] media perception failed", { kind: opts.media.kind, reason });
-        const kindLabel =
-          opts.media.kind === "audio" ? "a voice message" : `a ${opts.media.kind}`;
-        effectiveMessage =
-          `[The customer sent ${kindLabel}, but I could not process it: ${reason}]\n${userMessage}`.trim();
+        // Media fix 2026-10-22: the failure note is an INTERNAL
+        // instruction in the conversation's language — never English
+        // scaffolding the model paraphrases into the wrong language,
+        // and never the raw provider error (internal detail; it is in
+        // the log above, it does not belong in the customer's thread).
+        const noteLang = resolveBehaviourLang(config.language, userMessage);
+        const kindBn =
+          opts.media.kind === "audio"
+            ? "একটি ভয়েস মেসেজ"
+            : opts.media.kind === "video"
+              ? "একটি ভিডিও"
+              : "একটি ছবি";
+        const kindEn =
+          opts.media.kind === "audio"
+            ? "a voice message"
+            : opts.media.kind === "video"
+              ? "a video"
+              : "a photo";
+        effectiveMessage = (
+          noteLang === "bn"
+            ? `[অভ্যন্তরীণ নির্দেশ — এই লেখাটি হুবহু বলবেন না: গ্রাহক ${kindBn} পাঠিয়েছেন, কিন্তু তা এই মুহূর্তে প্রসেস করা যায়নি। বাংলায় সংক্ষেপে জানান যে আপনি মিডিয়াটি দেখতে/শুনতে পারলেন না, এবং যা দরকার তা লিখে জানাতে অনুরোধ করুন।]\n${userMessage}`
+            : `[Internal instruction — do not quote this note: the customer sent ${kindEn}, but it could not be processed right now. Briefly say, in the customer's language, that you could not view/hear it, and ask them to describe what they need in words.]\n${userMessage}`
+        ).trim();
       }
     }
   }

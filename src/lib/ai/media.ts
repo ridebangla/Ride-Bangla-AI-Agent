@@ -176,6 +176,53 @@ export async function describeVideo(
 }
 
 /**
+ * Perceive a video whose frames were extracted IN THE BROWSER (media
+ * fix 2026-10-22). Server-side frame extraction needs ffmpeg, which
+ * does not exist on the serverless production host, so the widget now
+ * decodes the customer's video client-side (every browser can play the
+ * file it was handed), captures representative frames as JPEGs, and
+ * posts those. Each frame goes through the same vision chain as a
+ * photo; the frame notes are then synthesized exactly like
+ * describeVideo() synthesizes its ffmpeg frames.
+ */
+export async function perceiveVideoFrames(
+  keys: ProviderKeys,
+  model: string,
+  frames: Array<{ bytes: Buffer; mimeType: string }>,
+  catalogHint?: string
+): Promise<Perception> {
+  if (frames.length === 0) {
+    throw new Error("No video frames were provided");
+  }
+  const frameDescriptions: string[] = [];
+  for (let i = 0; i < frames.length; i++) {
+    const desc = await describeImageWithVision(
+      keys,
+      model,
+      frames[i].bytes,
+      frames[i].mimeType || "image/jpeg",
+      `This is frame ${i + 1} of ${frames.length} from a customer's video message. ` +
+        `Describe what is visible: objects, people, products, text/signs, setting. Be concrete.` +
+        (catalogHint ? ` The business sells: ${catalogHint}. If the frame matches one of these, say which.` : "")
+    );
+    frameDescriptions.push(`Frame ${i + 1}: ${desc}`);
+  }
+
+  const synthesis = await completeTextWithFallback(
+    keys,
+    "These are descriptions of frames (start/middle/end) from a customer's video message to a business support agent. " +
+      "Summarize what the video shows in 2-4 sentences, focusing on anything the customer might be asking about " +
+      "(a product, a problem, a place, a person). If the frames suggest a product category, name it.\n\n" +
+      frameDescriptions.join("\n"),
+    { maxTokens: 400, model, label: "video-synthesis" }
+  );
+  return {
+    kind: "video",
+    description: `[Video]: ${synthesis?.text ?? frameDescriptions.join("\n")}`,
+  };
+}
+
+/**
  * Perceive one customer media attachment into text the brain can answer.
  * PHOTO -> vision identifies objects / product category.
  * VIDEO -> frame extraction + vision synthesis.

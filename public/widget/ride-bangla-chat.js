@@ -1136,12 +1136,88 @@
   }
 
   // ---- Video upload -> /api/chat/vision ----
+  // Media fix 2026-10-22 (rides the next embed version bump; the
+  // version string is unchanged): the server has no ffmpeg
+  // (serverless), so a raw video upload can never be perceived
+  // there. The browser CAN decode the file it was handed — capture
+  // frames at ~10%/50%/90% as JPEGs and post them as `frames`; the
+  // server perceives the frames like photos and synthesizes the
+  // answer. If extraction fails for any reason, fall back to the
+  // legacy raw-video upload (uploadVideoRaw below).
   function uploadVideo(file) {
     if (!file || isPaused) return;
     if (file.size > MAX_MEDIA_BYTES) {
       addMessage(t("videoTooLarge"), "bot");
       return;
     }
+    extractVideoFrames(file, function (frames) {
+      if (frames && frames.length) {
+        addMessage(t("videoSent"), "user");
+        pendingRequests++;
+        setAgentState("working");
+        var typing = addMessage(t("watchingVideo"), "bot typing");
+        postApi("/api/chat/vision", {
+          siteKey: config.siteKey,
+          visitorId: config.visitorId,
+          conversationId: conversationId,
+          activityToken: activityToken,
+          frames: frames,
+        }, typing);
+        return;
+      }
+      uploadVideoRaw(file);
+    });
+  }
+
+  function extractVideoFrames(file, done) {
+    var url;
+    try { url = URL.createObjectURL(file); } catch (e) { done(null); return; }
+    var video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.src = url;
+    var finished = false;
+    function finish(frames) {
+      if (finished) return;
+      finished = true;
+      try { URL.revokeObjectURL(url); } catch (e) {}
+      done(frames);
+    }
+    var timer = setTimeout(function () { finish(null); }, 15000);
+    video.onerror = function () { clearTimeout(timer); finish(null); };
+    video.onloadedmetadata = function () {
+      var dur = video.duration;
+      if (!dur || !isFinite(dur)) { clearTimeout(timer); finish(null); return; }
+      var times = [0.1, 0.5, 0.9].map(function (f) {
+        return Math.min(Math.max(dur * f, 0), Math.max(dur - 0.1, 0));
+      });
+      var frames = [];
+      var idx = 0;
+      video.onseeked = function () {
+        try {
+          var canvas = document.createElement("canvas");
+          var scale = Math.min(1, 640 / (video.videoWidth || 640));
+          canvas.width = Math.max(1, Math.round((video.videoWidth || 640) * scale));
+          canvas.height = Math.max(1, Math.round((video.videoHeight || 360) * scale));
+          canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+          var base64 = (canvas.toDataURL("image/jpeg", 0.82).split(",")[1] || "");
+          if (base64) frames.push({ mimeType: "image/jpeg", base64: base64 });
+        } catch (e) { /* frame skipped */ }
+        idx++;
+        if (idx < times.length) {
+          try { video.currentTime = times[idx]; } catch (e) { clearTimeout(timer); finish(frames.length ? frames : null); }
+        } else {
+          clearTimeout(timer);
+          finish(frames.length ? frames : null);
+        }
+      };
+      try { video.currentTime = times[0]; } catch (e) { clearTimeout(timer); finish(null); }
+    };
+    try { video.load(); } catch (e) {}
+  }
+
+  function uploadVideoRaw(file) {
     var reader = new FileReader();
     reader.onload = function () {
       var dataUrl = String(reader.result || "");

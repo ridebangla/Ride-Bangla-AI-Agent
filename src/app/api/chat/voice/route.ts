@@ -3,12 +3,13 @@ import { getBusinessBySiteKey } from "@/lib/tenant";
 import { getSubscription } from "@/lib/subscription";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { prisma, runWithBusiness, withBusinessId } from "@/lib/prisma";
-import { chat } from "@/lib/ai/engine";
+import { chat, getAIConfig } from "@/lib/ai/engine";
 import {
   hasAnyProviderKey,
   resolveSiteKeys,
 } from "@/lib/ai/providers";
 import { transcribeAudio } from "@/lib/ai/media";
+import { resolveBehaviourLang, type BehaviourLang } from "@/lib/ai/behaviour";
 import { logger } from "@/lib/logger";
 import { checkMessageLimitExceeded } from "@/lib/billing-usage";
 import { parseActivityToken, bindActivityToken } from "@/lib/ai/activity";
@@ -19,7 +20,7 @@ import { parseActivityToken, bindActivityToken } from "@/lib/ai/activity";
  * The widget POSTs a recorded voice note here:
  *   { siteKey, visitorId?, conversationId?, audio: { mimeType, base64 } }
  *
- * With an OpenAI key: the audio is transcribed with Whisper and the
+ * With a provider key: the audio is transcribed with Whisper and the
  * transcript is fed into the normal chat pipeline as the customer's text —
  * same brain, same tools, same product cards, same order flow.
  *
@@ -29,9 +30,36 @@ import { parseActivityToken, bindActivityToken } from "@/lib/ai/activity";
  * Buffer, transcribed, and never persisted anywhere. Only the transcript
  * (or a "(sent a voice message)" note when transcription isn't possible) is
  * stored on the message. Size limit: 10 MB.
+ *
+ * Media fix 2026-10-22: the endpoint's own replies (no-key, transcription
+ * failure) are written in the conversation's language — business setting,
+ * else the customer's own recent language — not hardcoded English.
  */
 const VOICE_RATE_LIMIT = { maxRequests: 10, windowMs: 60 * 1000 };
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+
+/** User-facing strings for this endpoint, in the conversation's language.
+ *  Functional state/error text only — mirrors the English source strings. */
+function voiceStrings(lang: BehaviourLang) {
+  if (lang === "bn") {
+    return {
+      noKey:
+        "আমি এখনো ভয়েস মেসেজ শুনতে পারছি না — এআই ব্রেইন সংযুক্ত হয়নি। " +
+        "ব্যবসার মালিককে Settings-এ এআই API key যোগ করতে হবে। " +
+        "অনুগ্রহ করে আপনার মেসেজটি লিখে পাঠান।",
+      failed:
+        "আমি ভয়েস মেসেজটা বুঝতে পারলাম না। আবার রেকর্ড করে পাঠাবেন, অথবা লিখে পাঠান।",
+    };
+  }
+  return {
+    noKey:
+      "I can't listen to voice messages yet — the AI brain isn't connected. " +
+      "The business owner still needs to add the AI API key in Settings. " +
+      "Please type your message instead.",
+    failed:
+      "I couldn't understand that voice message. Could you try recording again, or type it instead?",
+  };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -162,6 +190,24 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      // Conversation language for this endpoint's own replies: business
+      // setting, else the customer's most recent message in the thread.
+      let lang: BehaviourLang = "en";
+      try {
+        const config = await getAIConfig();
+        lang = resolveBehaviourLang(config.language, "");
+        const lastCustomer = await prisma.message.findFirst({
+          where: { conversationId: convId, role: "customer" },
+          orderBy: { createdAt: "desc" },
+        });
+        if (lastCustomer?.content) {
+          lang = resolveBehaviourLang(config.language, lastCustomer.content);
+        }
+      } catch {
+        /* language detection is best-effort */
+      }
+      const strings = voiceStrings(lang);
+
       const keys = await resolveSiteKeys();
 
       if (!hasAnyProviderKey(keys)) {
@@ -170,10 +216,7 @@ export async function POST(request: NextRequest) {
         const result = await chat(convId, "(sent a voice message)");
         return NextResponse.json({
           conversationId: convId,
-          response:
-            "I can't listen to voice messages yet — the AI brain isn't connected. " +
-            "The business owner still needs to add the AI API key in Settings. " +
-            "Please type your message instead.",
+          response: strings.noKey,
           products: result.products,
           silent: result.silent,
         });
@@ -185,8 +228,7 @@ export async function POST(request: NextRequest) {
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         logger.warn("[voice] transcription failed", { reason });
-        const reply =
-          "I couldn't understand that voice message. Could you try recording again, or type it instead?";
+        const reply = strings.failed;
         await prisma.message.create({
           data: withBusinessId({
             conversationId: convId,

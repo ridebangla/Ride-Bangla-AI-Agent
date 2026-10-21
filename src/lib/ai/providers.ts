@@ -449,6 +449,26 @@ function modelFor(p: RealProvider, requested?: string): string {
   return r || defaultModelFor("openai");
 }
 
+/**
+ * Groq vision catalogue order for describeImageOneProvider (media fix
+ * 2026-10-22). Groq's current vision documentation
+ * (console.groq.com/docs/vision, checked 2026-10-22) lists
+ * `qwen/qwen3.8-27b` as the generally available multimodal model — the
+ * Llama 4 ids that used to be the documented vision models no longer
+ * appear there, which is why the single hardcoded Scout id left every
+ * photo unanswered once Groq stopped serving it for vision. The chain
+ * keeps the Llama 4 ids as fallovers: fallover happens ONLY on a
+ * model-unavailable error (see isModelUnavailableError), so whichever
+ * of these Groq actually serves answers the photo, and auth/quota/
+ * timeout errors still surface immediately, exactly like the chat
+ * chain's GROQ_MODEL_CHAIN discipline.
+ */
+export const GROQ_VISION_MODEL_CHAIN: string[] = [
+  "qwen/qwen3.8-27b",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "meta-llama/llama-4-maverick-17b-128e-instruct",
+];
+
 function visionModelFor(p: RealProvider, requested?: string): string {
   if (p === "openrouter") {
     const r = (requested ?? "").trim();
@@ -456,14 +476,24 @@ function visionModelFor(p: RealProvider, requested?: string): string {
   }
   if (p === "groq") {
     const r = (requested ?? "").trim();
-    if (r && /llama-?4/i.test(r)) return r;
-    return "meta-llama/llama-4-scout-17b-16e-instruct";
+    if (r && GROQ_VISION_MODEL_CHAIN.includes(r)) return r;
+    return GROQ_VISION_MODEL_CHAIN[0];
   }
   if (p === "gemini") return modelFor("gemini", requested);
   // OpenAI: the business's own model when it can see, else a cheap default.
   const r = (requested ?? "").trim();
   if (/^(gpt-4o|gpt-4\.1|o1|o3|gpt-5)/.test(r)) return r;
   return "gpt-4o-mini";
+}
+
+/** Vision model candidates for one provider, most-preferred first.
+ *  A business-configured vision-capable id (e.g. a Llama 4 id for Groq)
+ *  leads; the documented catalogue follows. Non-Groq providers have a
+ *  single candidate — their visionModelFor result. */
+function visionModelCandidates(p: RealProvider, requested?: string): string[] {
+  if (p !== "groq") return [visionModelFor(p, requested)];
+  const primary = visionModelFor("groq", requested);
+  return [primary, ...GROQ_VISION_MODEL_CHAIN.filter((m) => m !== primary)];
 }
 
 /* ------------------------------------------------------------------ */
@@ -702,6 +732,24 @@ function isModelNotFoundError(err: unknown): boolean {
   if (code === "model_not_found") return true;
   const status = (err as { status?: number }).status;
   return status === 404 && /model_not_found|does not exist/i.test(err.message ?? "");
+}
+
+/** Wider than isModelNotFoundError, for the MEDIA paths: a provider can
+ *  also refuse a model with a 400 ("model does not support image
+ *  input", "model has been decommissioned") when an id still exists
+ *  for text but not for the media capability. Trying the next media
+ *  catalogue id is safe in exactly those cases — and ONLY those: any
+ *  other failure (auth, quota, rate limit, timeout) must surface at
+ *  once so the provider failover / breaker semantics stay honest. */
+function isModelUnavailableError(err: unknown): boolean {
+  if (isModelNotFoundError(err)) return true;
+  if (!(err instanceof Error)) return false;
+  const status = (err as { status?: number }).status;
+  const msg = err.message ?? "";
+  if (/model[_\s-]?(not[_\s-]?found|unavailable|decommissioned|retired)|model.*does not exist|model.*not supported|does not support (image|vision|audio)/i.test(msg)) {
+    return true;
+  }
+  return status === 400 && /model/i.test(msg) && /not|unsupported|invalid|unavailable/i.test(msg);
 }
 
 /**
@@ -1287,7 +1335,7 @@ export interface MediaCallInput {
 }
 
 function dataUri(bytes: Buffer, mimeType: string): string {
-  return `data:${mimeType};base64,${bytes.toString("base64")}`;
+  return `data:${cleanMimeType(mimeType) || mimeType};base64,${bytes.toString("base64")}`;
 }
 
 async function describeImageOneProvider(
@@ -1309,7 +1357,7 @@ async function describeImageOneProvider(
             role: "user",
             parts: [
               { text: question },
-              { inlineData: { mimeType: input.mimeType, data: input.bytes.toString("base64") } },
+              { inlineData: { mimeType: cleanMimeType(input.mimeType) || input.mimeType, data: input.bytes.toString("base64") } },
             ],
           },
         ],
@@ -1332,25 +1380,40 @@ async function describeImageOneProvider(
     return text;
   }
 
+  // OpenAI-family vision (OpenAI / Groq / OpenRouter). Groq walks its
+  // vision catalogue (visionModelCandidates) because Groq retires /
+  // re-scopes vision ids independently of its text catalogue: a model
+  // that answers text can be gone for image input, and the ONE
+  // hardcoded id this used to send is exactly how every photo broke
+  // (media fix 2026-10-22). Fallover only on model-unavailable errors;
+  // auth/quota/timeout throw immediately.
   const client = openAiClientFor(provider, apiKey);
-  const response = await client.chat.completions.create({
-    model: visionModelFor(provider, modelHint),
-    max_tokens: 600,
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: question },
-          { type: "image_url", image_url: { url: dataUri(input.bytes, input.mimeType) } },
+  const candidates = visionModelCandidates(provider, modelHint);
+  let lastErr: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      const response = await client.chat.completions.create({
+        model: candidate,
+        max_tokens: 600,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: question },
+              { type: "image_url", image_url: { url: dataUri(input.bytes, input.mimeType) } },
+            ],
+          },
         ],
-      },
-    ],
-  }).catch((err: unknown) => {
-    throw new Error(scrubKeyMaterial(describeProviderError(provider, err), apiKey));
-  });
-  const text = response.choices[0]?.message?.content?.trim();
-  if (!text) throw new Error(`${provider}: vision returned no description`);
-  return text;
+      });
+      const text = response.choices[0]?.message?.content?.trim();
+      if (!text) throw new Error(`${provider}: vision returned no description`);
+      return text;
+    } catch (err) {
+      lastErr = err;
+      if (!isModelUnavailableError(err)) break;
+    }
+  }
+  throw new Error(scrubKeyMaterial(describeProviderError(provider, lastErr), apiKey));
 }
 
 /**
@@ -1382,11 +1445,33 @@ export async function describeImageWithFallback(
   );
 }
 
+/** Bare mime type without parameters — browsers hand over values like
+ *  "audio/webm;codecs=opus", and strict multipart/provider validation
+ *  can reject the parameterised form (media fix 2026-10-22). */
+function cleanMimeType(mimeType: string): string {
+  return (mimeType || "").split(";")[0].trim().toLowerCase();
+}
+
 function audioExt(mimeType: string): string {
-  if (mimeType.includes("mp3")) return "mp3";
-  if (mimeType.includes("wav")) return "wav";
-  if (mimeType.includes("webm")) return "webm";
+  const m = cleanMimeType(mimeType);
+  if (m.includes("mp3") || m.includes("mpeg")) return "mp3";
+  if (m.includes("wav")) return "wav";
+  if (m.includes("webm")) return "webm";
+  if (m.includes("mp4") || m.includes("m4a") || m.includes("aac")) return "m4a";
+  if (m.includes("flac")) return "flac";
+  if (m.includes("ogg") || m.includes("opus")) return "ogg";
   return "ogg";
+}
+
+/** Whisper model candidates per provider (media fix 2026-10-22). Groq's
+ *  speech-to-text documentation (console.groq.com/docs/speech-to-text,
+ *  checked 2026-10-22) lists whisper-large-v3 and whisper-large-v3-turbo
+ *  as the current models; try the accurate one first, fall over to the
+ *  turbo on a model-unavailable error only. */
+function transcriptionModelsFor(provider: RealProvider): string[] {
+  if (provider === "groq") return ["whisper-large-v3", "whisper-large-v3-turbo"];
+  if (provider === "openai") return ["whisper-1"];
+  return ["whisper-1"];
 }
 
 async function transcribeOneProvider(
@@ -1407,7 +1492,7 @@ async function transcribeOneProvider(
             role: "user",
             parts: [
               { text: "Transcribe this audio exactly, word for word. Return only the transcript, no commentary." },
-              { inlineData: { mimeType: input.mimeType, data: input.bytes.toString("base64") } },
+              { inlineData: { mimeType: cleanMimeType(input.mimeType) || input.mimeType, data: input.bytes.toString("base64") } },
             ],
           },
         ],
@@ -1430,19 +1515,30 @@ async function transcribeOneProvider(
     return text;
   }
 
-  // OpenAI Whisper + Groq's OpenAI-compatible Whisper endpoint.
+  // OpenAI Whisper + Groq's OpenAI-compatible Whisper endpoint. The
+  // uploaded file's name extension and content type must AGREE with the
+  // actual recording: browsers record webm/opus (Chrome) or mp4 (Safari)
+  // and report parameterised mimes ("audio/webm;codecs=opus") — sending
+  // the raw mime as the file type, or an .ogg name over MP4 bytes, gets
+  // the upload rejected before Whisper ever hears it (media fix
+  // 2026-10-22).
   const client = openAiClientFor(provider, apiKey);
   const file = await toFile(input.bytes, `voice-${Date.now()}.${audioExt(input.mimeType)}`, {
-    type: input.mimeType,
+    type: cleanMimeType(input.mimeType) || "audio/ogg",
   });
-  const result = await client.audio.transcriptions
-    .create({ file, model: provider === "groq" ? "whisper-large-v3" : "whisper-1" })
-    .catch((err: unknown) => {
-      throw new Error(scrubKeyMaterial(describeProviderError(provider, err), apiKey));
-    });
-  const text = (result.text ?? "").trim();
-  if (!text) throw new Error(`${provider}: transcription came back empty`);
-  return text;
+  let lastErr: unknown = null;
+  for (const model of transcriptionModelsFor(provider)) {
+    try {
+      const result = await client.audio.transcriptions.create({ file, model });
+      const text = (result.text ?? "").trim();
+      if (!text) throw new Error(`${provider}: transcription came back empty`);
+      return text;
+    } catch (err) {
+      lastErr = err;
+      if (!isModelUnavailableError(err)) break;
+    }
+  }
+  throw new Error(scrubKeyMaterial(describeProviderError(provider, lastErr), apiKey));
 }
 
 /**
