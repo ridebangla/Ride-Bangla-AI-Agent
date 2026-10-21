@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
+import type { NextResponse } from "next/server";
 import { getUnscopedPrisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 import { logger } from "@/lib/logger";
@@ -25,6 +26,12 @@ const REFRESH_TOKEN_NAME = "rbai-refresh";
 // restarts. PAYMENT gates activity, never the session itself: an expired
 // trial / unpaid subscription still hard-stops at 402 even with a valid
 // session (see the subscription checks in route handlers).
+// Session restore (2026-10-21): the refresh token is exchanged silently —
+// middleware bounces an expired-access page load to /api/auth/restore
+// (full DB-checked rotation), and the dashboard SessionKeeper refreshes
+// proactively while a tab stays open. Before this, NOTHING ever called
+// the refresh exchange, so every session died with the 1h access token
+// and the user had to sign in again on every visit.
 const TOKEN_EXPIRY = "1h";
 const REFRESH_TOKEN_EXPIRY = "30d";
 
@@ -231,8 +238,22 @@ export function clearAuthCookie() {
 }
 
 /**
- * Refresh-token cookie. Scoped to /api/auth so the long-lived token is only
- * ever sent to the refresh endpoint, never to every request.
+ * Refresh-token cookie.
+ *
+ * Path is "/" (not "/api/auth" as before): the silent-restore flow needs
+ * the cookie's PRESENCE visible to middleware on ordinary page requests —
+ * middleware bounces an expired-access page load to /api/auth/restore,
+ * which performs the real (DB-checked, rotating) exchange. The token VALUE
+ * is only ever honoured by the /api/auth handlers (refresh + restore);
+ * the cookie stays HttpOnly (no script can read it), Secure in production
+ * and SameSite=Lax.
+ *
+ * Migration: browsers may still hold the legacy Path=/api/auth cookie,
+ * which would shadow this one on /api/auth requests (cookie identity is
+ * name+path; Next's ResponseCookies can only carry ONE cookie per name
+ * per response, so the legacy expiry cannot ride along here). Instead,
+ * middleware expires the legacy identity on every /api/auth response —
+ * see the auth branch in src/middleware.ts.
  */
 export function setRefreshCookie(token: string) {
   return {
@@ -242,7 +263,7 @@ export function setRefreshCookie(token: string) {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax" as const,
     maxAge: 60 * 60 * 24 * 30, // 30 days — matches REFRESH_TOKEN_EXPIRY
-    path: "/api/auth",
+    path: "/",
   };
 }
 
@@ -252,8 +273,22 @@ export function clearRefreshCookie() {
     value: "",
     httpOnly: true,
     maxAge: 0,
-    path: "/api/auth",
+    path: "/",
   };
+}
+
+/**
+ * Write the session cookie pair (access + refresh) on a response.
+ * Single place for it so every sign-in path (Firebase, Google, signup,
+ * setup, refresh, restore) issues the identical cookie set.
+ */
+export function setSessionCookies(
+  response: NextResponse,
+  accessToken: string,
+  refreshToken: string
+): void {
+  response.cookies.set(setAuthCookie(accessToken));
+  response.cookies.set(setRefreshCookie(refreshToken));
 }
 
 export function getRefreshCookieName(): string {

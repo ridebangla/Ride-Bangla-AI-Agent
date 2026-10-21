@@ -96,6 +96,30 @@ function generateRequestId(): string {
   return crypto.randomUUID();
 }
 
+/**
+ * Silent session restore (2026-10-21): the access cookie lives 1h, the
+ * rotating refresh cookie 30d. A page load whose access token is missing
+ * or expired but which still carries the refresh cookie is bounced to
+ * /api/auth/restore — which performs the DB-checked rotating exchange
+ * and redirects back here — instead of dumping the user on /login.
+ * API requests are NOT bounced: they keep the plain 401 contract (the
+ * dashboard SessionKeeper refreshes proactively while a tab is open).
+ */
+function restoreRedirect(request: NextRequest): NextResponse {
+  const url = new URL("/api/auth/restore", request.url);
+  url.searchParams.set(
+    "next",
+    request.nextUrl.pathname + request.nextUrl.search
+  );
+  const response = NextResponse.redirect(url);
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
+function hasRefreshCookie(request: NextRequest): boolean {
+  return Boolean(request.cookies.get("rbai-refresh")?.value);
+}
+
 function addHeaders(
   response: NextResponse,
   requestId: string,
@@ -269,11 +293,26 @@ export async function middleware(request: NextRequest) {
       return addHeaders(response, requestId, { limit: RATE_LIMITS.auth.maxRequests, remaining: 0, resetAt: rateResult.resetAt });
     }
 
-    return addHeaders(NextResponse.next(), requestId, {
+    const authResponse = addHeaders(NextResponse.next(), requestId, {
       limit: RATE_LIMITS.auth.maxRequests,
       remaining: rateResult.remaining,
       resetAt: rateResult.resetAt,
     });
+    // Migration (2026-10-21): the refresh cookie moved from
+    // Path=/api/auth to Path=/ (see src/lib/auth.ts). Browsers may still
+    // hold the legacy-path cookie, which would shadow the new one on
+    // /api/auth requests — expire that identity on every auth response.
+    // Harmless when no legacy cookie exists (different cookie identity),
+    // and it rides along even on the login/refresh/restore responses
+    // themselves, so migration completes with the first auth response.
+    authResponse.cookies.set({
+      name: "rbai-refresh",
+      value: "",
+      httpOnly: true,
+      maxAge: 0,
+      path: "/api/auth",
+    });
+    return authResponse;
   }
 
   if (isPublic || isLandingRoot) {
@@ -318,6 +357,11 @@ export async function middleware(request: NextRequest) {
         apiRateInfo
       );
     }
+    // Access cookie ages out after 1h while the refresh cookie lives
+    // 30d — restore silently instead of forcing a fresh login.
+    if (hasRefreshCookie(request)) {
+      return restoreRedirect(request);
+    }
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
@@ -359,6 +403,13 @@ export async function middleware(request: NextRequest) {
         requestId,
         apiRateInfo
       );
+    }
+    // Expired (or otherwise unverifiable) access token + a live refresh
+    // cookie => silent restore. The restore handler re-verifies the
+    // refresh token against the DB (incl. revocation), so a forged or
+    // revoked refresh token still ends at /login with cookies cleared.
+    if (hasRefreshCookie(request)) {
+      return restoreRedirect(request);
     }
     const response = NextResponse.redirect(new URL("/login", request.url));
     response.cookies.delete("rbai-token");

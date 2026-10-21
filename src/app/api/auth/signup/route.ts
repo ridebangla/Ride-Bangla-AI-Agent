@@ -5,8 +5,7 @@ import { getUnscopedPrisma } from "@/lib/prisma";
 import {
   generateRefreshToken,
   generateToken,
-  setAuthCookie,
-  setRefreshCookie,
+  setSessionCookies,
 } from "@/lib/auth";
 import { TRIAL_MS, TRIAL_DAYS } from "@/lib/subscription";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -230,8 +229,7 @@ export async function POST(request: NextRequest) {
         businessId: business.id,
         trialEndsAt: new Date(Date.now() + TRIAL_MS).toISOString(),
       });
-      response.cookies.set(setAuthCookie(token));
-      response.cookies.set(setRefreshCookie(refreshToken));
+      setSessionCookies(response, token, refreshToken);
       return response;
     } catch (err) {
       // Roll back partial signup: delete the Firebase user and the business

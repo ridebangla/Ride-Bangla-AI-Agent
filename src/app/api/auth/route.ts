@@ -12,8 +12,7 @@ import {
   isSetupAllowed,
   isSetupComplete,
   revokeToken,
-  setAuthCookie,
-  setRefreshCookie,
+  setSessionCookies,
   verifyCaptcha,
   verifyPassword,
   verifyRefreshToken,
@@ -112,8 +111,7 @@ export async function POST(request: NextRequest) {
       success: true,
       user: { id: admin.id, username: admin.username, name: admin.name },
     });
-    response.cookies.set(setAuthCookie(token));
-    response.cookies.set(setRefreshCookie(refreshToken));
+    setSessionCookies(response, token, refreshToken);
     return response;
   }
 
@@ -147,6 +145,8 @@ export async function POST(request: NextRequest) {
     const response = NextResponse.json({ success: true });
     response.cookies.set(clearAuthCookie());
     response.cookies.set(clearRefreshCookie());
+    // The legacy Path=/api/auth refresh identity is expired by
+    // middleware on this very response (see src/middleware.ts).
     return response;
   }
 
@@ -193,8 +193,7 @@ export async function POST(request: NextRequest) {
       success: true,
       user: { id: admin.id, username: admin.username, name: admin.name },
     });
-    response.cookies.set(setAuthCookie(token));
-    response.cookies.set(setRefreshCookie(newRefreshToken));
+    setSessionCookies(response, token, newRefreshToken);
     return response;
   }
 

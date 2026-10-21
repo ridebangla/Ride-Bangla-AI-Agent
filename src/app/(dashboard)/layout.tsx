@@ -3,7 +3,12 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { Sidebar } from "@/components/layout/sidebar";
-import { verifySessionToken } from "@/lib/auth";
+import { SessionKeeper } from "@/components/auth/session-keeper";
+import {
+  getRefreshCookieName,
+  verifySessionToken,
+  verifyToken,
+} from "@/lib/auth";
 import { getUnscopedPrisma } from "@/lib/prisma";
 import { getSubscription } from "@/lib/subscription";
 import { getBillingCountdown } from "@/lib/billing-usage";
@@ -36,7 +41,21 @@ export default async function DashboardLayout({
   const payload = token ? await verifySessionToken(token) : null;
   // Fail-closed: no valid session -> login (middleware normally redirects
   // first; this is the backstop).
-  if (!payload) redirect("/login");
+  if (!payload) {
+    // Session-restore backstop (2026-10-21): middleware normally bounces
+    // an expired-access + live-refresh load to /api/auth/restore before
+    // this gate renders. If we still land here sessionless, do the same
+    // when the access token is merely EXPIRED (or absent) and a refresh
+    // cookie exists. A token that verifies cryptographically but was
+    // REVOKED (verifyToken passes, verifySessionToken fails) is NOT
+    // restorable — straight to /login, fail-closed as before.
+    const refreshToken = cookieStore.get(getRefreshCookieName())?.value;
+    const accessExpired = !token || verifyToken(token) === null;
+    if (refreshToken && accessExpired) {
+      redirect("/api/auth/restore?next=/dashboard");
+    }
+    redirect("/login");
+  }
 
   const admin = await getUnscopedPrisma().admin.findUnique({
     where: { id: payload.userId },
@@ -61,6 +80,7 @@ export default async function DashboardLayout({
 
   return (
     <>
+      <SessionKeeper />
       {showCountdownBanner && countdown && (
         <div
           role="status"

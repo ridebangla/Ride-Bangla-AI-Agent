@@ -4,8 +4,7 @@ import { getUnscopedPrisma } from "@/lib/prisma";
 import {
   generateRefreshToken,
   generateToken,
-  setAuthCookie,
-  setRefreshCookie,
+  setSessionCookies,
 } from "@/lib/auth";
 import { logger } from "@/lib/logger";
 
@@ -116,8 +115,7 @@ export async function POST(request: NextRequest) {
         role: agentAdmin.role,
       },
     });
-    response.cookies.set(setAuthCookie(token));
-    response.cookies.set(setRefreshCookie(refreshToken));
+    setSessionCookies(response, token, refreshToken);
     return response;
   } catch (err) {
     logger.warn(
