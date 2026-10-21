@@ -1,27 +1,34 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-21.3 (NEW: token streaming for text chat —
- * sendText now asks the widget endpoint for an SSE stream, so the reply
- * starts rendering as it is generated and the typing bubble only covers
- * the wait for the first token; the terminal `done` event still carries
- * the authoritative payload through the same handleApiResponse path, a
- * `retract` event discards a partial bubble that preceded tool calls,
- * and any non-SSE answer — gate errors, older servers — falls back to
- * the plain JSON path unchanged). Prior: v2026-10-21.2 (same-thread
- * human handoff — the embed now persists its visitor/conversation ids
- * in sessionStorage and polls GET /api/chat/thread while open, so
- * replies a human writes from the dashboard Inbox render in this chat,
- * and a returning visitor re-enters the same conversation instead of
- * orphaning it; the read endpoint enforces the same visitor-ownership
- * rule as the chat endpoint). Prior: v2026-10-21.1 (dual-video avatar
- * completed with the owner's canonical full-scene clips; the working
- * clip now lazy-loads on first open instead of taxing every host page;
- * NEW: an action-specific live caption under the header avatar, fed by
- * GET /api/chat/activity — it only ever names an action the engine is
- * genuinely executing, and falls back to the plain typing caption
- * otherwise). Prior: v2026-10-20.2 (A-to-Z audit: CORS companion fix in
- * the platform middleware + honest error states). This is the ONE embed
- * build every project reuses for the company help center; do not fork
+ * CANONICAL EMBED — v2026-10-22.1 (NEW: every widget chrome string is
+ * localized EN/BN through one UI_STRINGS table — mic/media/connection/
+ * paused/typing strings, input chrome, product-card labels — and the
+ * UI language FOLLOWS THE CONVERSATION: it starts from the existing
+ * config.lang (data-lang, then the host page's lang) and switches when
+ * the visitor's own message or the agent's reply is Bengali or English,
+ * so a Bengali conversation never shows English chrome (owner rule:
+ * bidirectional language purity). Server `error` texts are mapped to
+ * localized strings in the embed and never rendered raw. Mic failures
+ * are split by DOMException name (denied / no device / busy) instead of
+ * one generic bubble. Mascot: the still fallback/poster avatar is now
+ * bust-framed (head + shoulders, face centred — the served
+ * agent-avatar.png is a distant full-body shot) and the working clip's
+ * object-position is re-centred on the mascot's head; launcher (56px)
+ * and header (36px) sizes unchanged). Prior: v2026-10-21.3 (token
+ * streaming for text chat — sendText asks the widget endpoint for an
+ * SSE stream, the typing bubble only covers the wait for the first
+ * token, the terminal `done` event carries the authoritative payload;
+ * inline mount mode for help-center pages — #rbai-chat-inline /
+ * data-mode="inline", launcher suppressed in inline mode; duplicate-
+ * reply guard — the thread poll defers assistant messages while a
+ * local request is in flight). Prior: v2026-10-21.2 (same-thread human
+ * handoff — visitor/conversation ids persist in sessionStorage and the
+ * embed polls GET /api/chat/thread while open). Prior: v2026-10-21.1
+ * (dual-video avatar with the owner's canonical full-scene clips,
+ * working clip lazy-loads on first open; live activity captions fed by
+ * GET /api/chat/activity). Prior: v2026-10-20.2 (A-to-Z audit: CORS
+ * companion fix + honest error states). This is the ONE embed build
+ * every project reuses for the company help center; do not fork
  * per-site copies.
  * Embeddable chat widget for customer websites.
  *
@@ -36,8 +43,8 @@
  * ></script>
  *
  * Inline mode (help-center pages; inline support added after
- * v2026-10-21.3 — it rides the next embed version bump, this build does
- * not change the version string): if the page renders an element with
+ * v2026-10-21.3 and carried by the v2026-10-22.1 bump): if the page
+ * renders an element with
  * id "rbai-chat-inline", the widget mounts INTO that element as an
  * always-open in-page chat box instead of the floating bubble (the
  * launcher is suppressed on that page only). A script tag may instead
@@ -76,10 +83,17 @@
     inlineTarget: script.getAttribute("data-inline-target") || "#rbai-chat-inline",
     greeting: script.getAttribute("data-greeting") || "Hi! How can we help you today?",
     title: script.getAttribute("data-title") || "Ride Bangla AI Agent",
-    // Caption language: explicit data-lang wins, then the host page's
+    // Base UI language: explicit data-lang wins, then the host page's
     // own lang, then English (the embed UI's long-standing default).
+    // This is only the STARTING language — uiLang (below) follows the
+    // conversation itself from here.
     lang: ((script.getAttribute("data-lang") || document.documentElement.lang || "en").toLowerCase().indexOf("bn") === 0 ? "bn" : "en"),
   };
+
+  // True when the host did not supply its own greeting: the default
+  // greeting is embed chrome and localizes with uiLang; a host-supplied
+  // data-greeting is the host's own copy and is always shown verbatim.
+  var greetingIsDefault = !script.getAttribute("data-greeting");
 
   var avatarUrl = config.server.replace(/\/$/, "") + "/agent-avatar.png";
   var idleVideoUrl = config.server.replace(/\/$/, "") + "/agent-idle.mp4";
@@ -133,6 +147,181 @@
   var activityToken = "at-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   var activityTimer = null;
   var currentActivity = null;
+
+  // ---- UI chrome strings (EN/BN) ----
+  // EVERY user-facing string the embed itself renders comes from this
+  // table (the activity captions below are the other half). uiLang is
+  // the embed's one language state: it starts at config.lang (the
+  // existing data-lang / page-lang mechanism) and then FOLLOWS THE
+  // CONVERSATION — a Bengali message or reply switches the chrome to
+  // Bengali, an English one switches it back (owner rule 2026-10-22:
+  // bidirectional language purity — no English chrome inside a Bengali
+  // conversation, and vice versa). The API carries no language field,
+  // so the conversation text the embed already handles is the signal.
+  var uiLang = config.lang;
+
+  var UI_STRINGS = {
+    en: {
+      greeting: "Hi! How can we help you today?",
+      typeMessage: "Type a message...",
+      send: "Send",
+      sendPhoto: "Send a photo",
+      sendVideo: "Send a video",
+      sendVoice: "Send a voice message",
+      openChat: "Open chat",
+      sentPhotoAlt: "Sent photo",
+      productFallback: "Product",
+      order: "Order",
+      typing: "Typing...",
+      lookingPhoto: "Looking at your photo...",
+      watchingVideo: "Watching your video...",
+      listening: "Listening...",
+      videoSent: "Video sent",
+      voiceSent: "Voice message sent",
+      pausedTitle: "Chat paused",
+      pausedBody: "This business's subscription is paused. Please ask them to reactivate to continue chatting.",
+      tryAgain: "Try again",
+      connError: "Connection problem — please check your internet connection and try again.",
+      notConfigured: "This chat is not configured correctly yet. Please contact the business directly.",
+      limitReached: "This business has reached its AI message limit for now. Please try again later, or contact the business directly.",
+      rateLimited: "Too many messages. Please wait a moment and try again.",
+      processError: "Sorry, I could not process your request.",
+      tooLong: "Message too long",
+      mediaError: "That file couldn't be processed. Please try another one.",
+      photoTooLarge: "That photo is too large (max 4 MB). Please choose a smaller one.",
+      videoTooLarge: "That video is too large (max 10 MB). Please choose a shorter one.",
+      photoReadError: "I couldn't read that photo. Please try another one.",
+      videoReadError: "I couldn't read that video. Please try another one.",
+      voiceUnsupported: "Voice messages aren't supported in this browser. Please type your message.",
+      recordingUnsupported: "Voice recording isn't supported in this browser. Please type your message.",
+      recordingEmpty: "That recording was empty. Please try again.",
+      recordingTooLong: "That recording is too long (max 10 MB). Please try a shorter one.",
+      recordingProcessError: "I couldn't process that recording. Please try again.",
+      micDenied: "I couldn't access the microphone. Please check the browser permission and try again.",
+      micNotFound: "No microphone was found. Please check your device and try again.",
+      micBusy: "The microphone is being used by another app. Please close it and try again.",
+    },
+    bn: {
+      greeting: "হাই! আজ কীভাবে সাহায্য করতে পারি?",
+      typeMessage: "মেসেজ লিখুন...",
+      send: "পাঠান",
+      sendPhoto: "ছবি পাঠান",
+      sendVideo: "ভিডিও পাঠান",
+      sendVoice: "ভয়েস মেসেজ পাঠান",
+      openChat: "চ্যাট খুলুন",
+      sentPhotoAlt: "পাঠানো ছবি",
+      productFallback: "পণ্য",
+      order: "অর্ডার করুন",
+      typing: "টাইপ করছে...",
+      lookingPhoto: "আপনার ছবি দেখছি...",
+      watchingVideo: "আপনার ভিডিও দেখছি...",
+      listening: "শুনছি...",
+      videoSent: "ভিডিও পাঠানো হয়েছে",
+      voiceSent: "ভয়েস মেসেজ পাঠানো হয়েছে",
+      pausedTitle: "চ্যাট বন্ধ আছে",
+      pausedBody: "এই ব্যবসার সাবস্ক্রিপশন বন্ধ আছে। চ্যাট চালিয়ে যেতে তাদের আবার চালু করতে বলুন।",
+      tryAgain: "আবার চেষ্টা করুন",
+      connError: "সংযোগে সমস্যা হয়েছে — আপনার ইন্টারনেট সংযোগ দেখে আবার চেষ্টা করুন।",
+      notConfigured: "এই চ্যাট এখনো ঠিকমতো সেটআপ হয়নি। অনুগ্রহ করে সরাসরি ব্যবসার সঙ্গে যোগাযোগ করুন।",
+      limitReached: "এই ব্যবসার AI মেসেজের সীমা আপাতত শেষ। পরে আবার চেষ্টা করুন, অথবা সরাসরি ব্যবসার সঙ্গে যোগাযোগ করুন।",
+      rateLimited: "অনেকগুলো মেসেজ পাঠানো হয়েছে। কিছুক্ষণ অপেক্ষা করে আবার চেষ্টা করুন।",
+      processError: "দুঃখিত, আপনার অনুরোধটি সম্পন্ন করতে পারিনি।",
+      tooLong: "মেসেজটি অনেক লম্বা",
+      mediaError: "ফাইলটি প্রসেস করা যায়নি। অন্য একটি দিয়ে চেষ্টা করুন।",
+      photoTooLarge: "ছবিটি অনেক বড় (সর্বোচ্চ ৪ MB)। ছোট একটি ছবি বেছে নিন।",
+      videoTooLarge: "ভিডিওটি অনেক বড় (সর্বোচ্চ ১০ MB)। ছোট একটি ভিডিও বেছে নিন।",
+      photoReadError: "ছবিটি পড়তে পারিনি। অন্য একটি ছবি দিয়ে চেষ্টা করুন।",
+      videoReadError: "ভিডিওটি পড়তে পারিনি। অন্য একটি ভিডিও দিয়ে চেষ্টা করুন।",
+      voiceUnsupported: "এই ব্রাউজারে ভয়েস মেসেজ চালানো যাবে না। আপনার মেসেজটি লিখে পাঠান।",
+      recordingUnsupported: "এই ব্রাউজারে ভয়েস রেকর্ড করা যাবে না। আপনার মেসেজটি লিখে পাঠান।",
+      recordingEmpty: "রেকর্ডিংটি খালি ছিল। আবার চেষ্টা করুন।",
+      recordingTooLong: "রেকর্ডিংটি অনেক লম্বা (সর্বোচ্চ ১০ MB)। ছোট করে আবার রেকর্ড করুন।",
+      recordingProcessError: "রেকর্ডিংটি প্রসেস করতে পারিনি। আবার চেষ্টা করুন।",
+      micDenied: "মাইক্রোফোন ব্যবহারের অনুমতি পাইনি। ব্রাউজারের অনুমতি দেখে আবার চেষ্টা করুন।",
+      micNotFound: "কোনো মাইক্রোফোন পাওয়া যায়নি। আপনার ডিভাইস দেখে আবার চেষ্টা করুন।",
+      micBusy: "মাইক্রোফোনটি অন্য অ্যাপে ব্যবহৃত হচ্ছে। সেটি বন্ধ করে আবার চেষ্টা করুন।",
+    },
+  };
+
+  function t(key) {
+    var table = UI_STRINGS[uiLang] || UI_STRINGS.en;
+    return table[key] || UI_STRINGS.en[key] || key;
+  }
+
+  // Conversation-language signal: Bengali script anywhere in the text
+  // means the conversation is Bengali; Latin letters with no Bengali
+  // mean English; anything else (digits, emoji, a bare URL) is no
+  // signal and leaves uiLang unchanged.
+  function detectTextLang(text) {
+    if (!text || typeof text !== "string") return null;
+    if (/[\u0980-\u09FF]/.test(text)) return "bn";
+    if (/[A-Za-z]/.test(text)) return "en";
+    return null;
+  }
+
+  function setUiLang(lang) {
+    if (!lang || lang === uiLang || !UI_STRINGS[lang]) return;
+    uiLang = lang;
+    applyChromeStrings();
+    renderStatus();
+  }
+
+  // Re-render the static chrome in the current uiLang (called when the
+  // conversation language switches; initial render uses t() directly).
+  function applyChromeStrings() {
+    var input = document.getElementById("rbai-widget-text");
+    if (input) input.setAttribute("placeholder", t("typeMessage"));
+    var sendBtn = document.getElementById("rbai-widget-send");
+    if (sendBtn) sendBtn.textContent = t("send");
+    var photoBtn = document.getElementById("rbai-widget-photo");
+    if (photoBtn) { photoBtn.title = t("sendPhoto"); photoBtn.setAttribute("aria-label", t("sendPhoto")); }
+    var videoBtn = document.getElementById("rbai-widget-video");
+    if (videoBtn) { videoBtn.title = t("sendVideo"); videoBtn.setAttribute("aria-label", t("sendVideo")); }
+    var micBtn = document.getElementById("rbai-widget-mic");
+    if (micBtn) { micBtn.title = t("sendVoice"); micBtn.setAttribute("aria-label", t("sendVoice")); }
+    var launcher = document.getElementById("rbai-widget-btn");
+    if (launcher) launcher.setAttribute("aria-label", t("openChat"));
+    var pausedTitle = document.querySelector("#rbai-paused-notice h4");
+    if (pausedTitle) pausedTitle.textContent = t("pausedTitle");
+    var pausedBody = document.querySelector("#rbai-paused-notice p");
+    if (pausedBody) pausedBody.textContent = t("pausedBody");
+    var pausedRetry = document.getElementById("rbai-paused-retry");
+    if (pausedRetry) pausedRetry.textContent = t("tryAgain");
+  }
+
+  // Server endpoints return human English `error` texts (validation,
+  // rate limits, 500s). Those strings are born server-side but become
+  // user-facing only here, so the embed maps every known one to its
+  // localized chrome string and NEVER renders a raw server error: an
+  // unmapped error falls back to the localized generic. (Codes the
+  // embed already special-cases — subscription_paused,
+  // message_limit_reached, HTTP 401/402 — are handled before this.)
+  function localizeServerError(err) {
+    if (!err || typeof err !== "string") return null;
+    if (err.indexOf("Too many") === 0) return t("rateLimited");
+    if (err === "Image too large (max 4 MB)") return t("photoTooLarge");
+    if (err === "Video too large (max 10 MB)") return t("videoTooLarge");
+    if (err === "Audio too large (max 10 MB)") return t("recordingTooLong");
+    if (err === "Message too long") return t("tooLong");
+    if (
+      err === "Failed to process message" ||
+      err === "Failed to process media" ||
+      err === "Failed to process audio"
+    ) return t("processError");
+    if (
+      err === "Message or image is required" ||
+      err === "audio is required" ||
+      err === "Provide exactly one of image or video" ||
+      err === "Only image attachments are supported" ||
+      err === "Only image uploads are supported here" ||
+      err === "Only video uploads are supported here" ||
+      err === "Only audio uploads are supported here" ||
+      err === "Invalid image data" ||
+      err === "Invalid video data" ||
+      err === "Invalid audio data"
+    ) return t("mediaError");
+    return null;
+  }
 
   // Action-specific captions, keyed by the engine's REAL activity kinds
   // (src/lib/ai/activity.ts). A specific caption appears only while the
@@ -193,7 +382,7 @@
     },
   };
   function captionForActivity(a) {
-    var lang = ACTIVITY_CAPTIONS[config.lang] ? config.lang : "en";
+    var lang = ACTIVITY_CAPTIONS[uiLang] ? uiLang : "en";
     if (a && a.kind === "sending_reply" && a.channel) {
       var perChannel = SEND_CHANNEL_CAPTIONS[lang][a.channel];
       if (perChannel) return perChannel;
@@ -205,13 +394,25 @@
   var MAX_IMAGE_BYTES = 4 * 1024 * 1024;
   var MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 
+  // Mascot framing (owner reference 2026-10-22: BUST — head +
+  // shoulders, face centred). Measured on the served assets:
+  // agent-avatar.png is 1024x1024 with the full-body figure occupying
+  // only x 27-73% / y 18-90% (a distant shot), so as a plain cover-fit
+  // still it renders tiny; the fallback <img> is therefore scaled to
+  // 178% and offset (-39%, -14%), which crops the visible square to
+  // x 22-78% / y 8-64% of the artwork — head + shoulders, face centred.
+  // The clips are 480x854 full-scene: in a square slot, cover-fit shows
+  // a 56%-of-height band; the idle figure's head sits at y 19-38%, so
+  // object-position 17% centres that band on the bust; the working
+  // scene's mascot head sits higher (y 8-40%), hence 8%. Launcher
+  // (56px) and header (36px) wrap sizes are unchanged.
   function createStyles() {
     var style = document.createElement("style");
     style.textContent = "\n\
       #rbai-widget-container{position:fixed;bottom:20px;" + config.position + ":20px;z-index:999999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}\n\
       #rbai-widget-btn{width:56px;height:56px;border-radius:50%;background:" + config.color + ";border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .2s}\n\
       #rbai-widget-btn:hover{transform:scale(1.05)}\n\
-      #rbai-widget-btn{overflow:hidden;padding:0}\n\.rbai-avatarwrap{position:relative;display:block;overflow:hidden;background:#fff}\n\#rbai-widget-btn .rbai-avatarwrap{width:56px;height:56px;border-radius:50%}\n\#rbai-widget-header .rbai-avatarwrap{width:36px;height:36px;border-radius:50%;margin-right:10px;flex:none}\n\.rbai-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;pointer-events:none}\n\.rbai-vid.active{display:block}\n\.rbai-avatar-fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}\n\.rbai-avatarwrap.novid .rbai-avatar-fallback{display:block}\n\.rbai-avatarwrap.novid .rbai-vid{display:none!important}\n\#rbai-widget-headwrap{display:flex;align-items:center}\n\
+      #rbai-widget-btn{overflow:hidden;padding:0}\n\.rbai-avatarwrap{position:relative;display:block;overflow:hidden;background:#fff}\n\#rbai-widget-btn .rbai-avatarwrap{width:56px;height:56px;border-radius:50%}\n\#rbai-widget-header .rbai-avatarwrap{width:36px;height:36px;border-radius:50%;margin-right:10px;flex:none}\n\.rbai-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;pointer-events:none}\n\.rbai-vid.active{display:block}\n\.rbai-avatar-fallback{position:absolute;left:-39%;top:-14%;width:178%;height:178%;max-width:none;object-fit:cover;display:none}\n\.rbai-avatarwrap.novid .rbai-avatar-fallback{display:block}\n\.rbai-avatarwrap.novid .rbai-vid{display:none!important}\n\#rbai-widget-headwrap{display:flex;align-items:center}\n\
       #rbai-widget-panel{display:none;width:370px;max-width:calc(100vw - 40px);height:520px;max-height:calc(100vh - 100px);background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.12);margin-bottom:12px;overflow:hidden;flex-direction:column}\n\
       #rbai-widget-panel.open{display:flex}\n\
       #rbai-widget-container.rbai-inline{position:relative;bottom:auto;left:auto;right:auto;z-index:1;width:100%}\n\
@@ -224,7 +425,7 @@
       #rbai-widget-status[hidden]{display:none}\n\
       #rbai-widget-status .rbai-status-dot{width:8px;height:8px;border-radius:50%;background:" + config.color + ";flex:none;animation:rbai-pulse 1.2s infinite}\n\
       .rbai-vid-idle{object-position:50% 17%}\n\
-      .rbai-vid-working{object-position:50% 16%}\n\
+      .rbai-vid-working{object-position:50% 8%}\n\
       #rbai-widget-close{background:none;border:none;color:#fff;cursor:pointer;font-size:20px;padding:0;line-height:1}\n\
       #rbai-widget-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}\n\
       .rbai-msg{max-width:80%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.4;word-wrap:break-word}\n\
@@ -281,16 +482,16 @@
         <div id="rbai-widget-status" hidden><span class="rbai-status-dot"></span><span id="rbai-widget-status-text"></span></div>\
         <div id="rbai-widget-messages"></div>\
         <div id="rbai-widget-input">\
-          <button type="button" class="rbai-iconbtn" id="rbai-widget-photo" title="Send a photo" aria-label="Send a photo">' + SVG_PHOTO + '</button>\
-          <button type="button" class="rbai-iconbtn" id="rbai-widget-video" title="Send a video" aria-label="Send a video">' + SVG_VIDEO + '</button>\
-          <button type="button" class="rbai-iconbtn" id="rbai-widget-mic" title="Send a voice message" aria-label="Send a voice message">' + SVG_MIC + '</button>\
-          <input type="text" placeholder="Type a message..." id="rbai-widget-text" />\
-          <button id="rbai-widget-send">Send</button>\
+          <button type="button" class="rbai-iconbtn" id="rbai-widget-photo" title="' + t("sendPhoto") + '" aria-label="' + t("sendPhoto") + '">' + SVG_PHOTO + '</button>\
+          <button type="button" class="rbai-iconbtn" id="rbai-widget-video" title="' + t("sendVideo") + '" aria-label="' + t("sendVideo") + '">' + SVG_VIDEO + '</button>\
+          <button type="button" class="rbai-iconbtn" id="rbai-widget-mic" title="' + t("sendVoice") + '" aria-label="' + t("sendVoice") + '">' + SVG_MIC + '</button>\
+          <input type="text" placeholder="' + t("typeMessage") + '" id="rbai-widget-text" />\
+          <button id="rbai-widget-send">' + t("send") + '</button>\
         </div>\
         <input type="file" id="rbai-widget-file" accept="image/*" style="display:none" />\
         <input type="file" id="rbai-widget-videofile" accept="video/*" style="display:none" />\
       </div>\
-      <button id="rbai-widget-btn" aria-label="Open chat">\
+      <button id="rbai-widget-btn" aria-label="' + t("openChat") + '">\
         <span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="none" disablepictureinpicture data-src="' + workingVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span>\
       </button>\
     ';
@@ -413,7 +614,7 @@
       // A restored conversation renders its own history via the thread
       // sync; the greeting is only for a brand-new thread.
       if (!conversationId && !document.querySelector(".rbai-msg")) {
-        addMessage(config.greeting, "bot");
+        addMessage(greetingIsDefault ? t("greeting") : config.greeting, "bot");
       }
       startThreadSync();
     } else {
@@ -437,7 +638,7 @@
     msg.className = "rbai-msg user rbai-img-msg";
     var img = document.createElement("img");
     img.src = dataUrl;
-    img.alt = "Sent photo";
+    img.alt = t("sentPhotoAlt");
     msg.appendChild(img);
     messages.appendChild(msg);
     messages.scrollTop = messages.scrollHeight;
@@ -464,17 +665,17 @@
     notice.appendChild(icon);
 
     var title = document.createElement("h4");
-    title.textContent = "Chat paused";
+    title.textContent = t("pausedTitle");
     notice.appendChild(title);
 
     var text = document.createElement("p");
-    text.textContent = "This business's subscription is paused. Please ask them to reactivate to continue chatting.";
+    text.textContent = t("pausedBody");
     notice.appendChild(text);
 
     var retry = document.createElement("button");
     retry.id = "rbai-paused-retry";
     retry.type = "button";
-    retry.textContent = "Try again";
+    retry.textContent = t("tryAgain");
     retry.onclick = clearPausedState;
     notice.appendChild(retry);
 
@@ -511,7 +712,7 @@
       if (p.imageUrl) {
         var img = document.createElement("img");
         img.className = "rbai-card-img";
-        img.alt = p.name || "Product";
+        img.alt = p.name || t("productFallback");
         img.src = p.imageUrl;
         img.onerror = function () { this.style.display = "none"; };
         card.appendChild(img);
@@ -522,7 +723,7 @@
 
       var name = document.createElement("div");
       name.className = "rbai-card-name";
-      name.textContent = p.name || "Product";
+      name.textContent = p.name || t("productFallback");
       body.appendChild(name);
 
       var priceText = formatPrice(p);
@@ -543,7 +744,7 @@
       var btn = document.createElement("button");
       btn.className = "rbai-order-btn";
       btn.type = "button";
-      btn.textContent = "Order";
+      btn.textContent = t("order");
       btn.onclick = (function (productName) {
         return function () { orderProduct(productName); };
       })(p.name || "this item");
@@ -645,6 +846,12 @@
           }
           seenRemoteIds[m.id] = true;
           if (m.role === "customer" && !initial) return;
+          if (m.role !== "customer") {
+            // A restored or human-written thread also speaks the
+            // conversation's language — chrome follows it.
+            var threadLang = detectTextLang(m.content);
+            if (threadLang) setUiLang(threadLang);
+          }
           addMessage(m.content, m.role === "customer" ? "user" : "bot");
         });
       })
@@ -701,7 +908,7 @@
       // Genuine transport failure only (network down / unreadable
       // response). Server-side states are handled below and must never
       // be mislabeled as a connection error.
-      addMessage("Connection problem — please check your internet connection and try again.", "bot");
+      addMessage(t("connError"), "bot");
       return;
     }
     // Subscription hard-stop: dedicated paused state, nothing else.
@@ -710,11 +917,11 @@
       return;
     }
     if (status === 401) {
-      addMessage("This chat is not configured correctly yet. Please contact the business directly.", "bot");
+      addMessage(t("notConfigured"), "bot");
       return;
     }
     if (data.error === "message_limit_reached") {
-      addMessage("This business has reached its AI message limit for now. Please try again later, or contact the business directly.", "bot");
+      addMessage(t("limitReached"), "bot");
       return;
     }
     if (data.conversationId) {
@@ -724,6 +931,10 @@
     // Human takeover: pure silence — render nothing at all.
     if (data.silent) return;
     if (data.response) {
+      // The reply's own language is a conversation-language signal:
+      // chrome follows it (e.g. a voice/photo turn with no typed text).
+      var replyLang = detectTextLang(data.response);
+      if (replyLang) setUiLang(replyLang);
       pendingEcho.push({ role: "assistant", content: data.response });
       // A streamed reply reuses its live bubble: the done payload's
       // response text is authoritative (it can carry suffixes the
@@ -731,9 +942,12 @@
       if (streamBubble) streamBubble.textContent = data.response;
       else addMessage(data.response, "bot");
     } else if (data.error) {
-      addMessage(data.error, "bot");
+      // Never render a raw server error text (they are English-only);
+      // known ones map to their localized chrome string, unknown ones
+      // to the localized generic.
+      addMessage(localizeServerError(data.error) || t("processError"), "bot");
     } else {
-      addMessage("Sorry, I could not process your request.", "bot");
+      addMessage(t("processError"), "bot");
     }
     if (data.products && data.products.length) {
       renderProductCards(data.products);
@@ -749,7 +963,7 @@
     pendingRequests++;
     setAgentState("working");
 
-    var typing = addMessage("Typing...", "bot typing");
+    var typing = addMessage(t("typing"), "bot typing");
 
     var payload = {
       message: text,
@@ -827,7 +1041,7 @@
             // The streamed text preceded tool calls — discard it and
             // show the typing state again while the agent works.
             if (bubble) { bubble.remove(); bubble = null; streamed = ""; }
-            if (!currentTyping) currentTyping = addMessage("Typing...", "bot typing");
+            if (!currentTyping) currentTyping = addMessage(t("typing"), "bot typing");
           } else if (event === "done") {
             doneData = data;
           } else if (event === "error") {
@@ -881,6 +1095,10 @@
     var input = document.getElementById("rbai-widget-text");
     var text = input.value;
     input.value = "";
+    // The visitor's own typed language sets the conversation language
+    // for all chrome from this turn on.
+    var typedLang = detectTextLang(text);
+    if (typedLang) setUiLang(typedLang);
     sendText(text);
   }
 
@@ -888,7 +1106,7 @@
   function uploadPhoto(file) {
     if (!file || isPaused) return;
     if (file.size > MAX_IMAGE_BYTES) {
-      addMessage("That photo is too large (max 4 MB). Please choose a smaller one.", "bot");
+      addMessage(t("photoTooLarge"), "bot");
       return;
     }
     var reader = new FileReader();
@@ -896,13 +1114,13 @@
       var dataUrl = String(reader.result || "");
       var base64 = dataUrl.split(",")[1] || "";
       if (!base64) {
-        addMessage("I couldn't read that photo. Please try another one.", "bot");
+        addMessage(t("photoReadError"), "bot");
         return;
       }
       addImageMessage(dataUrl);
       pendingRequests++;
       setAgentState("working");
-      var typing = addMessage("Looking at your photo...", "bot typing");
+      var typing = addMessage(t("lookingPhoto"), "bot typing");
       postApi("/api/chat/vision", {
         siteKey: config.siteKey,
         visitorId: config.visitorId,
@@ -912,7 +1130,7 @@
       }, typing);
     };
     reader.onerror = function () {
-      addMessage("I couldn't read that photo. Please try another one.", "bot");
+      addMessage(t("photoReadError"), "bot");
     };
     reader.readAsDataURL(file);
   }
@@ -921,7 +1139,7 @@
   function uploadVideo(file) {
     if (!file || isPaused) return;
     if (file.size > MAX_MEDIA_BYTES) {
-      addMessage("That video is too large (max 10 MB). Please choose a shorter one.", "bot");
+      addMessage(t("videoTooLarge"), "bot");
       return;
     }
     var reader = new FileReader();
@@ -929,13 +1147,13 @@
       var dataUrl = String(reader.result || "");
       var base64 = dataUrl.split(",")[1] || "";
       if (!base64) {
-        addMessage("I couldn't read that video. Please try another one.", "bot");
+        addMessage(t("videoReadError"), "bot");
         return;
       }
-      addMessage("Video sent", "user");
+      addMessage(t("videoSent"), "user");
       pendingRequests++;
       setAgentState("working");
-      var typing = addMessage("Watching your video...", "bot typing");
+      var typing = addMessage(t("watchingVideo"), "bot typing");
       postApi("/api/chat/vision", {
         siteKey: config.siteKey,
         visitorId: config.visitorId,
@@ -945,7 +1163,7 @@
       }, typing);
     };
     reader.onerror = function () {
-      addMessage("I couldn't read that video. Please try another one.", "bot");
+      addMessage(t("videoReadError"), "bot");
     };
     reader.readAsDataURL(file);
   }
@@ -972,7 +1190,7 @@
       !navigator.mediaDevices.getUserMedia ||
       typeof MediaRecorder === "undefined"
     ) {
-      addMessage("Voice messages aren't supported in this browser. Please type your message.", "bot");
+      addMessage(t("voiceUnsupported"), "bot");
       return;
     }
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
@@ -981,7 +1199,7 @@
         mediaRecorder = new MediaRecorder(stream);
       } catch (e) {
         stream.getTracks().forEach(function (t) { t.stop(); });
-        addMessage("Voice recording isn't supported in this browser. Please type your message.", "bot");
+        addMessage(t("recordingUnsupported"), "bot");
         return;
       }
       mediaRecorder.ondataavailable = function (e) {
@@ -993,24 +1211,24 @@
         var mimeType = (mediaRecorder && mediaRecorder.mimeType) || "audio/webm";
         var blob = new Blob(audioChunks, { type: mimeType });
         if (!blob.size) {
-          addMessage("That recording was empty. Please try again.", "bot");
+          addMessage(t("recordingEmpty"), "bot");
           return;
         }
         if (blob.size > MAX_MEDIA_BYTES) {
-          addMessage("That recording is too long (max 10 MB). Please try a shorter one.", "bot");
+          addMessage(t("recordingTooLong"), "bot");
           return;
         }
         var reader = new FileReader();
         reader.onload = function () {
           var base64 = String(reader.result || "").split(",")[1] || "";
           if (!base64) {
-            addMessage("I couldn't process that recording. Please try again.", "bot");
+            addMessage(t("recordingProcessError"), "bot");
             return;
           }
-          addMessage("Voice message sent", "user");
+          addMessage(t("voiceSent"), "user");
           pendingRequests++;
           setAgentState("working");
-          var typing = addMessage("Listening...", "bot typing");
+          var typing = addMessage(t("listening"), "bot typing");
           postApi("/api/chat/voice", {
             siteKey: config.siteKey,
             visitorId: config.visitorId,
@@ -1023,8 +1241,21 @@
       };
       mediaRecorder.start();
       setRecordingUI(true);
-    }).catch(function () {
-      addMessage("I couldn't access the microphone. Please check the browser permission and try again.", "bot");
+    }).catch(function (err) {
+      // Split by DOMException name instead of one generic bubble:
+      // NotAllowedError = the visitor (or the browser/OS) denied the
+      // permission — the case behind the owner's screenshot, where
+      // getUserMedia itself was called correctly ({audio:true} on a
+      // secure origin) and the promise rejected. NotFoundError = no
+      // microphone exists; NotReadableError = the device is busy.
+      var errName = (err && err.name) || "";
+      if (errName === "NotFoundError" || errName === "OverconstrainedError") {
+        addMessage(t("micNotFound"), "bot");
+      } else if (errName === "NotReadableError" || errName === "AbortError") {
+        addMessage(t("micBusy"), "bot");
+      } else {
+        addMessage(t("micDenied"), "bot");
+      }
     });
   }
 
@@ -1051,7 +1282,7 @@
     if (panel) panel.classList.add("open");
     ensureWorkingVideo();
     if (!conversationId && !document.querySelector(".rbai-msg")) {
-      addMessage(config.greeting, "bot");
+      addMessage(greetingIsDefault ? t("greeting") : config.greeting, "bot");
     }
     startThreadSync();
   }
