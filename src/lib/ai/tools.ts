@@ -1,5 +1,6 @@
 import { ToolDefinition } from "./types";
 import { prisma, withBusinessId } from "@/lib/prisma";
+import { validateOutboundUrl } from "@/lib/ssrf";
 import nodemailer from "nodemailer";
 
 export const agentTools: ToolDefinition[] = [
@@ -732,6 +733,19 @@ async function triggerWebhook(args: Record<string, unknown>): Promise<string> { 
     return JSON.stringify({
       success: false,
       message: `No active webhook found with name: ${args.webhookName}`,
+    });
+  }
+
+  // SSRF re-validation at fetch time (Round-2 hardening, same pattern as
+  // webhook-delivery.ts): create/update validation alone cannot cover
+  // records written before the validator existed or by other writers, and
+  // this tool is reachable from the chat engine — never fetch an internal
+  // or private target.
+  const urlCheck = await validateOutboundUrl(webhook.url);
+  if (!urlCheck.ok) {
+    return JSON.stringify({
+      success: false,
+      message: `Webhook URL blocked by SSRF validation: ${urlCheck.error}`,
     });
   }
 

@@ -501,7 +501,7 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
             </span>
             <span className="text-xs text-slate-600">by Ride Bangla</span>
           </div>
-          <div className="flex items-center gap-6 text-sm text-slate-700">
+          <div className="flex flex-wrap justify-center items-center gap-x-6 gap-y-2 text-sm text-slate-700">
             <Link href="/signup" className="hover:text-slate-900">Sign up</Link>
             <Link href="/login" className="hover:text-slate-900">Log in</Link>
             <Link href="/contact" className="hover:text-slate-900">Contact</Link>
