@@ -1,6 +1,19 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-22.1 (NEW: every widget chrome string is
+ * CANONICAL EMBED — v2026-10-22.2 (NEW: the mascot still/poster is
+ * now a TRUE BUST ASSET — agent-avatar.png itself is the
+ * head+shoulders crop of the mascot artwork (owner reference
+ * framing: figure x 4.5-94% / y 4-100% of the square), so the
+ * fallback <img> is plain cover again and the v2026-10-22.1 CSS
+ * crop is gone; dual-video state machine hardened — every idle
+ * clip gets an explicit muted play() kick at init (not just the
+ * hidden header one), the active clip is re-kicked after
+ * inline/SPA remounts, on visibility return and on user gestures,
+ * the working clips carry the bust poster so a switch never
+ * flashes a blank circle, repeat "working" calls no longer reset
+ * the working clip, a 90s watchdog force-settles a hung request
+ * back to idle, and video uploads show the working state during
+ * client-side frame extraction too. Prior: v2026-10-22.1 (every widget chrome string is
  * localized EN/BN through one UI_STRINGS table — mic/media/connection/
  * paused/typing strings, input chrome, product-card labels — and the
  * UI language FOLLOWS THE CONVERSATION: it starts from the existing
@@ -11,8 +24,8 @@
  * localized strings in the embed and never rendered raw. Mic failures
  * are split by DOMException name (denied / no device / busy) instead of
  * one generic bubble. Mascot: the still fallback/poster avatar is now
- * bust-framed (head + shoulders, face centred — the served
- * agent-avatar.png is a distant full-body shot) and the working clip's
+ * bust-framed via a CSS crop of the then full-body still —
+ * superseded in v2026-10-22.2 by the true bust asset) and the working clip's
  * object-position is re-centred on the mascot's head; launcher (56px)
  * and header (36px) sizes unchanged). Prior: v2026-10-21.3 (token
  * streaming for text chat — sendText asks the widget endpoint for an
@@ -95,11 +108,21 @@
   // data-greeting is the host's own copy and is always shown verbatim.
   var greetingIsDefault = !script.getAttribute("data-greeting");
 
+  // ---- Agent character assets (ONE place) ----
+  // The agent character is a PLATFORM asset: the bust still (also
+  // the video poster + the no-video fallback), the idle clip and
+  // the working clip resolve from these three constants and
+  // nowhere else in the embed. Central-control hook for the
+  // brand-assets build: when the Super Admin panel gains
+  // brand-asset settings, resolve the three URLs HERE (from the
+  // central settings record, with its version cache-bust) and
+  // every placement in this file follows automatically.
   var avatarUrl = config.server.replace(/\/$/, "") + "/agent-avatar.png";
   var idleVideoUrl = config.server.replace(/\/$/, "") + "/agent-idle.mp4";
   var workingVideoUrl = config.server.replace(/\/$/, "") + "/agent-working.mp4";
   var agentState = "idle";
   var pendingRequests = 0;
+  var workingWatchdog = null;
 
   var isOpen = false;
   var widgetContainer = null;
@@ -395,12 +418,12 @@
   var MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 
   // Mascot framing (owner reference 2026-10-22: BUST — head +
-  // shoulders, face centred). Measured on the served assets:
-  // agent-avatar.png is 1024x1024 with the full-body figure occupying
-  // only x 27-73% / y 18-90% (a distant shot), so as a plain cover-fit
-  // still it renders tiny; the fallback <img> is therefore scaled to
-  // 178% and offset (-39%, -14%), which crops the visible square to
-  // x 22-78% / y 8-64% of the artwork — head + shoulders, face centred.
+  // shoulders, face centred). Since v2026-10-22.2 the ASSET ITSELF
+  // is the bust: agent-avatar.png is the 432x432 crop at (296,186)
+  // of the 1024x1024 mascot artwork, exported at 512x512 — measured
+  // figure bounds x 4.5-94% / y 4-100% of the frame, matching the
+  // owner's reference (x 4.7-94% / y 3.5-100%). The fallback <img>
+  // is therefore plain cover-fit again (no CSS crop anywhere).
   // The clips are 480x854 full-scene: in a square slot, cover-fit shows
   // a 56%-of-height band; the idle figure's head sits at y 19-38%, so
   // object-position 17% centres that band on the bust; the working
@@ -412,7 +435,7 @@
       #rbai-widget-container{position:fixed;bottom:20px;" + config.position + ":20px;z-index:999999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}\n\
       #rbai-widget-btn{width:56px;height:56px;border-radius:50%;background:" + config.color + ";border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .2s}\n\
       #rbai-widget-btn:hover{transform:scale(1.05)}\n\
-      #rbai-widget-btn{overflow:hidden;padding:0}\n\.rbai-avatarwrap{position:relative;display:block;overflow:hidden;background:#fff}\n\#rbai-widget-btn .rbai-avatarwrap{width:56px;height:56px;border-radius:50%}\n\#rbai-widget-header .rbai-avatarwrap{width:36px;height:36px;border-radius:50%;margin-right:10px;flex:none}\n\.rbai-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;pointer-events:none}\n\.rbai-vid.active{display:block}\n\.rbai-avatar-fallback{position:absolute;left:-39%;top:-14%;width:178%;height:178%;max-width:none;object-fit:cover;display:none}\n\.rbai-avatarwrap.novid .rbai-avatar-fallback{display:block}\n\.rbai-avatarwrap.novid .rbai-vid{display:none!important}\n\#rbai-widget-headwrap{display:flex;align-items:center}\n\
+      #rbai-widget-btn{overflow:hidden;padding:0}\n\.rbai-avatarwrap{position:relative;display:block;overflow:hidden;background:#fff}\n\#rbai-widget-btn .rbai-avatarwrap{width:56px;height:56px;border-radius:50%}\n\#rbai-widget-header .rbai-avatarwrap{width:36px;height:36px;border-radius:50%;margin-right:10px;flex:none}\n\.rbai-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;pointer-events:none}\n\.rbai-vid.active{display:block}\n\.rbai-avatar-fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}\n\.rbai-avatarwrap.novid .rbai-avatar-fallback{display:block}\n\.rbai-avatarwrap.novid .rbai-vid{display:none!important}\n\#rbai-widget-headwrap{display:flex;align-items:center}\n\
       #rbai-widget-panel{display:none;width:370px;max-width:calc(100vw - 40px);height:520px;max-height:calc(100vh - 100px);background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.12);margin-bottom:12px;overflow:hidden;flex-direction:column}\n\
       #rbai-widget-panel.open{display:flex}\n\
       #rbai-widget-container.rbai-inline{position:relative;bottom:auto;left:auto;right:auto;z-index:1;width:100%}\n\
@@ -498,13 +521,22 @@
     document.body.appendChild(container);
     wireVideoFallback();
     syncInlineMount();
-    // Static poster (the avatar image) until the idle clip's first frame
-    // paints, and ensure the visible idle video actually plays
-    // (autoplay policies).
+    // The bust still is the poster for BOTH clips: the idle clip
+    // shows it until its first frame paints, and the working clip
+    // (lazy-loaded on first use) shows it instead of a blank
+    // circle while its first frames arrive after a state switch.
+    // EVERY clip also gets the muted PROPERTY set in JS and every
+    // idle clip an explicit play() kick: the launcher clip is the
+    // one visible at rest, and on mobile browsers (iOS especially)
+    // the autoplay attribute alone on an innerHTML-inserted
+    // <video> is not a guarantee.
+    var allVids = container.querySelectorAll(".rbai-vid");
+    for (var p = 0; p < allVids.length; p++) {
+      allVids[p].setAttribute("poster", avatarUrl);
+      try { allVids[p].muted = true; allVids[p].defaultMuted = true; } catch (e) {}
+    }
     var idleVids = container.querySelectorAll(".rbai-vid-idle");
-    for (var p = 0; p < idleVids.length; p++) idleVids[p].setAttribute("poster", avatarUrl);
-    var iv = container.querySelector(".rbai-vid-idle");
-    if (iv) iv.play().catch(function () {});
+    for (var q = 0; q < idleVids.length; q++) safePlay(idleVids[q]);
 
     var launcherBtn = document.getElementById("rbai-widget-btn");
     if (launcherBtn) launcherBtn.onclick = toggleWidget;
@@ -542,6 +574,52 @@
   // every site's initial load ecosystem-wide). Its <video> elements
   // carry data-src only; the real src is attached on first panel open
   // or first send — whichever comes first — and kept afterwards.
+  // play()/pause() that tolerate browsers whose play() returns
+  // undefined (older Safari): calling .catch on undefined inside
+  // the settle path could throw and swallow the reply render.
+  function safePlay(v) {
+    if (!v) return;
+    try { v.muted = true; } catch (e) {}
+    try { var p = v.play(); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+  }
+  function safePause(v) {
+    if (!v) return;
+    try { v.pause(); } catch (e) {}
+  }
+
+  // Re-kick whichever clip is currently active in every wrap.
+  // Needed after DOM (re)mounts (inline/SPA moves can pause a
+  // media element), when the tab becomes visible again, and after
+  // user gestures on browsers that blocked the first autoplay.
+  function kickActiveVideos() {
+    var act = document.querySelectorAll(".rbai-vid.active");
+    for (var i = 0; i < act.length; i++) {
+      if (act[i].paused) safePlay(act[i]);
+    }
+  }
+
+  // Working-state watchdog: a request whose transport hangs
+  // forever (half-open SSE/fetch on mobile) must not pin the
+  // agent in the working state until reload. If the state is
+  // still "working" 90s after it was entered, force-settle to
+  // idle; a reply that arrives later still renders through the
+  // normal response handler (its settle is a no-op against the
+  // zeroed counter, guarded by Math.max in settleRequest).
+  function armWorkingWatchdog() {
+    if (workingWatchdog) return;
+    workingWatchdog = setTimeout(function () {
+      workingWatchdog = null;
+      if (agentState === "working") {
+        pendingRequests = 0;
+        setAgentState("idle");
+        stopActivityPolling();
+      }
+    }, 90000);
+  }
+  function clearWorkingWatchdog() {
+    if (workingWatchdog) { clearTimeout(workingWatchdog); workingWatchdog = null; }
+  }
+
   function ensureWorkingVideo() {
     var workings = document.querySelectorAll(".rbai-vid-working");
     for (var i = 0; i < workings.length; i++) {
@@ -571,19 +649,23 @@
   function setAgentState(s) {
     var showWorking = s === "working";
     if (showWorking) ensureWorkingVideo();
-    if (agentState === s && !showWorking) { renderStatus(); return; }
+    // Repeat calls in the same state (a second concurrent request,
+    // an extra settle) only refresh the caption — they must not
+    // restart the working clip at 0 or re-pause/re-play the clips.
+    if (agentState === s) { renderStatus(); return; }
     agentState = s;
+    if (showWorking) armWorkingWatchdog(); else clearWorkingWatchdog();
     var idles = document.querySelectorAll(".rbai-vid-idle");
     var workings = document.querySelectorAll(".rbai-vid-working");
     for (var i = 0; i < idles.length; i++) {
       idles[i].classList.toggle("active", !showWorking);
-      if (showWorking) { idles[i].pause(); }
-      else { idles[i].play().catch(function () {}); }
+      if (showWorking) { safePause(idles[i]); }
+      else { safePlay(idles[i]); }
     }
     for (var j = 0; j < workings.length; j++) {
       workings[j].classList.toggle("active", showWorking);
-      if (showWorking) { try { workings[j].currentTime = 0; } catch (e) {} workings[j].play().catch(function () {}); }
-      else { workings[j].pause(); }
+      if (showWorking) { try { workings[j].currentTime = 0; } catch (e) {} safePlay(workings[j]); }
+      else { safePause(workings[j]); }
     }
     renderStatus();
   }
@@ -595,13 +677,17 @@
         var wrap = this.closest(".rbai-avatarwrap");
         if (wrap) wrap.classList.add("novid");
       });
-      // If autoplay was blocked, retry on first user interaction.
-      vids[i].addEventListener("play", function () {}, false);
     }
-    document.addEventListener("click", function once() {
-      var act = document.querySelector(".rbai-vid.active");
-      if (act && act.paused) act.play().catch(function () {});
-    }, { once: true });
+    // If autoplay was blocked, retry the active clip on user
+    // interaction — every wrap's clip, not just the first, and
+    // not just once.
+    document.addEventListener("click", kickActiveVideos);
+    document.addEventListener("pointerdown", kickActiveVideos);
+    // Browsers pause backgrounded clips; resume the active one
+    // when the tab becomes visible again.
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) kickActiveVideos();
+    });
   }
 
   function toggleWidget() {
@@ -611,6 +697,7 @@
     // First open: lazily fetch the working clip (never on host-page load).
     if (isOpen) ensureWorkingVideo();
     if (isOpen) {
+      kickActiveVideos();
       // A restored conversation renders its own history via the thread
       // sync; the greeting is only for a brand-new thread.
       if (!conversationId && !document.querySelector(".rbai-msg")) {
@@ -1136,8 +1223,8 @@
   }
 
   // ---- Video upload -> /api/chat/vision ----
-  // Media fix 2026-10-22 (rides the next embed version bump; the
-  // version string is unchanged): the server has no ffmpeg
+  // Media fix 2026-10-22 (shipped with embed v2026-10-22.2):
+  // the server has no ffmpeg
   // (serverless), so a raw video upload can never be perceived
   // there. The browser CAN decode the file it was handed — capture
   // frames at ~10%/50%/90% as JPEGs and post them as `frames`; the
@@ -1150,11 +1237,16 @@
       addMessage(t("videoTooLarge"), "bot");
       return;
     }
+    // The turn counts as working from NOW: frame extraction is
+    // local decode time (up to the 15s extraction timeout) and
+    // the visitor must see the working clip + caption for it, not
+    // the idle clip. Both branches below settle this one pending
+    // request (postApi on success, settleRequest on read errors).
+    pendingRequests++;
+    setAgentState("working");
     extractVideoFrames(file, function (frames) {
       if (frames && frames.length) {
         addMessage(t("videoSent"), "user");
-        pendingRequests++;
-        setAgentState("working");
         var typing = addMessage(t("watchingVideo"), "bot typing");
         postApi("/api/chat/vision", {
           siteKey: config.siteKey,
@@ -1223,12 +1315,11 @@
       var dataUrl = String(reader.result || "");
       var base64 = dataUrl.split(",")[1] || "";
       if (!base64) {
+        settleRequest(null);
         addMessage(t("videoReadError"), "bot");
         return;
       }
       addMessage(t("videoSent"), "user");
-      pendingRequests++;
-      setAgentState("working");
       var typing = addMessage(t("watchingVideo"), "bot typing");
       postApi("/api/chat/vision", {
         siteKey: config.siteKey,
@@ -1239,6 +1330,9 @@
       }, typing);
     };
     reader.onerror = function () {
+      // uploadVideo already counted this turn as pending; settle
+      // it here or the agent would stay in the working state.
+      settleRequest(null);
       addMessage(t("videoReadError"), "bot");
     };
     reader.readAsDataURL(file);
@@ -1357,6 +1451,10 @@
     isOpen = true;
     if (panel) panel.classList.add("open");
     ensureWorkingVideo();
+    // The container was just (re)moved into the inline mount —
+    // DOM moves can pause a media element, so re-kick the active
+    // clip in its new home.
+    kickActiveVideos();
     if (!conversationId && !document.querySelector(".rbai-msg")) {
       addMessage(greetingIsDefault ? t("greeting") : config.greeting, "bot");
     }
