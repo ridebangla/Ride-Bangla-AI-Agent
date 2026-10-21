@@ -81,6 +81,19 @@ function toProductCard(p: CatalogProduct): ProductCard {
   };
 }
 
+/**
+ * Attack-test 2026-10-21 (finding F-4): values interpolated into the
+ * system prompt that a CUSTOMER can influence (their channel display
+ * name is fully self-chosen on WhatsApp/Messenger) must stay on ONE
+ * line — a name containing newlines + "## …" otherwise lands in the
+ * system role as a fake prompt section. Collapse all whitespace runs
+ * (incl. newlines) and cap the length; the name remains readable, it
+ * just can no longer break the prompt's structure.
+ */
+export function sanitizePromptLine(value: string | null | undefined): string {
+  return (value || "").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
 export function buildSystemPrompt(
   context: ConversationContext,
   extras?: { intentGuidance?: string; catalogBrief?: string }
@@ -130,7 +143,7 @@ ${knowledgeSection}
 - Never make up information that isn't in your knowledge base
 - Keep responses concise but thorough
 - The customer is contacting via: ${context.channel}
-${context.customerName !== "Unknown" ? `- Customer name: ${context.customerName}` : ""}
+${sanitizePromptLine(context.customerName) !== "Unknown" && sanitizePromptLine(context.customerName) ? `- Customer name: ${sanitizePromptLine(context.customerName)}` : ""}
 
 ## Customer History
 ${context.customerHistory.length > 0 ? context.customerHistory.join("\n") : "This is the customer's first interaction."}

@@ -296,7 +296,7 @@ export async function executeToolCall(
     case "send_internal_email":
       return await sendInternalEmail(args);
     case "get_customer_history":
-      return await getCustomerHistory(args);
+      return await getCustomerHistory(args, conversationId);
     case "schedule_followup":
       return await scheduleFollowup(args, conversationId);
     case "take_order":
@@ -386,6 +386,26 @@ async function sendInternalEmail(
     });
   }
 
+  // Attack-test 2026-10-21 (finding F-7): "internal" email must only
+  // ever reach the business's OWN team. The recipient used to be taken
+  // verbatim from the model call, so a prompt-injected model could use
+  // the business's SMTP as a relay to any external address. The
+  // recipient must match a team member's recorded email.
+  const to = String(args.to ?? "").trim();
+  const member = to
+    ? await prisma.teamMember
+        .findFirst({
+          where: { email: { equals: to, mode: "insensitive" } },
+        })
+        .catch(() => null)
+    : null;
+  if (!member) {
+    return JSON.stringify({
+      success: false,
+      message: "Recipient is not a member of this business's team.",
+    });
+  }
+
   const transporter = nodemailer.createTransport({
     host: settings.smtpHost,
     port: settings.smtpPort,
@@ -410,12 +430,36 @@ async function sendInternalEmail(
 }
 
 async function getCustomerHistory(
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  conversationId?: string
 ): Promise<string> {
+  // Attack-test 2026-10-21 (finding F-5): the lookup identity comes
+  // from the conversation the customer is actually in — NEVER from
+  // the model-supplied arguments. Those args are customer-influenced
+  // (a prompt-injected model could name any other customer's phone,
+  // email or id and receive their conversation history). The args are
+  // accepted for tool-schema compatibility and deliberately ignored.
+  void args;
+  if (!conversationId) {
+    return JSON.stringify({
+      success: false,
+      message: "A conversation context is required to read customer history.",
+    });
+  }
+  const current = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+  });
+  if (!current) {
+    return JSON.stringify({
+      success: false,
+      message: "Conversation not found.",
+    });
+  }
+  const conv = current as { customerId?: string | null; customerContact?: string | null };
   // Cross-channel lookup: prefer customerId for unified history
-  const where = args.customerId
-    ? { customerId: args.customerId as string }
-    : { customerContact: args.customerContact as string };
+  const where = conv.customerId
+    ? { customerId: conv.customerId }
+    : { customerContact: conv.customerContact as string };
 
   const conversations = await prisma.conversation.findMany({
     where,
@@ -467,7 +511,14 @@ async function scheduleFollowup(
   if (!message) {
     return JSON.stringify({ success: false, message: "message is required." });
   }
-  const convId = (args.conversationId as string) || conversationId;
+  // Attack-test 2026-10-21 (finding F-6): the follow-up target is the
+  // conversation the customer is actually in. A model-supplied
+  // conversationId used to WIN over the real context, so an injected
+  // model could schedule arbitrary text onto ANOTHER customer's
+  // conversation — and the follow-up processor would then deliver it
+  // to that customer through the business's own channel. The context
+  // id always wins; the arg is only a fallback for context-free calls.
+  const convId = conversationId || (args.conversationId as string);
   if (!convId) {
     return JSON.stringify({ success: false, message: "conversationId is required." });
   }

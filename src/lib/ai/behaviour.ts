@@ -197,9 +197,72 @@ export function detectPositiveClosing(text: string): boolean {
   return POSITIVE_CLOSING_PATTERNS.some((p) => lower.includes(p));
 }
 
+/** Strong negative / unresolved markers that mark a turn negative on
+ *  their own, however the message is padded. The guardrails sentiment
+ *  scorer is a keyword COUNTER: enough praise words ("thank you, great,
+ *  excellent, love it…") arithmetically cancel genuine anger, and it
+ *  has no Bengali vocabulary at all — so a praise-padded complaint, or
+ *  any unhappy Bengali message that politely opens with thanks, scored
+ *  "positive"/"neutral" and the review ask fired on exactly the
+ *  interactions the owner banned it from (attack-test 2026-10-21,
+ *  findings F-1/F-2). These substrings are unambiguous: a genuinely
+ *  happy closing never contains them. */
+const STRONG_NEGATIVE_PATTERNS: readonly string[] = [
+  // English — strong negative words (single occurrence is decisive)
+  "terrible",
+  "worst",
+  "awful",
+  "horrible",
+  "disgusting",
+  "unacceptable",
+  "furious",
+  "angry",
+  "frustrated",
+  "annoyed",
+  "disappointed",
+  "not happy",
+  "not satisfied",
+  // English — explicit "still unresolved" statements
+  "not fixed",
+  "nothing is fixed",
+  "not been fixed",
+  "not resolved",
+  "not solved",
+  "unresolved",
+  "still broken",
+  "still not working",
+  "still there",
+  "nobody has resolved",
+  "no one has resolved",
+  "problem is still",
+  "issue is still",
+  // Bengali (script + common romanised forms) — the sentiment scorer
+  // has no Bengali patterns, so without these every unhappy Bengali
+  // message read as neutral.
+  "হতাশ",
+  "অসন্তুষ্ট",
+  "সন্তুষ্ট না",
+  "খুব খারাপ",
+  "খুব বাজে",
+  "বাজে সেবা",
+  "সেবা খারাপ",
+  "সমাধান হয়নি",
+  "সমাধান পাইনি",
+  "এখনো পাইনি",
+  "মোটেও ভালো না",
+  "ভালো না",
+  "বিরক্ত",
+  "khub kharap",
+  "bhalo na",
+  "valo na",
+];
+
 /** A turn is "negative" when the customer's latest message reads angry /
- *  frustrated (guardrails sentiment) — an ask must never follow it. */
+ *  frustrated (guardrails sentiment) OR carries a strong negative /
+ *  unresolved marker — an ask must never follow it. */
 export function isNegativeMessage(text: string): boolean {
+  const lower = (text || "").toLowerCase();
+  if (STRONG_NEGATIVE_PATTERNS.some((p) => lower.includes(p))) return true;
   const { sentiment } = analyzeSentiment(text || "");
   return sentiment === "negative" || sentiment === "frustrated";
 }
@@ -289,13 +352,33 @@ export function reviewAskText(
  *  when the conversation is linked to one, else the conversation's
  *  contact (phone / email / channel handle). Scoped to the business by
  *  the tenant data layer — this key never crosses tenants. */
+/** Canonicalise a contact for cap keying (attack-test 2026-10-21,
+ *  finding F-3): the previous key was the raw contact lowercased, so
+ *  the SAME phone written "+8801712345678", "01712345678" or
+ *  "+880 1712-345678" produced three different keys and the 30-day
+ *  cap reset on a reformat. Phone-shaped contacts collapse to digits
+ *  with the Bangladeshi local trunk form (01…) normalised to the
+ *  international form (8801…) that channel handlers record; anything
+ *  else (emails, channel handles, visitor ids) is trimmed/lowercased
+ *  as before. */
+export function normalizeContactKey(raw: string): string {
+  const t = (raw || "").trim().toLowerCase();
+  if (/^\+?[\d\s\-()]+$/.test(t)) {
+    const digits = t.replace(/\D/g, "");
+    if (digits.length === 11 && digits.startsWith("01")) {
+      return `880${digits.slice(1)}`;
+    }
+    if (digits.length >= 7) return digits;
+  }
+  return t;
+}
+
 export function customerKeyFor(conversation: {
   customerId?: string | null;
   customerContact?: string | null;
 }): string {
   if (conversation.customerId) return `cust:${conversation.customerId}`;
-  const contact = (conversation.customerContact || "").trim().toLowerCase();
-  return `contact:${contact}`;
+  return `contact:${normalizeContactKey(conversation.customerContact || "")}`;
 }
 
 /**

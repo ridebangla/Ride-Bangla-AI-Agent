@@ -136,6 +136,13 @@ describe("AI Tools", () => {
         smtpPass: "pass",
         smtpFrom: "support@test.com",
       });
+      // Attack-test 2026-10-21 (F-7): internal email may only go to a
+      // recorded team member — register the recipient in the directory.
+      mockPrisma.teamMember.findFirst.mockResolvedValue({
+        id: "tm-1",
+        name: "Team Member",
+        email: "team@test.com",
+      });
 
       const result = JSON.parse(
         await executeToolCall("send_internal_email", {
@@ -179,10 +186,22 @@ describe("AI Tools", () => {
         },
       ]);
 
+      // Attack-test 2026-10-21 (F-5): history is read for the customer
+      // of the conversation the call runs in — mock that conversation.
+      mockPrisma.conversation.findUnique.mockResolvedValue({
+        id: "conv-1",
+        customerId: null,
+        customerContact: "+1555",
+      });
+
       const result = JSON.parse(
-        await executeToolCall("get_customer_history", {
-          customerContact: "+1555",
-        })
+        await executeToolCall(
+          "get_customer_history",
+          {
+            customerContact: "+1555",
+          },
+          "conv-1"
+        )
       );
 
       expect(result.success).toBe(true);
@@ -192,11 +211,20 @@ describe("AI Tools", () => {
 
     it("should return empty history for new customer", async () => {
       mockPrisma.conversation.findMany.mockResolvedValue([]);
+      mockPrisma.conversation.findUnique.mockResolvedValue({
+        id: "conv-9",
+        customerId: null,
+        customerContact: "+9999",
+      });
 
       const result = JSON.parse(
-        await executeToolCall("get_customer_history", {
-          customerContact: "+9999",
-        })
+        await executeToolCall(
+          "get_customer_history",
+          {
+            customerContact: "+9999",
+          },
+          "conv-9"
+        )
       );
 
       expect(result.success).toBe(true);
