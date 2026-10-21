@@ -29,7 +29,11 @@ vi.mock("@/lib/admin-db", () => ({
   __resetAdminDbForTests: () => {},
 }));
 
-import { isSubscriptionActive } from "@/lib/subscription";
+import {
+  isSubscriptionActive,
+  isInActiveTrial,
+  isFreeTierBusiness,
+} from "@/lib/subscription";
 import {
   decideAutoNotice,
   shouldSendAutoNotice,
@@ -106,7 +110,7 @@ describe("console writes vs the platform gate", () => {
     expect(isSubscriptionActive(fixed)).toBe(true);
   });
 
-  it("reactivate OLD payload (status only) left the tenant inactive", () => {
+  it("reactivate OLD payload (status only) does NOT restore the trial — the tenant lands on the free tier (owner rule 2026-10-22)", () => {
     const suspended = {
       plan: "trial",
       subscriptionStatus: "suspended",
@@ -117,7 +121,12 @@ describe("console writes vs the platform gate", () => {
       subscriptionStatus: "trialing",
       previousSubscriptionStatus: null,
     });
-    expect(isSubscriptionActive(old)).toBe(false);
+    // The old defect is still pinned: the trial itself is NOT revived
+    // (no fresh trial window). What changed is the floor beneath it —
+    // a lapsed trial now resolves to the free tier instead of nothing.
+    expect(isInActiveTrial(old)).toBe(false);
+    expect(isFreeTierBusiness(old)).toBe(true);
+    expect(isSubscriptionActive(old)).toBe(true);
   });
 
   it("reactivate also lifts the isActive kill-switch", () => {
@@ -177,12 +186,13 @@ describe("automatic notification decisions", () => {
     ).toBeNull();
   });
 
-  it("lapsed trial: trial_ended", () => {
-    const d = decideAutoNotice(
-      fields({ subscriptionStatus: "trialing", trialEndsAt: past(1) }),
-      NOW
-    );
-    expect(d?.kind).toBe("trial_ended");
+  it("lapsed trial: NO trial_ended notice — the account continues on the free tier, its agent is not paused (owner rule 2026-10-22)", () => {
+    expect(
+      decideAutoNotice(
+        fields({ subscriptionStatus: "trialing", trialEndsAt: past(1) }),
+        NOW
+      )
+    ).toBeNull();
   });
 
   it("expired / past_due / suspended / period-lapsed: subscription_inactive", () => {

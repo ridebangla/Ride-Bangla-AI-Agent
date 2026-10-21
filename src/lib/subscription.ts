@@ -3,16 +3,24 @@
  *
  * Business rule (user decision 16, business-critical): the first month is
  * free — a 30-day trial (TRIAL_DAYS in ./plans; user decision 2026-10-20,
- * superseding the 2026-10-19 7-day rule). After the trial ends, payment is MANDATORY — the AI must hard-stop
- * replying for that business until they pay ("নয়তো আমরা চলতে পারব না").
+ * superseding the 2026-10-19 7-day rule).
+ *
+ * THREE-STATE MODEL (owner rule 2026-10-22, superseding the post-trial
+ * hard-stop for trial-origin accounts): while a trial is ACTIVE no
+ * usage quota applies (only the time-box); when a trial LAPSES the
+ * account lands on the permanent FREE tier (usable, capped at
+ * FREE_MESSAGES_PER_MONTH by billing-usage) instead of a hard stop.
+ * Paid plans are untouched, and past_due / canceled / suspended /
+ * lapsed-PAID states still hard-stop exactly as before.
  *
  * Active = Super Admin (businessId null, always) OR
  *          isInternalAccount == true (the company's OWN account — owner
  *          rule 2026-10-21: free forever, no plan, no trial expiry) OR
  *          manualActiveOverride == true (admin kept tenant active w/o payment) OR
  *          subscriptionStatus == 'active' OR
- *          (subscriptionStatus == 'trialing' AND trialEndsAt > now).
- * Everything else (past_due / canceled / expired / missing fields) = inactive.
+ *          (subscriptionStatus == 'trialing' AND trialEndsAt > now) OR
+ *          isFreeTierBusiness (a lapsed trial on the free tier).
+ * Everything else (past_due / canceled / missing fields) = inactive.
  *
  * ---------------------------------------------------------------------------
  * ENFORCEMENT MAP — where the checks must live:
@@ -60,8 +68,8 @@ import type { Business } from "@/lib/models";
 
 // Trial length lives in ./plans (client-safe) so marketing pages can
 // render it too; re-exported here so existing server importers keep working.
-import { TRIAL_DAYS } from "./plans";
-export { TRIAL_DAYS };
+import { TRIAL_DAYS, isFreeTierBusiness, isInActiveTrial } from "./plans";
+export { TRIAL_DAYS, isFreeTierBusiness, isInActiveTrial };
 export const TRIAL_MS = TRIAL_DAYS * 24 * 60 * 60 * 1000;
 
 export type SubscriptionStatus =
@@ -77,9 +85,9 @@ export type SubscriptionStatus =
 export interface SubscriptionInfo {
   /** null = Super Admin (no business row needed, always active). */
   businessId: string | null;
-  /** 'trial' | 'starter' | 'growth' | 'pro' | 'super_admin' | 'unknown' | 'internal' */
+  /** 'trial' | 'free' | 'starter' | 'growth' | 'pro' | 'super_admin' | 'unknown' | 'internal' */
   plan: string;
-  subscriptionStatus: SubscriptionStatus | "super_admin" | "unknown";
+  subscriptionStatus: SubscriptionStatus | "super_admin" | "unknown" | "free";
   trialEndsAt: Date | null;
   /** Whole days of trial left (0 when not trialing). */
   trialDaysRemaining: number;
@@ -93,6 +101,12 @@ export interface SubscriptionInfo {
    * server-side / by the Admin Console Super Admin, audit-logged).
    */
   isInternal: boolean;
+  /**
+   * Free tier (owner rule 2026-10-22): true when this business's trial
+   * has lapsed and it resolves to the permanent free tier (plan 'free',
+   * capped by billing-usage at FREE_MESSAGES_PER_MONTH).
+   */
+  isFreeTier: boolean;
 }
 
 function toDate(value: unknown): Date | null {
@@ -137,8 +151,16 @@ export function isSubscriptionActive(biz: Business | null): boolean {
 
   if (status === "trialing") {
     const ends = toDate(biz.trialEndsAt);
-    return ends !== null && ends.getTime() > Date.now();
+    if (ends !== null && ends.getTime() > Date.now()) return true;
+    // Lapsed trial → falls through to the free-tier check below.
   }
+
+  // Free tier (owner rule 2026-10-22): a lapsed TRIAL resolves to the
+  // permanent free tier — usable but capped (billing-usage enforces
+  // the cap), not hard-stopped. The isActive kill-switch above still
+  // blocks completely, and isFreeTierBusiness itself never matches
+  // suspended / canceled / past_due or a lapsed paid plan.
+  if (isFreeTierBusiness(biz)) return true;
 
   // past_due / canceled / expired / missing status → inactive (fail-closed).
   return false;
@@ -162,6 +184,7 @@ export async function getSubscription(
       isActive: true,
       billingInterval: null,
       isInternal: false,
+      isFreeTier: false,
     };
   }
 
@@ -180,6 +203,7 @@ export async function getSubscription(
       isActive: false,
       billingInterval: null,
       isInternal: false,
+      isFreeTier: false,
     };
   }
 
@@ -196,10 +220,28 @@ export async function getSubscription(
       isActive: isSubscriptionActive(biz),
       billingInterval: null,
       isInternal: true,
+      isFreeTier: false,
     };
   }
 
   const trialEndsAt = toDate(biz.trialEndsAt);
+
+  // Free tier (owner rule 2026-10-22): a lapsed trial reports plan
+  // 'free' truthfully — never "Trial" (it is over) and never a paid
+  // plan it did not buy. The usage cap lives in billing-usage.
+  if (isFreeTierBusiness(biz)) {
+    return {
+      businessId,
+      plan: "free",
+      subscriptionStatus: "free",
+      trialEndsAt,
+      trialDaysRemaining: 0,
+      isActive: isSubscriptionActive(biz),
+      billingInterval: null,
+      isInternal: false,
+      isFreeTier: true,
+    };
+  }
   const status =
     typeof biz.subscriptionStatus === "string" ? biz.subscriptionStatus : "";
   const trialDaysRemaining =
@@ -224,6 +266,7 @@ export async function getSubscription(
     isActive: isSubscriptionActive(biz),
     billingInterval,
     isInternal: false,
+    isFreeTier: false,
   };
 }
 

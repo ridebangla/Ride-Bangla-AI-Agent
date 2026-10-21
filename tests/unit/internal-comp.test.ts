@@ -14,7 +14,7 @@
  *      nothing.
  */
 import { describe, it, expect } from "vitest";
-import { isSubscriptionActive } from "@/lib/subscription";
+import { isSubscriptionActive, isFreeTierBusiness } from "@/lib/subscription";
 import {
   isMessageLimitExceeded,
   buildCountdown,
@@ -55,13 +55,14 @@ describe("internal owner comp — subscription gate", () => {
     expect(isSubscriptionActive(b)).toBe(true);
   });
 
-  it("(b) normal business with an expired trial is INACTIVE", () => {
+  it("(b) normal business with an expired trial lands on the FREE tier, not internal (owner rule 2026-10-22 — supersedes the old hard-inactive expectation)", () => {
     const b = biz({
       plan: "trial",
       subscriptionStatus: "trialing",
       trialEndsAt: PAST,
     });
-    expect(isSubscriptionActive(b)).toBe(false);
+    expect(isSubscriptionActive(b)).toBe(true);
+    expect(isFreeTierBusiness(b)).toBe(true);
   });
 
   it("(b) normal active-plan business past subscriptionEndsAt is INACTIVE", () => {
@@ -73,14 +74,36 @@ describe("internal owner comp — subscription gate", () => {
     expect(isSubscriptionActive(b)).toBe(false);
   });
 
-  it("(c) SPOOF: string 'true' does not comp the account", () => {
+  it("(c) SPOOF: string 'true' does not comp the account (free tier only — still capped, never internal)", () => {
     const b = biz({
       plan: "trial",
       subscriptionStatus: "trialing",
       trialEndsAt: PAST,
       isInternalAccount: "true",
     });
-    expect(isSubscriptionActive(b)).toBe(false);
+    // The lookalike flag grants nothing beyond what ANY lapsed trial
+    // gets: the free tier. At 999,999 messages it is still capped, and
+    // its countdown reports 'free', never 'internal'.
+    expect(
+      isMessageLimitExceeded({
+        plan: "trial",
+        subscriptionStatus: "trialing",
+        trialEndsAt: PAST,
+        aiMessagesUsed: 999999,
+        usagePeriodStart: PERIOD_START,
+        isInternalAccount: "true",
+      })
+    ).toBe(true);
+    expect(
+      buildCountdown({
+        plan: "trial",
+        subscriptionStatus: "trialing",
+        trialEndsAt: PAST,
+        aiMessagesUsed: 0,
+        usagePeriodStart: PERIOD_START,
+        isInternalAccount: "true",
+      }).plan
+    ).toBe("free");
   });
 
   it("(c) SPOOF: truthy number 1 does not comp the account", () => {
@@ -142,7 +165,7 @@ describe("internal owner comp — billing countdown (dashboard truthfulness)", (
     expect(cd.notices).toEqual([]);
   });
 
-  it("(b) normal expiring trial still produces day + usage notices", () => {
+  it("(b) normal expiring trial still produces day notices (usage notices no longer apply mid-trial — owner rule 2026-10-22)", () => {
     const soon = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
     const cd = buildCountdown({
       plan: "trial",
@@ -154,5 +177,7 @@ describe("internal owner comp — billing countdown (dashboard truthfulness)", (
     expect(cd.plan).toBe("trial");
     expect(cd.daysRemaining).toBe(2);
     expect(cd.notices.length).toBeGreaterThan(0);
+    expect(cd.notices.every((n) => n.type === "days")).toBe(true);
+    expect(cd.messagesLimit).toBeNull();
   });
 });

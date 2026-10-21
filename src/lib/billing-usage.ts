@@ -14,7 +14,14 @@
  */
 
 import { getUnscopedPrisma } from "./prisma";
-import { PLAN_META, isPaidPlanId, type PaidPlanId } from "./plans";
+import {
+  PLAN_META,
+  isPaidPlanId,
+  FREE_MESSAGES_PER_MONTH,
+  isFreeTierBusiness,
+  isInActiveTrial,
+  type PaidPlanId,
+} from "./plans";
 import { getPlanCatalog, type EffectivePlan } from "./plan-catalog";
 import { logger } from "./logger";
 
@@ -150,6 +157,17 @@ export function isMessageLimitExceeded(
   // Internal owner account (owner rule 2026-10-21): usage is recorded
   // by recordAiMessage but NEVER blocks — no plan limit applies.
   if (biz.isInternalAccount === true) return false;
+  // Active trial (owner rule 2026-10-22): while the trial runs, NO
+  // usage quota bites — the starter allowance no longer applies
+  // mid-trial; only the trial's own time-box ends the free run.
+  // Checked before any limit, including a panel-catalog limitOverride.
+  if (isInActiveTrial(biz, nowMs)) return false;
+  // Free tier (owner rule 2026-10-22): a lapsed trial is capped at
+  // FREE_MESSAGES_PER_MONTH per usage period, whatever the catalog or
+  // the stale 'trial' plan field would otherwise resolve to.
+  if (isFreeTierBusiness(biz, nowMs)) {
+    return effectiveAiMessagesUsed(biz, nowMs) >= FREE_MESSAGES_PER_MONTH;
+  }
   const plan = typeof biz.plan === "string" && biz.plan ? biz.plan : "unknown";
   const limit =
     limitOverride !== undefined
@@ -176,6 +194,8 @@ export async function checkMessageLimitExceeded(
       where: { id: businessId },
       select: {
         plan: true,
+        subscriptionStatus: true,
+        trialEndsAt: true,
         aiMessagesUsed: true,
         usagePeriodStart: true,
         isInternalAccount: true,
@@ -268,17 +288,27 @@ export function buildCountdown(
   const status = typeof biz.subscriptionStatus === "string" ? biz.subscriptionStatus : "";
   const plan = typeof biz.plan === "string" && biz.plan ? biz.plan : "unknown";
 
+  // Three-state model (owner rule 2026-10-22): an ACTIVE trial has no
+  // usage limit to count down (only its end date); the FREE tier has a
+  // hard FREE_MESSAGES_PER_MONTH cap and no end date at all.
+  const inTrial = isInActiveTrial(biz, nowMs);
+  const freeTier = !inTrial && isFreeTierBusiness(biz, nowMs);
+
   let endDate: Date | null = null;
-  if (status === "active") endDate = toDate(biz.subscriptionEndsAt);
+  if (freeTier) endDate = null;
+  else if (status === "active") endDate = toDate(biz.subscriptionEndsAt);
   else if (status === "trialing") endDate = toDate(biz.trialEndsAt);
   const daysRemaining = endDate
     ? Math.ceil((endDate.getTime() - nowMs) / (24 * 60 * 60 * 1000))
     : null;
 
-  const limit =
-    limitOverride !== undefined
-      ? limitOverride
-      : messagesLimitForPlan(plan === "trial" ? "trial" : plan);
+  const limit = freeTier
+    ? FREE_MESSAGES_PER_MONTH
+    : inTrial
+      ? null
+      : limitOverride !== undefined
+        ? limitOverride
+        : messagesLimitForPlan(plan === "trial" ? "trial" : plan);
   const used =
     typeof biz.aiMessagesUsed === "number" && biz.aiMessagesUsed >= 0
       ? Math.trunc(biz.aiMessagesUsed)
@@ -309,14 +339,14 @@ export function buildCountdown(
   }
 
   return {
-    plan,
+    plan: freeTier ? "free" : plan,
     daysRemaining,
     messagesRemaining,
     messagesLimit: limit,
     percentUsed,
     notices,
     adminNotice,
-    subscriptionEndsAt: toDate(biz.subscriptionEndsAt),
+    subscriptionEndsAt: freeTier ? null : toDate(biz.subscriptionEndsAt),
   };
 }
 

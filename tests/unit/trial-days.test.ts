@@ -8,7 +8,12 @@
  */
 import { describe, it, expect } from "vitest";
 import { TRIAL_DAYS } from "@/lib/plans";
-import { TRIAL_MS, isSubscriptionActive } from "@/lib/subscription";
+import {
+  TRIAL_MS,
+  isSubscriptionActive,
+  isInActiveTrial,
+  isFreeTierBusiness,
+} from "@/lib/subscription";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -38,12 +43,16 @@ describe("first-month-free trial (30 days)", () => {
     expect(isSubscriptionActive(biz)).toBe(true);
   });
 
-  it("a trial past 30 days is inactive", () => {
+  it("a trial past 30 days has LEFT the trial — it lands on the free tier (owner rule 2026-10-22)", () => {
     const biz = {
       isActive: true,
       subscriptionStatus: "trialing",
       trialEndsAt: new Date(Date.now() - DAY_MS), // ended yesterday
     } as never;
-    expect(isSubscriptionActive(biz)).toBe(false);
+    expect(isInActiveTrial(biz)).toBe(false);
+    expect(isFreeTierBusiness(biz)).toBe(true);
+    // The free tier is usable (its 100-message cap lives in
+    // billing-usage), so the gate no longer hard-stops a lapsed trial.
+    expect(isSubscriptionActive(biz)).toBe(true);
   });
 });

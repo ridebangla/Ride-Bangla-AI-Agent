@@ -35,6 +35,7 @@ export const metadata = {
 
 const PLAN_LABEL: Record<string, string> = {
   trial: "Free Trial",
+  free: "Free",
   starter: "Starter",
   growth: "Growth",
   pro: "Pro",
@@ -45,6 +46,7 @@ const PLAN_LABEL: Record<string, string> = {
 
 const PLAN_PRICE_MONTHLY: Record<string, string> = {
   trial: `$0 for ${TRIAL_DAYS} days`,
+  free: "$0 / month",
   starter: "$19 / month",
   growth: "$49 / month",
   pro: "$99 / month",
@@ -87,7 +89,7 @@ function planPriceLine(
 /** Display label for the current plan: fixed labels for the special
  *  states, the catalog name for catalog plans. */
 function planLabel(plan: string, catalog: CatalogPlanView[]): string {
-  if (plan === "trial" || plan === "internal" || plan === "super_admin" || plan === "unknown") {
+  if (plan === "trial" || plan === "free" || plan === "internal" || plan === "super_admin" || plan === "unknown") {
     return PLAN_LABEL[plan];
   }
   return catalog.find((p) => p.id === plan)?.name ?? PLAN_LABEL[plan] ?? plan;

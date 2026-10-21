@@ -32,6 +32,8 @@ import {
   PLAN_META,
   PAID_PLANS,
   isPaidPlanId,
+  FREE_PLAN_ID,
+  FREE_MESSAGES_PER_MONTH,
   type BillingInterval,
 } from "./plans";
 import { logger } from "./logger";
@@ -105,6 +107,28 @@ export interface CatalogPlanView {
 // ---------------------------------------------------------------------------
 // Pure helpers (unit-testable, no DB)
 // ---------------------------------------------------------------------------
+
+/**
+ * The permanent FREE tier as an EffectivePlan (owner rule 2026-10-22):
+ * $0, FREE_MESSAGES_PER_MONTH messages per usage period. This is the
+ * definition the tier resolution in subscription.ts / billing-usage.ts
+ * points at. It is deliberately NOT part of getPlanCatalog() /
+ * codeCatalog(): those feed the pricing page and every purchase path,
+ * and the free tier is not for sale — resolveChargePrice("free") stays
+ * null and no plan picker ever lists it.
+ */
+export const FREE_PLAN: EffectivePlan = {
+  id: FREE_PLAN_ID,
+  name: "Free",
+  priceUsd: 0,
+  yearlyPriceUsd: 0,
+  tagline: "Free tier after the trial ends.",
+  messagesPerMonth: FREE_MESSAGES_PER_MONTH,
+  active: true,
+  stripePriceId: null,
+  stripeYearlyPriceId: null,
+  source: "code",
+};
 
 /** The code catalog: PLAN_META exactly as shipped, all active. */
 export function codeCatalog(): EffectivePlan[] {
