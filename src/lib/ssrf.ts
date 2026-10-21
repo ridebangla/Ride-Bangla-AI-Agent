@@ -218,3 +218,48 @@ export async function validateOutboundUrl(rawUrl: string): Promise<OutboundUrlCh
   }
   return { ok: true };
 }
+
+export interface ResolvedPublicAddress {
+  address: string;
+  family: 4 | 6;
+}
+
+/**
+ * Resolve a hostname to the addresses a pinned fetch may connect to.
+ * Returns null (fail-closed) when DNS fails or ANY resolved address is
+ * non-public. Callers must ALSO run `validateOutboundUrl()` first — it
+ * applies the full URL policy (scheme, credentials, blocked hostnames,
+ * non-standard IP spellings); this helper only answers "which validated
+ * public addresses may I connect to", so a fetch can pin the exact
+ * address that was checked and close the DNS-rebinding / TOCTOU gap
+ * documented above for callers that need it.
+ */
+export async function resolvePublicAddresses(
+  hostname: string
+): Promise<ResolvedPublicAddress[] | null> {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host) return null;
+
+  // Literal IP: hand it back only when it is public.
+  const literal = net.isIP(host);
+  if (literal) {
+    return isPublicIp(host)
+      ? [{ address: host, family: literal as 4 | 6 }]
+      : null;
+  }
+
+  let addresses;
+  try {
+    addresses = await dns.lookup(host, { all: true, verbatim: true });
+  } catch {
+    return null;
+  }
+  if (!addresses || addresses.length === 0) return null;
+  for (const entry of addresses) {
+    if (!isPublicIp(entry.address)) return null;
+  }
+  return addresses.map((entry) => ({
+    address: entry.address,
+    family: entry.family as 4 | 6,
+  }));
+}
