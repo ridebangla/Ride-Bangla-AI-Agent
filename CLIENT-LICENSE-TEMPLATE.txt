@@ -1,0 +1,52 @@
+SOFTWARE LICENSE & HANDOVER — Ride Bangla IT Team (CLIENT TEMPLATE)
+
+================================================================
+
+Project:  [PROJECT NAME]
+Client:   [CLIENT NAME / COMPANY]
+Handover date: [DATE]
+
+Developed by the Ride Bangla IT Team.
+Copyright (c) [YEAR] Ride Bangla Limited. All rights reserved, except
+as expressly granted below.
+
+1. LICENSE GRANT
+Ride Bangla Limited grants the Client a non-exclusive, non-transferable
+license to use this website/software (the "Deliverable") for the
+Client's own business purposes, on the Client's own domain and hosting,
+from the handover date.
+
+2. WHAT THE CLIENT MAY DO
+- Operate the Deliverable for their business without time limit.
+- Update its content (text, images, products, prices) freely.
+- Ask any developer to maintain it, provided sections 3–4 are respected.
+
+3. WHAT THE CLIENT MAY NOT DO
+- Resell, redistribute, sublicense, or give away the source code or the
+  design as a standalone product or template, in whole or in part.
+- Claim authorship of the software itself, or remove the developer
+  credit where it appears in code comments and documentation.
+
+4. WHAT REMAINS RIDE BANGLA'S
+Ride Bangla Limited retains full ownership of, and the unrestricted
+right to reuse, its pre-existing and reusable tools, libraries,
+components, frameworks, and know-how used in building the Deliverable.
+Only the assembled Deliverable, as handed over, is licensed to the
+Client under section 1.
+
+5. THIRD-PARTY COMPONENTS
+Third-party open-source components inside the Deliverable remain under
+their own licenses (such as MIT, Apache-2.0, or BSD); their notices are
+preserved with them and must not be removed.
+
+6. SUPPORT & CHANGES
+Support, maintenance, hosting management, and future changes are
+covered only where a separate written agreement with the Ride Bangla
+IT Team says so.
+
+7. NO OTHER RIGHTS
+Any right not expressly granted in this document is reserved by
+Ride Bangla Limited.
+
+================================================================
+Ride Bangla IT Team — Ride Bangla Limited — info@ridebangla.bd
