@@ -209,6 +209,12 @@ export async function middleware(request: NextRequest) {
   // Phase 3: /api/chat/vision and /api/chat/voice are the widget's photo /
   // voice upload endpoints — same public siteKey auth model as the widget
   // chat endpoint, so they must be public here too.
+  // /api/chat/thread is the widget's thread read-back (human handoff): the
+  // embed polls it so Inbox replies from a human reach the visitor in the
+  // same conversation. Same public siteKey auth model — the handler only
+  // returns the thread when conversationId + visitorId prove ownership
+  // (a mismatch returns an empty thread), and it is rate-limited per
+  // siteKey+visitor in the handler.
   // Premium polish: /api/landing/quality is the public visual quality gate
   // for landing pages (GET ?slug=). It is read-only, fail-closed on the
   // slug (same scoping as /p/[slug]), rate-limited per IP in its handler,
@@ -233,7 +239,7 @@ export async function middleware(request: NextRequest) {
   // /api/public/firebase-config follow the same siteKey auth model as
   // /api/public/ai/generate (validated + rate-limited in the route
   // handlers), so they must be public here too.
-  const publicPaths = ["/login", "/setup", "/signup", "/pricing", "/privacy", "/terms", "/contact", "/api/contact", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/chat/activity", "/api/public/ai/generate", "/api/public/reviews", "/api/public/firebase-config", "/api/landing/quality", "/api/webhooks/stripe", "/p/"];
+  const publicPaths = ["/login", "/setup", "/signup", "/pricing", "/privacy", "/terms", "/contact", "/api/contact", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/chat/activity", "/api/chat/thread", "/api/public/ai/generate", "/api/public/reviews", "/api/public/firebase-config", "/api/landing/quality", "/api/webhooks/stripe", "/p/"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   // The SaaS marketing landing page lives at `/` — EXACT match only (a
