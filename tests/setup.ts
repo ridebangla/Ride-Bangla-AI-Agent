@@ -121,6 +121,7 @@ function createMockPrismaClient() {
     "product",
     "order",
     "setupApplication",
+    "websiteCreationRequest",
     "siteReview",
   ];
 

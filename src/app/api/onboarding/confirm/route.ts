@@ -10,7 +10,11 @@ import { logger } from "@/lib/logger";
 // a business can only ever write to its own tenant scope (fail-closed).
 //
 // Body:
-//   { qa: [{ question, answer }], products: [{ name, price, currency, category? }] }
+//   { qa: [{ question, answer }], products: [{ name, price, currency, category? }],
+//     websites?: [{ url, pageCount?, entryCount? }] }
+// `websites` lists the sites the wizard's URL method just learned from,
+// so the business's website list (Settings > Websites) records them as
+// indexed with the counts the scrape actually produced.
 export async function POST(request: NextRequest) {
   const auth = await requireAuth(request);
   if (!isAuthenticated(auth)) return auth;
@@ -176,6 +180,36 @@ export async function POST(request: NextRequest) {
       `[Onboarding] saved for business ${auth.businessId}: ` +
         `${result.knowledgeCreated} knowledge entries, ${result.productsCreated} products`
     );
+
+    // Record the wizard's websites on the business (best-effort: the
+    // knowledge save above is the real work and must not fail because
+    // of this bookkeeping).
+    const websites: Array<{
+      url?: unknown;
+      pageCount?: unknown;
+      entryCount?: unknown;
+    }> = Array.isArray(body.websites) ? body.websites : [];
+    if (websites.length > 0) {
+      try {
+        const { recordOnboardingWebsites } = await import(
+          "@/lib/business-websites"
+        );
+        await recordOnboardingWebsites(
+          auth.businessId,
+          websites.map((w) => ({
+            url: typeof w.url === "string" ? w.url : "",
+            pageCount:
+              typeof w.pageCount === "number" ? w.pageCount : undefined,
+            entryCount:
+              typeof w.entryCount === "number" ? w.entryCount : undefined,
+          }))
+        );
+      } catch (err) {
+        logger.warn(
+          `[Onboarding] website-list record failed: ${err instanceof Error ? err.message : "unknown"}`
+        );
+      }
+    }
 
     return NextResponse.json({ success: true, ...result });
   } catch (err) {

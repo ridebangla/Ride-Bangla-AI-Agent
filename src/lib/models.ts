@@ -18,6 +18,31 @@ export type JsonValue =
 /** JSON value accepted as write input (mirrors Prisma.InputJsonValue). */
 export type InputJsonValue = JsonValue;
 
+/** One website on a business's website list (owner directive 2026-10-21:
+ * a business can add ALL its websites — no one-site limit — and the agent
+ * learns the business from every one of them). Stored as a JSON array on
+ * the business doc (`Business.websites`). `status` is honest by
+ * construction: "indexed" is only ever written after a real fetch-and-
+ * index run saved knowledge entries; a failed fetch lands in "failed"
+ * with the reason, never in a fake "trained" state. */
+export interface BusinessWebsite {
+  id: string;
+  /** Canonical URL (see src/lib/website-url.ts). */
+  url: string;
+  host: string;
+  status: "pending" | "indexed" | "failed";
+  /** Human-readable failure reason when status is "failed". */
+  statusReason?: string;
+  /** Public pages fetched on the last successful index run. */
+  pageCount?: number;
+  /** Knowledge entries the last successful index run saved. */
+  entryCount?: number;
+  /** ISO timestamp. */
+  addedAt: string;
+  /** ISO timestamp of the last index attempt (success or failure). */
+  lastIndexedAt?: string | null;
+}
+
 export interface Business {
 
   [key: string]: unknown;  id: string;
@@ -30,6 +55,12 @@ export interface Business {
   subscriptionStatus?: string; // 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired'
   trialEndsAt?: Date | null;
   websiteUrl?: string;
+  /** ALL of the business's websites (owner directive 2026-10-21). The
+      legacy single `websiteUrl` above predates this list: it is kept in
+      sync with the FIRST list entry (the landing page links to it) and,
+      for businesses that have no list yet, it is presented as a single
+      "pending" entry until they manage the list in Settings. */
+  websites?: BusinessWebsite[];
   /** Phase 4: Stripe billing — set on first checkout; used by webhooks + the
       customer portal to resolve tenancy without trusting client input. */
   stripeCustomerId?: string;
@@ -185,6 +216,10 @@ export interface KnowledgeEntry {
   isActive: boolean;
   version: number;
   metadata: JsonValue;
+  /** Set on entries created by website ingestion (src/lib/business-
+      websites.ts): the BusinessWebsite.id they came from, so re-indexing
+      or removing that one website replaces exactly its own entries. */
+  sourceWebsiteId?: string;
   createdAt: Date;
   updatedAt: Date;
   category: Category;
@@ -815,6 +850,37 @@ export interface SetupApplication {
   notes: string;
   /** "pending" | "contacted" | "in_progress" | "completed" | "cancelled" */
   status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Website-creation application (owner directive 2026-10-21). A business
+ * WITHOUT a website applies from Settings > Websites; the Ride Bangla IT
+ * Team builds the site as a SEPARATE service track ("আলাদা হিসাব") — this
+ * record is deliberately unrelated to subscription/billing. The team
+ * works the queue from the platform admin (Super Admin); the business
+ * sees only its own request and its status.
+ */
+export interface WebsiteCreationRequest {
+
+  [key: string]: unknown;  id: string;
+  businessId: string;
+  businessName: string;
+  contactName: string;
+  /** Phone / WhatsApp number the IT team can reach them on. */
+  contactPhone: string;
+  /** "business" | "ecommerce" | "portfolio" | "restaurant" | "other" */
+  siteType: string;
+  notes: string;
+  /** "new" | "contacted" | "in_progress" | "delivered" | "closed" */
+  status: string;
+  /** Who/when audit of every status change (append-only). */
+  statusHistory: Array<{
+    status: string;
+    by: string;
+    at: string;
+  }>;
   createdAt: Date;
   updatedAt: Date;
 }

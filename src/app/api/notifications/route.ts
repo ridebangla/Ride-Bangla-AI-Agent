@@ -30,7 +30,7 @@ export const runtime = "nodejs";
 
 interface NotificationItem {
   id: string;
-  kind: "notice" | "billing" | "payment" | "ticket" | "conversation";
+  kind: "notice" | "billing" | "payment" | "ticket" | "conversation" | "website";
   text: string;
   at: string | null;
   href: string;
@@ -77,6 +77,38 @@ export async function GET(request: NextRequest) {
       logger.warn("notifications: claims read failed", {
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+
+    // ---- Website-creation requests (Super Admin queue) ----
+    // A business without a website applied for the IT Team to build one
+    // (Settings > Websites). New ones belong in the platform team's
+    // bell, next to the payment-claim review queue.
+    if (!auth.businessId) {
+      try {
+        const apps = (await getUnscopedPrisma().websiteCreationRequest.findMany({
+          orderBy: { createdAt: "desc" },
+          take: 10,
+        })) as unknown as Array<{
+          id: string;
+          businessName: string;
+          status: string;
+          createdAt: Date;
+        }>;
+        for (const app of apps) {
+          if (app.status !== "new") continue;
+          items.push({
+            id: `website-request-${app.id}`,
+            kind: "website",
+            text: `Website creation request from ${app.businessName || "a business"} — waiting for the IT team.`,
+            at: iso(app.createdAt ?? null),
+            href: "/admin",
+          });
+        }
+      } catch (err) {
+        logger.warn("notifications: website requests read failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     if (auth.businessId) {

@@ -83,6 +83,7 @@ import type {
   LeadDraft,
   LeadSettings,
   SetupApplication,
+  WebsiteCreationRequest,
   SiteReview,
 } from "./models";
 
@@ -386,6 +387,16 @@ const MODEL_META: Record<string, ModelMeta> = {
       businessName: "", contactName: "", contactPhone: "", contactEmail: "",
       channelsWanted: [], preferredContact: "whatsapp", notes: "",
       status: "pending",
+    },
+  }),
+  // Website-creation applications (owner directive 2026-10-21): a
+  // business without a website applies from Settings > Websites; the IT
+  // Team builds it as a separate service track — never tied to billing.
+  websiteCreationRequest: M("websiteCreationRequests", {
+    hasUpdatedAt: true,
+    defaults: {
+      businessName: "", contactName: "", contactPhone: "", siteType: "business",
+      notes: "", status: "new", statusHistory: [],
     },
   }),
   // Public site reviews (ai / tools / studio). Public, cross-business data
@@ -1405,6 +1416,7 @@ export interface DbClient {
   leadDraft: ModelDelegate<LeadDraft>;
   leadSettings: ModelDelegate<LeadSettings>;
   setupApplication: ModelDelegate<SetupApplication>;
+  websiteCreationRequest: ModelDelegate<WebsiteCreationRequest>;
   siteReview: ModelDelegate<SiteReview>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   $queryRaw(...args: any[]): Promise<any>;
@@ -1503,6 +1515,7 @@ const TENANT_MODELS = new Set([
   "leadDraft",
   "leadSettings",
   "setupApplication",
+  "websiteCreationRequest",
 ]);
 
 export class TenantContextError extends Error {

@@ -17,6 +17,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Users,
+  Hammer,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 
@@ -42,6 +43,29 @@ interface ApiKeyItem {
   createdAt: string;
   updatedAt: string;
 }
+
+/** Website-creation application (Settings > Websites → IT Team queue). */
+interface WebsiteRequestItem {
+  id: string;
+  businessId: string;
+  businessName: string;
+  contactName: string;
+  contactPhone: string;
+  siteType: string;
+  notes: string;
+  status: string;
+  statusHistory: Array<{ status: string; by: string; at: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const WEBSITE_REQUEST_STATUSES = [
+  "new",
+  "contacted",
+  "in_progress",
+  "delivered",
+  "closed",
+] as const;
 
 // ---------------------------------------------------------------------------
 // Role badge helper
@@ -83,7 +107,7 @@ function formatDate(dateStr: string): string {
 // ---------------------------------------------------------------------------
 
 export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState<"users" | "apikeys">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "apikeys" | "websites">("users");
 
   // --- Users state ---
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -157,10 +181,57 @@ export default function AdminPage() {
     }
   }, []);
 
+  // --- Website requests state ---
+  const [websiteRequests, setWebsiteRequests] = useState<WebsiteRequestItem[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState(true);
+  const [requestBusy, setRequestBusy] = useState<string | null>(null);
+  const [requestError, setRequestError] = useState("");
+
+  const fetchWebsiteRequests = useCallback(async () => {
+    setLoadingRequests(true);
+    try {
+      const res = await fetch("/api/admin/website-requests");
+      if (res.ok) {
+        const data = await res.json();
+        setWebsiteRequests(data.requests || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch website requests:", err);
+    } finally {
+      setLoadingRequests(false);
+    }
+  }, []);
+
+  async function setRequestStatus(req: WebsiteRequestItem, status: string) {
+    if (requestBusy || status === req.status) return;
+    setRequestBusy(req.id);
+    setRequestError("");
+    try {
+      const res = await fetch("/api/admin/website-requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: req.id, status }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setRequestError(data.error || "Failed to update the request.");
+        return;
+      }
+      setWebsiteRequests((prev) =>
+        prev.map((r) => (r.id === req.id ? data.request : r))
+      );
+    } catch {
+      setRequestError("Failed to update the request.");
+    } finally {
+      setRequestBusy(null);
+    }
+  }
+
   useEffect(() => {
     fetchUsers();
     fetchApiKeys();
-  }, [fetchUsers, fetchApiKeys]);
+    fetchWebsiteRequests();
+  }, [fetchUsers, fetchApiKeys, fetchWebsiteRequests]);
 
   // ---------------------------------------------------------------------------
   // User CRUD
@@ -376,6 +447,23 @@ export default function AdminPage() {
           >
             <Key className="h-4 w-4" />
             API Keys
+          </button>
+          <button
+            onClick={() => setActiveTab("websites")}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors",
+              activeTab === "websites"
+                ? "bg-rbai-surface text-rbai-text shadow-sm"
+                : "text-rbai-text-light hover:text-rbai-text"
+            )}
+          >
+            <Hammer className="h-4 w-4" />
+            Website Requests
+            {websiteRequests.filter((r) => r.status === "new").length > 0 && (
+              <span className="ml-1 rounded-full bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5">
+                {websiteRequests.filter((r) => r.status === "new").length}
+              </span>
+            )}
           </button>
         </div>
 
@@ -597,6 +685,122 @@ export default function AdminPage() {
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ================= WEBSITE REQUESTS TAB ================= */}
+        {activeTab === "websites" && (
+          <div className="bg-rbai-surface rounded-xl border border-rbai-border">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-rbai-border">
+              <div>
+                <h3 className="font-semibold text-rbai-text">
+                  Website Creation Requests
+                </h3>
+                <p className="text-xs text-rbai-text-light mt-0.5">
+                  Businesses without a website applied from Settings →
+                  Websites. The IT Team builds these as a separate service —
+                  nothing here touches subscriptions or billing.{" "}
+                  {websiteRequests.filter((r) => r.status === "new").length}{" "}
+                  new · {websiteRequests.length} total
+                </p>
+              </div>
+            </div>
+
+            {requestError && (
+              <div className="mx-5 mt-4 flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                {requestError}
+              </div>
+            )}
+
+            {loadingRequests ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-5 w-5 animate-spin text-rbai-text-light" />
+              </div>
+            ) : websiteRequests.length === 0 ? (
+              <div className="px-5 py-12 text-center">
+                <Hammer className="h-10 w-10 mx-auto mb-3 text-rbai-text-light opacity-40" />
+                <p className="text-sm font-medium text-rbai-text-light">
+                  No website requests yet
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-rbai-border">
+                      <th className="text-left text-xs font-medium text-rbai-text-light px-5 py-3">
+                        Business
+                      </th>
+                      <th className="text-left text-xs font-medium text-rbai-text-light px-5 py-3">
+                        Contact
+                      </th>
+                      <th className="text-left text-xs font-medium text-rbai-text-light px-5 py-3">
+                        Type
+                      </th>
+                      <th className="text-left text-xs font-medium text-rbai-text-light px-5 py-3">
+                        Notes
+                      </th>
+                      <th className="text-left text-xs font-medium text-rbai-text-light px-5 py-3">
+                        Applied
+                      </th>
+                      <th className="text-left text-xs font-medium text-rbai-text-light px-5 py-3">
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {websiteRequests.map((req) => (
+                      <tr
+                        key={req.id}
+                        className="border-b border-rbai-border last:border-0 align-top"
+                      >
+                        <td className="px-5 py-3 text-sm font-medium text-rbai-text">
+                          {req.businessName}
+                        </td>
+                        <td className="px-5 py-3 text-sm text-rbai-text-light">
+                          {req.contactName}
+                          <div className="text-xs">{req.contactPhone}</div>
+                        </td>
+                        <td className="px-5 py-3 text-sm text-rbai-text-light">
+                          {req.siteType}
+                        </td>
+                        <td className="px-5 py-3 text-sm text-rbai-text-light max-w-xs">
+                          {req.notes || "—"}
+                        </td>
+                        <td className="px-5 py-3 text-sm text-rbai-text-light whitespace-nowrap">
+                          {formatDate(req.createdAt)}
+                        </td>
+                        <td className="px-5 py-3">
+                          <select
+                            value={req.status}
+                            disabled={requestBusy === req.id}
+                            onChange={(e) => setRequestStatus(req, e.target.value)}
+                            className="rounded-lg border border-rbai-border bg-rbai-bg px-2.5 py-1.5 text-xs font-semibold text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary disabled:opacity-50"
+                          >
+                            {WEBSITE_REQUEST_STATUSES.map((s) => (
+                              <option key={s} value={s}>
+                                {s}
+                              </option>
+                            ))}
+                          </select>
+                          {req.statusHistory.length > 0 && (
+                            <div className="mt-1 text-[11px] text-rbai-text-light">
+                              last:{" "}
+                              {req.statusHistory[req.statusHistory.length - 1].by}{" "}
+                              ·{" "}
+                              {formatDate(
+                                req.statusHistory[req.statusHistory.length - 1].at
+                              )}
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}

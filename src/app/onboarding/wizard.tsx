@@ -94,7 +94,16 @@ export default function OnboardingWizard() {
   const [method, setMethod] = useState<Method | null>(null);
   const [guidedInput, setGuidedInput] = useState<GuidedInput>("form");
 
-  const [url, setUrl] = useState("");
+  // ALL of the business's websites (owner directive 2026-10-21): one
+  // input row to start, a (+) control adds more — 10 sites = 10 rows.
+  const [urls, setUrls] = useState<string[]>([""]);
+  // Per-site results from the last analyze run, sent to confirm so the
+  // Settings website list records these sites as indexed (truthfully —
+  // these counts are what the scrape actually produced).
+  const [siteStats, setSiteStats] = useState<
+    Array<{ url: string; pageCount: number; qaCount: number }>
+  >([]);
+  const [siteWarnings, setSiteWarnings] = useState<string[]>([]);
   const [pastedText, setPastedText] = useState("");
   const [fileName, setFileName] = useState("");
   const [fileText, setFileText] = useState("");
@@ -200,6 +209,94 @@ export default function OnboardingWizard() {
     setAnalyzing(false);
   }
 
+  /**
+   * Multi-website analyze: run the existing single-URL analyze endpoint
+   * once per entered website and merge the results for one review.
+   * Q&A pairs dedupe by question, products by name (first site wins).
+   * A site that fails to fetch is named in the warnings — it is never
+   * silently counted as learned; if EVERY site fails, the first real
+   * error is shown and we stay on the input step.
+   */
+  async function analyzeUrls(list: string[]) {
+    setAnalyzing(true);
+    setError("");
+    setSiteWarnings([]);
+    setSiteStats([]);
+    const mergedQa: QAPair[] = [];
+    const seenQ = new Set<string>();
+    const mergedProducts: ProductDraft[] = [];
+    const seenP = new Set<string>();
+    const allPages: string[] = [];
+    const stats: Array<{ url: string; pageCount: number; qaCount: number }> = [];
+    const warnings: string[] = [];
+    let firstError = "";
+    let businessName = "";
+    let note = "";
+
+    for (const u of list) {
+      try {
+        const res = await fetch("/api/onboarding/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: u }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          warnings.push(u);
+          if (!firstError) firstError = data.error || "Analysis failed.";
+          continue;
+        }
+        const r = data as AnalyzeResult;
+        if (!businessName && r.businessName) businessName = r.businessName;
+        if (!note && r.note) note = r.note;
+        let siteQa = 0;
+        for (const pair of r.qa || []) {
+          const key = pair.question.trim().toLowerCase();
+          if (seenQ.has(key)) continue;
+          seenQ.add(key);
+          mergedQa.push(pair);
+          siteQa++;
+        }
+        for (const p of r.products || []) {
+          const key = p.name.trim().toLowerCase();
+          if (seenP.has(key)) continue;
+          seenP.add(key);
+          mergedProducts.push({ ...p, category: "Products" });
+        }
+        allPages.push(...(r.pagesScraped || []));
+        stats.push({
+          url: u,
+          pageCount: (r.pagesScraped || []).length,
+          qaCount: siteQa,
+        });
+      } catch {
+        warnings.push(u);
+        if (!firstError) firstError = "Network error. Check your connection and try again.";
+      }
+    }
+
+    setAnalyzing(false);
+    if (stats.length === 0) {
+      setError(firstError || "Analysis failed. Please try again.");
+      return;
+    }
+    setResult({
+      businessName,
+      qa: mergedQa,
+      products: mergedProducts,
+      pagesScraped: allPages,
+      note:
+        list.length > 1
+          ? `Learned from ${stats.length} of your ${list.length} websites (${allPages.length} pages). Review everything below before saving — you can add more websites any time in Settings.`
+          : note,
+    });
+    setQa(mergedQa);
+    setProducts(mergedProducts);
+    setSiteStats(stats);
+    setSiteWarnings(warnings);
+    setStep("review");
+  }
+
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -220,8 +317,10 @@ export default function OnboardingWizard() {
   function startAnalyze() {
     if (!method) return;
     if (method === "url") {
-      if (!url.trim()) return setError("Please enter your website URL.");
-      analyze({ url: url.trim() });
+      const list = urls.map((u) => u.trim()).filter(Boolean);
+      if (list.length === 0)
+        return setError("Please enter your website URL.");
+      analyzeUrls(list);
       return;
     }
     // "No website" path — form, pasted text, or uploaded file.
@@ -254,7 +353,21 @@ export default function OnboardingWizard() {
       const res = await fetch("/api/onboarding/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ qa, products }),
+        body: JSON.stringify({
+          qa,
+          products,
+          // So the Settings website list records the sites this wizard
+          // just learned from (url method only; empty otherwise).
+          ...(method === "url"
+            ? {
+                websites: siteStats.map((s) => ({
+                  url: s.url,
+                  pageCount: s.pageCount,
+                  entryCount: s.qaCount,
+                })),
+              }
+            : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -366,19 +479,52 @@ export default function OnboardingWizard() {
             {method === "url" && (
               <div className="bg-rbai-surface border border-rbai-border rounded-2xl p-6">
                 <h2 className="font-semibold text-rbai-text text-lg">
-                  Your website URL
+                  Your website URL{urls.length > 1 ? "s" : ""}
                 </h2>
                 <p className="text-sm text-rbai-text-light mt-1 mb-4">
-                  That&apos;s all we need — we&apos;ll fetch your homepage and key
-                  pages (about, services, pricing, contact…) on the same site.
+                  That&apos;s all we need — we&apos;ll fetch the homepage and key
+                  pages (about, services, pricing, contact…) of each site.
+                  Have more than one website? Add them all — your agent
+                  learns from every one.
                 </p>
-                <input
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="yourbusiness.com"
-                  inputMode="url"
-                  className={inputClass}
-                />
+                <div className="space-y-2">
+                  {urls.map((u, i) => (
+                    <div key={i} className="flex gap-2">
+                      <input
+                        value={u}
+                        onChange={(e) =>
+                          setUrls((prev) =>
+                            prev.map((v, j) => (j === i ? e.target.value : v))
+                          )
+                        }
+                        placeholder="yourbusiness.com"
+                        inputMode="url"
+                        className={inputClass}
+                      />
+                      {urls.length > 1 && (
+                        <button
+                          type="button"
+                          aria-label="Remove this website"
+                          onClick={() =>
+                            setUrls((prev) => prev.filter((_, j) => j !== i))
+                          }
+                          className="shrink-0 rounded-lg border border-rbai-border px-3 text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {urls.length < 10 && (
+                  <button
+                    type="button"
+                    onClick={() => setUrls((prev) => [...prev, ""])}
+                    className="mt-3 inline-flex items-center gap-2 rounded-lg border border-dashed border-rbai-border px-4 py-2.5 text-sm font-semibold text-rbai-primary hover:bg-rbai-bg"
+                  >
+                    <Plus className="h-4 w-4" /> Add another website
+                  </button>
+                )}
               </div>
             )}
 
@@ -578,6 +724,15 @@ export default function OnboardingWizard() {
                 <p className="text-sm text-rbai-text-light mt-1 max-w-2xl">
                   {result.note}
                 </p>
+                {siteWarnings.length > 0 && (
+                  <p className="text-sm text-amber-700 mt-2 max-w-2xl">
+                    We couldn&apos;t fetch {siteWarnings.length === 1 ? "this website" : "these websites"}:{" "}
+                    {siteWarnings.join(", ")} — the agent has not learned from{" "}
+                    {siteWarnings.length === 1 ? "it" : "them"}. You can add{" "}
+                    {siteWarnings.length === 1 ? "it" : "them"} again later in
+                    Settings → Websites.
+                  </p>
+                )}
               </div>
               <button
                 onClick={() => setStep("input")}

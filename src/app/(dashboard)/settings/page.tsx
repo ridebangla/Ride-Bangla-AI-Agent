@@ -18,7 +18,9 @@ import {
   AlertCircle,
   Loader2,
   ShieldCheck,
+  Globe,
 } from "lucide-react";
+import WebsitesManager from "@/components/dashboard/websites-manager";
 import { useEffect, useState, useCallback } from "react";
 
 // ---------------------------------------------------------------------------
@@ -63,7 +65,8 @@ type SectionKey =
   | "voice"
   | "phone"
   | "email"
-  | "whatsapp";
+  | "whatsapp"
+  | "websites";
 
 interface TabDef {
   key: SectionKey;
@@ -82,6 +85,7 @@ const tabs: TabDef[] = [
   { key: "phone", label: "Phone (Twilio)", icon: Phone },
   { key: "email", label: "Email (SMTP/IMAP)", icon: Mail },
   { key: "whatsapp", label: "WhatsApp", icon: MessageCircle },
+  { key: "websites", label: "Websites", icon: Globe },
 ];
 
 // Which fields belong to each section (used for partial saves)
@@ -107,6 +111,9 @@ const sectionFields: Record<SectionKey, (keyof SettingsData)[]> = {
     "imapPass",
   ],
   whatsapp: ["whatsappMode", "whatsappApiKey", "whatsappPhone"],
+  // Websites manage themselves through their own API (add/re-check/
+  // remove + website-creation applications) — no settings fields.
+  websites: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -882,6 +889,7 @@ export default function SettingsPage() {
     phone: <PhoneSection data={data} update={update} />,
     email: <EmailSection data={data} update={update} />,
     whatsapp: <WhatsAppSection data={data} update={update} />,
+    websites: <WebsitesManager />,
   };
 
   if (loading) {
@@ -942,12 +950,16 @@ export default function SettingsPage() {
                   "Set up email sending and receiving for support tickets."}
                 {activeTab === "whatsapp" &&
                   "Configure WhatsApp integration for messaging support."}
+                {activeTab === "websites" &&
+                  "Add all your websites so your agent learns your business — or apply to have one built."}
               </p>
             </div>
 
             {sectionRenderers[activeTab]}
 
-            <SaveButton onClick={saveSection} saving={saving} />
+            {activeTab !== "websites" && (
+              <SaveButton onClick={saveSection} saving={saving} />
+            )}
           </div>
         </div>
       </div>
