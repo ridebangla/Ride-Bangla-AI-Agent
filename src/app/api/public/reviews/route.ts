@@ -4,9 +4,15 @@
  * identifies the business and grants no admin powers.
  *
  * GET /api/public/reviews?site=tools|ai|studio&siteKey=<public site key>
- *   → { ok: true, average, count, reviews: [{ name, rating, text, createdAt }] }
+ *   → { ok: true, average, count,
+ *       reviews: [{ name, rating, text, createdAt, photoURL, verifiedGoogle }] }
  *   Published reviews only, newest first, max 20 shown. No seeded reviews —
- *   empty when nobody has reviewed yet.
+ *   empty when nobody has reviewed yet. `photoURL` is the reviewer's Google
+ *   profile photo captured from their verified ID token at submission (""
+ *   when none). `verifiedGoogle` is true ONLY when the stored record proves
+ *   the review was submitted with a Firebase token whose sign-in provider
+ *   is Google — records created any other way (or before this field
+ *   existed) read back as false, never assumed.
  *
  * POST /api/public/reviews
  *   { siteKey, site, idToken, rating (1-5), text (1-1000 chars), name? (1-80) }
@@ -69,7 +75,7 @@ async function requireValidSiteKey(siteKey: string | null) {
  * session token (AI site / Studio customers use their existing session). */
 async function verifyCaller(
   idToken: unknown
-): Promise<{ uid: string; name: string; photoURL: string } | null> {
+): Promise<{ uid: string; name: string; photoURL: string; verifiedGoogle: boolean } | null> {
   if (!idToken || typeof idToken !== "string") return null;
   // 1) Firebase ID token (Google sign-in / email sign-in anywhere).
   try {
@@ -85,6 +91,9 @@ async function verifyCaller(
       name,
       photoURL:
         typeof decoded.picture === "string" ? decoded.picture : "",
+      // Proof of Google authentication lives in the token's firebase
+      // claims — only a google.com sign-in provider earns the badge.
+      verifiedGoogle: decoded.firebase?.sign_in_provider === "google.com",
     };
   } catch {
     // fall through to the session-token path
@@ -106,6 +115,9 @@ async function verifyCaller(
       uid: fbUid,
       name: adminDoc.name || "Reviewer",
       photoURL: "",
+      // Our own session token proves a platform sign-in, not Google
+      // authentication — no Google badge for this path.
+      verifiedGoogle: false,
     };
   } catch {
     return null;
@@ -157,6 +169,8 @@ export async function GET(request: NextRequest) {
       text: r.text,
       createdAt:
         r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
+      photoURL: r.photoURL || "",
+      verifiedGoogle: r.verifiedGoogle === true,
     }));
 
     return NextResponse.json({ ok: true, average, count, reviews });
@@ -272,6 +286,7 @@ export async function POST(request: NextRequest) {
         uid: caller.uid,
         name: displayName,
         photoURL: caller.photoURL,
+        verifiedGoogle: caller.verifiedGoogle,
         rating: stars,
         text: cleanText,
         status: "published",

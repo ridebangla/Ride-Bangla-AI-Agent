@@ -403,7 +403,7 @@ const MODEL_META: Record<string, ModelMeta> = {
   // keyed by `site` — deliberately NOT tenant-scoped; always read/write via
   // getUnscopedPrisma() from the /api/public/reviews route.
   siteReview: M("site_reviews", {
-    defaults: { photoURL: "", status: "published" },
+    defaults: { photoURL: "", verifiedGoogle: false, status: "published" },
   }),
   internalNote: M("internalNotes", { defaults: { authorName: "Admin" } }),
   campaign: M("campaigns", {

@@ -917,6 +917,11 @@ export interface SiteReview {
   /** Display name chosen by the reviewer (1–80 chars). */
   name: string;
   photoURL: string;
+  /** True only when the review was submitted with a Firebase ID
+   * token whose sign-in provider is Google (google.com), as
+   * captured at submission. Anything else — and records stored
+   * before this field existed — reads back as false. */
+  verifiedGoogle: boolean;
   /** 1–5. */
   rating: number;
   /** Review text (1–1000 chars). */
