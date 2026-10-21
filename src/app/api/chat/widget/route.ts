@@ -23,7 +23,9 @@ import type { MediaInput } from "@/lib/ai/media";
  * an SSE response — `meta` (conversation id), `token` deltas as the
  * reply is generated, `retract` (discard a partial bubble that turned
  * out to precede tool calls), then a terminal `done` carrying the exact
- * payload the JSON response would have carried, or `error`. Streaming
+ * payload the JSON response would have carried. A failed turn also ends
+ * with `done` — carrying the graceful in-language failure reply (see
+ * the turn-failure guarantee below) — never a raw `error` payload. Streaming
  * is strictly opt-in: every gate below still answers plain JSON, and
  * non-streaming callers (the Help-Center server adapters read
  * `response` verbatim) are byte-identical to before.
@@ -31,7 +33,75 @@ import type { MediaInput } from "@/lib/ai/media";
 const WIDGET_RATE_LIMIT = { maxRequests: 20, windowMs: 60 * 1000 };
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
+// ---------------------------------------------------------------------------
+// Turn-failure guarantee (agent-quality Defect 8, 2026-10-22)
+// ---------------------------------------------------------------------------
+// A widget turn must NEVER die in front of the visitor as a raw English
+// server error ("Failed to process message") or as a dropped connection
+// ("Connection problem"). Production logs for 2026-10-22 01:02 Dhaka show
+// why it did: the data layer threw `8 RESOURCE_EXHAUSTED: Quota exceeded`
+// (Firestore) mid-turn and the exception escaped chat() into this route's
+// catch; other turns wedged inside downstream retry backoff until the
+// platform killed the function and the widget's fetch rejected. URL
+// messages were not special-cased anywhere in the pipeline — they simply
+// landed in the failure window (plain turns failed the same way), which
+// is why the fix is at the turn boundary, not URL handling:
+//
+//  1. ANY exception escaping a turn is converted into a COMPLETED turn:
+//     HTTP 200 with a graceful, in-language `response` (language follows
+//     the visitor's own message), so the widget renders a normal bot
+//     reply and server-side adapters keep working. The real error is
+//     still logged server-side above.
+//  2. A turn is raced against a soft deadline (default 50s — healthy
+//     turns complete in ~15–20s). A wedged turn settles with the same
+//     graceful response instead of hanging until the platform severs
+//     the connection. The underlying work may still finish server-side;
+//     the thread sync then shows the saved reply.
+// ---------------------------------------------------------------------------
+/** Soft per-turn deadline, read per request so ops can tune it via
+ *  WIDGET_TURN_DEADLINE_MS without a code change. */
+function turnDeadlineMs(): number {
+  const n = Number(process.env.WIDGET_TURN_DEADLINE_MS);
+  return Number.isFinite(n) && n >= 1000 && n <= 120_000 ? n : 50_000;
+}
+
+class TurnDeadlineError extends Error {
+  constructor(ms: number) {
+    super(`widget turn exceeded ${ms}ms deadline`);
+    this.name = "TurnDeadlineError";
+  }
+}
+
+function withTurnDeadline<T>(work: Promise<T>): Promise<T> {
+  const ms = turnDeadlineMs();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new TurnDeadlineError(ms)), ms);
+  });
+  return Promise.race([work, deadline]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+const GRACEFUL_TURN_TEXT = {
+  bn: "দুঃখিত, এই মুহূর্তে আপনার বার্তাটির উত্তর দিতে একটু সমস্যা হচ্ছে। অনুগ্রহ করে একটু পরে আবার চেষ্টা করুন, অথবা জরুরি হলে আমাদের টিমের সঙ্গে সরাসরি যোগাযোগ করুন।",
+  en: "I'm sorry, I'm having a little trouble answering your message right now. Please try again in a moment, or contact our team directly if it's urgent.",
+} as const;
+
+/** Graceful turn-failure text in the visitor's language (Bengali script
+ *  in their message → Bengali; anything else → English). */
+export function gracefulTurnResponseText(messageText: string): string {
+  return /[\u0980-\u09FF]/.test(messageText || "")
+    ? GRACEFUL_TURN_TEXT.bn
+    : GRACEFUL_TURN_TEXT.en;
+}
+
 export async function POST(request: NextRequest) {
+  // Identifiers captured as the turn progresses so the failure path can
+  // still hand back a completed-turn payload for the right conversation.
+  let failureText = "";
+  let failureConversationId = "";
+  let failureVisitorId = "";
   try {
     const body = await request.json();
     const { siteKey, message, visitorId, conversationId, image } = body as {
@@ -87,6 +157,7 @@ export async function POST(request: NextRequest) {
       suppliedVisitor && suppliedVisitor.toLowerCase() !== "anonymous"
         ? suppliedVisitor
         : `anon-${crypto.randomUUID()}`;
+    failureVisitorId = visitor;
     // visitorId is client-supplied and rotatable — a second bucket keyed by
     // (siteKey + IP) caps total abuse per network regardless of rotation.
     const clientIp =
@@ -103,6 +174,7 @@ export async function POST(request: NextRequest) {
     }
 
     const text = typeof message === "string" ? message.trim() : "";
+    failureText = text;
     if (!text && !image?.base64) {
       return NextResponse.json({ error: "Message or image is required" }, { status: 400 });
     }
@@ -176,6 +248,7 @@ export async function POST(request: NextRequest) {
       });
       convId = conv.id;
     }
+    failureConversationId = convId;
 
     if (wantsStream) {
       const encoder = new TextEncoder();
@@ -192,11 +265,13 @@ export async function POST(request: NextRequest) {
           };
           try {
             send("meta", { conversationId: convId });
-            const result = await chat(convId, text || "(sent a photo)", {
-              media,
-              onToken: (tokenText) => send("token", { text: tokenText }),
-              onRetract: () => send("retract", {}),
-            });
+            const result = await withTurnDeadline(
+              chat(convId, text || "(sent a photo)", {
+                media,
+                onToken: (tokenText) => send("token", { text: tokenText }),
+                onRetract: () => send("retract", {}),
+              })
+            );
             // Terminal payload: the exact shape the JSON response carries.
             send("done", {
               conversationId: convId,
@@ -208,7 +283,18 @@ export async function POST(request: NextRequest) {
             });
           } catch (error) {
             logger.error("Widget chat (stream) failed:", error);
-            send("error", { error: "Failed to process message" });
+            // Turn-failure guarantee: settle the stream with a completed,
+            // graceful, in-language turn — never a raw server error. If
+            // tokens already streamed, the embed replaces the partial
+            // bubble with this text; if the wedged turn still finishes
+            // server-side, the thread sync shows its saved reply after.
+            send("done", {
+              conversationId: convId,
+              visitorId: visitor,
+              response: gracefulTurnResponseText(text),
+              products: [],
+              silent: false,
+            });
           } finally {
             try {
               controller.close();
@@ -228,7 +314,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const result = await chat(convId, text || "(sent a photo)", { media });
+    const result = await withTurnDeadline(
+      chat(convId, text || "(sent a photo)", { media })
+    );
 
     return NextResponse.json({
       conversationId: convId,
@@ -244,6 +332,19 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     logger.error("Widget chat failed:", error);
-    return NextResponse.json({ error: "Failed to process message" }, { status: 500 });
+    // Turn-failure guarantee (see the Defect-8 note above): the visitor
+    // gets a COMPLETED turn with a graceful in-language reply — the raw
+    // server error never surfaces, whatever stage threw (data-layer
+    // quota, provider parse, deadline). Gates that answer explicitly
+    // (401/402/429/validation) are unaffected: they return before here.
+    return NextResponse.json({
+      ...(failureConversationId
+        ? { conversationId: failureConversationId }
+        : {}),
+      ...(failureVisitorId ? { visitorId: failureVisitorId } : {}),
+      response: gracefulTurnResponseText(failureText),
+      products: [],
+      silent: false,
+    });
   }
 }

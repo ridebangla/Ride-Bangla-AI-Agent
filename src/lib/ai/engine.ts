@@ -511,29 +511,52 @@ export async function chat(
     lang: behaviourLang,
   });
 
-  // Save assistant message
-  const savedMessage = await prisma.message.create({
-    data: withBusinessId({
-      conversationId,
-      role: "assistant",
-      content: finalResponse,
-    }),
-  });
+  // Save assistant message. Persistence is fail-soft from here on
+  // (turn-failure guarantee, agent-quality Defect 8, 2026-10-22): the
+  // reply has already been generated, and a transient data-layer
+  // failure at this last step (e.g. Firestore RESOURCE_EXHAUSTED) must
+  // not convert a completed answer into a dead turn — the visitor
+  // still receives the reply, and the failure is logged for the team.
+  let savedMessageId: string | null = null;
+  try {
+    const savedMessage = await prisma.message.create({
+      data: withBusinessId({
+        conversationId,
+        role: "assistant",
+        content: finalResponse,
+      }),
+    });
+    savedMessageId = savedMessage.id;
 
-  // Update conversation timestamp
-  await prisma.conversation.update({
-    where: { id: conversationId },
-    data: { updatedAt: new Date() },
-  });
-
-  if (confidence.shouldEscalate) {
+    // Update conversation timestamp
     await prisma.conversation.update({
       where: { id: conversationId },
-      data: { status: "escalated" },
+      data: { updatedAt: new Date() },
+    });
+  } catch (err) {
+    logger.warn("[brain] could not persist assistant reply; returning it anyway", {
+      conversationId,
+      reason: err instanceof Error ? err.message : String(err),
     });
   }
 
-  emitNewMessage(conversationId, { id: savedMessage.id, role: "assistant", content: finalResponse });
+  if (confidence.shouldEscalate) {
+    try {
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { status: "escalated" },
+      });
+    } catch (err) {
+      logger.warn("[brain] could not mark conversation escalated", {
+        conversationId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  if (savedMessageId) {
+    emitNewMessage(conversationId, { id: savedMessageId, role: "assistant", content: finalResponse });
+  }
 
   // Billing Phase 2: meter the finalized AI reply (fire-and-forget — a
   // metering failure must never break the reply). The 402 hard-stop runs
@@ -768,16 +791,35 @@ async function callAI(
     });
 
     for (const toolCall of toolCalls) {
-      const args = JSON.parse(toolCall.function.arguments);
-      // Live activity: caption only what the tool genuinely does —
-      // unmapped tools leave the composing caption in place.
-      const toolKind = activityKindForTool(toolCall.function.name);
-      if (toolKind) await reportActivity(conversationId, toolKind);
-      const result = await executeToolCall(
-        toolCall.function.name,
-        args,
-        conversationId
-      );
+      // Turn-failure guarantee (agent-quality Defect 8, 2026-10-22): a
+      // single bad tool call — malformed model arguments, or a tool whose
+      // data-layer write throws (e.g. Firestore RESOURCE_EXHAUSTED) —
+      // must not kill the whole turn. The failure becomes an ordinary
+      // tool result the model can recover from in its reply; previously
+      // it escaped chat() and the visitor got a raw server error.
+      let result: string;
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        // Live activity: caption only what the tool genuinely does —
+        // unmapped tools leave the composing caption in place.
+        const toolKind = activityKindForTool(toolCall.function.name);
+        if (toolKind) await reportActivity(conversationId, toolKind);
+        result = await executeToolCall(
+          toolCall.function.name,
+          args,
+          conversationId
+        );
+      } catch (err) {
+        logger.warn("[brain] tool call failed; continuing without it", {
+          tool: toolCall.function.name,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+        result = JSON.stringify({
+          success: false,
+          error:
+            "That supporting action could not be completed just now. Continue helping the customer in your reply without it, and offer to connect them with a team member if they still need it.",
+        });
+      }
       // Phase 3: harvest product cards from show_products tool results so
       // the widget can render them.
       collectShownProducts(toolCall.function.name, result, collectedProducts);
