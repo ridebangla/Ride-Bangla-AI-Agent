@@ -24,6 +24,7 @@ vi.mock("openai", () => {
 
 import {
   AllProvidersFailedError,
+  __resetProviderBreakers,
   completeWithFallback,
   scrubKeyMaterial,
   type ProviderKeys,
@@ -43,6 +44,11 @@ function sdkError(message: string, status?: number, code?: string) {
 beforeEach(() => {
   mockCreate.mockReset();
   vi.unstubAllGlobals();
+  // Circuit-breaker hygiene (latency fix 2026-10-22): the 401 case below
+  // legitimately opens the breaker for this fake key — later cases in
+  // this file assert on REAL attempt error text for the same key, so
+  // breaker state must not leak between cases.
+  __resetProviderBreakers();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
