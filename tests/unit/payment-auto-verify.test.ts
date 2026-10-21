@@ -45,6 +45,9 @@ const { fakeDb } = vi.hoisted(() => {
 
   class FakeQuerySnapshot {
     constructor(readonly docs: FakeDocSnapshot[]) {}
+    forEach(cb: (doc: FakeDocSnapshot) => void) {
+      this.docs.forEach(cb);
+    }
     get empty() {
       return this.docs.length === 0;
     }
@@ -557,6 +560,36 @@ describe("runClaimDecision (orchestration, FakeDb)", () => {
     // Full txn id must never appear in an audit note (masked only).
     expect(String(audits[0].note)).not.toContain("TXN99887766");
     expect(String(audits[0].note)).toContain("••••7766");
+  });
+
+  it("panel-created plan claim auto-activates (attack-test 2026-10-21)", async () => {
+    seedBankClaim({ plan: "team", amount: 29, amountCents: 2900 });
+    fakeDb.seed("ai_plans", "team", {
+      name: "Team",
+      priceUsd: 29,
+      yearlyPriceUsd: 290,
+      tagline: "",
+      messagesPerMonth: 2000,
+      active: true,
+    });
+    holder.visionText = receiptText({ AMOUNT: "29.00" });
+    const out = await runClaimDecision("c1");
+    expect(out.action).toBe("auto_approved");
+    const claim = fakeDb.read("payment_claims", "c1")!;
+    expect(claim.status).toBe("approved");
+    expect(claim.activationSnapshot).toBeTruthy();
+    const biz = fakeDb.read("businesses", "biz1")!;
+    expect(biz.subscriptionStatus).toBe("active");
+    expect(biz.plan).toBe("team");
+  });
+
+  it("claim for an unknown plan id does NOT auto-activate (attack-test 2026-10-21)", async () => {
+    seedBankClaim({ plan: "bogus-plan", amount: 29, amountCents: 2900 });
+    holder.visionText = receiptText({ AMOUNT: "29.00" });
+    const out = await runClaimDecision("c1");
+    expect(out.action).not.toBe("auto_approved");
+    expect(fakeDb.read("payment_claims", "c1")!.status).toBe("pending");
+    expect(fakeDb.read("businesses", "biz1")!.subscriptionStatus).toBe("trialing");
   });
 
   it("amount mismatch stays pending with evidence — never auto-rejected", async () => {

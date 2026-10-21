@@ -61,8 +61,10 @@ export interface ParsedOffer {
   percentOff: number | null;
   offerPriceMonthlyUsd: number | null;
   offerPriceYearlyUsd: number | null;
-  /** Null = no start bound in the doc (already started). */
-  startsAt: Date | null;
+  /** Required: an offer doc without a parseable startsAt is rejected
+   *  (attack-test 2026-10-21 — a missing start must never mean "live
+   *  since the beginning of time"; mirrors the Studio parser). */
+  startsAt: Date;
   endsAt: Date;
   active: boolean;
 }
@@ -138,13 +140,18 @@ function validStripeId(v: unknown): string | null {
 }
 
 /** active semantics: absent = true; only an explicit false on any of the
- *  panel's boolean dialects deactivates. */
-function docActive(data: Record<string, unknown>): boolean {
-  return !(
-    data.active === false ||
-    data.enabled === false ||
-    data.isActive === false
+ *  panel's boolean dialects deactivates. A malformed string "false" also
+ *  deactivates (attack-test 2026-10-21: a deactivation stored in a
+ *  malformed shape must never silently stay active). */
+function flagOff(v: unknown): boolean {
+  return (
+    v === false ||
+    (typeof v === "string" && v.trim().toLowerCase() === "false")
   );
+}
+
+function docActive(data: Record<string, unknown>): boolean {
+  return !(flagOff(data.active) || flagOff(data.enabled) || flagOff(data.isActive));
 }
 
 /**
@@ -153,7 +160,7 @@ function docActive(data: Record<string, unknown>): boolean {
  * Code ids: tolerant per-field merge over PLAN_META — each invalid field
  * is ignored individually and the code value stands. Always returns a plan.
  * New ids: the doc must carry the full commercial field set (non-empty
- * name, priceUsd > 0, yearlyPriceUsd >= 0, positive-integer
+ * name, priceUsd > 0, yearlyPriceUsd > 0, positive-integer
  * messagesPerMonth) or the plan is skipped (null) — fail-closed.
  */
 export function mergePlanDoc(
@@ -169,7 +176,7 @@ export function mergePlanDoc(
       id,
       name: validName(d.name) ?? base.name,
       priceUsd: validPrice(d.priceUsd, false) ?? base.priceUsd,
-      yearlyPriceUsd: validPrice(d.yearlyPriceUsd, true) ?? base.yearlyPriceUsd,
+      yearlyPriceUsd: validPrice(d.yearlyPriceUsd, false) ?? base.yearlyPriceUsd,
       tagline:
         typeof d.tagline === "string" && d.tagline.trim()
           ? d.tagline.trim()
@@ -185,7 +192,7 @@ export function mergePlanDoc(
   // New (panel-created) plan id: full commercial field set required.
   const name = validName(d.name);
   const priceUsd = validPrice(d.priceUsd, false);
-  const yearlyPriceUsd = validPrice(d.yearlyPriceUsd, true);
+  const yearlyPriceUsd = validPrice(d.yearlyPriceUsd, false);
   const messagesPerMonth = validMessages(d.messagesPerMonth);
   if (
     name === null ||
@@ -261,11 +268,11 @@ export function parseOfferDoc(id: string, data: unknown): ParsedOffer | null {
   const endsAt = toDateValue(d.endsAt);
   if (!endsAt) return null;
 
-  let startsAt: Date | null = null;
-  if (d.startsAt !== undefined && d.startsAt !== null) {
-    startsAt = toDateValue(d.startsAt);
-    if (!startsAt) return null;
-  }
+  // startsAt is required (attack-test 2026-10-21): a missing or
+  // unparseable start invalidates the doc, exactly like endsAt.
+  if (d.startsAt === undefined || d.startsAt === null) return null;
+  const startsAt = toDateValue(d.startsAt);
+  if (!startsAt) return null;
 
   return {
     id,

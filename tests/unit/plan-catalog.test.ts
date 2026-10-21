@@ -131,8 +131,14 @@ describe("mergePlanDoc — new panel-created plans (full field set required)", (
     expect(plan!.active).toBe(true);
   });
 
-  it("allows a zero yearly price (>= 0)", () => {
-    expect(mergePlanDoc("team", { ...full, yearlyPriceUsd: 0 })).not.toBeNull();
+  it("rejects a zero yearly price (attack-test 2026-10-21: a plan must never resolve to free)", () => {
+    expect(mergePlanDoc("team", { ...full, yearlyPriceUsd: 0 })).toBeNull();
+  });
+
+  it("a zero yearly override on a code plan falls back to the code price, never free", () => {
+    expect(mergePlanDoc("starter", { yearlyPriceUsd: 0 })!.yearlyPriceUsd).toBe(
+      PLAN_META.starter.yearlyPriceUsd
+    );
   });
 
   it("returns null for each incomplete variant", () => {
@@ -176,6 +182,17 @@ describe("parseOfferDoc", () => {
 
   it("a present-but-unparseable startsAt invalidates the doc", () => {
     expect(parseOfferDoc("o1", { ...base, startsAt: "junk" })).toBeNull();
+  });
+
+  it("a MISSING startsAt invalidates the doc (attack-test 2026-10-21)", () => {
+    const { startsAt: _drop, ...noStart } = base;
+    expect(parseOfferDoc("o1", noStart)).toBeNull();
+    expect(parseOfferDoc("o1", { ...base, startsAt: null })).toBeNull();
+  });
+
+  it("active: a malformed string 'false' also deactivates (attack-test 2026-10-21)", () => {
+    expect(parseOfferDoc("o1", { ...base, active: "false" })!.active).toBe(false);
+    expect(mergePlanDoc("starter", { active: "false" })!.active).toBe(false);
   });
 
   it("an out-of-range percentOff is ignored per-field, fixed prices kept", () => {

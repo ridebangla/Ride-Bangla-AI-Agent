@@ -51,6 +51,7 @@ import { isValidRefCode } from "./ref-codes";
 import { perceiveMedia, describeImageWithVision } from "./ai/media";
 import { hasAnyProviderKey, resolveSiteKeys, type ProviderKeys } from "./ai/providers";
 import { isPaidPlanId, isBillingInterval } from "./plans";
+import { getCatalogPlan } from "./plan-catalog";
 import {
   RECEIPT_QUESTION,
   parseReceiptExtraction,
@@ -100,6 +101,22 @@ export async function approveSubscriptionClaim(
   const db = getAdminDb();
   const claimRef = db.collection("payment_claims").doc(claimId);
 
+  // Panel-created plans (attack-test 2026-10-21): a code plan id is always
+  // valid; any OTHER plan id is valid only when it exists as an ACTIVE
+  // plan in the effective catalog (ai_plans merged over the code catalog).
+  // Resolved BEFORE the transaction (the catalog read is a separate
+  // Firestore read); the transaction re-checks the claim's plan against
+  // this pre-read value and fails closed on any mismatch.
+  const preSnap = await claimRef.get();
+  const prePlan: unknown = preSnap.exists
+    ? (preSnap.data() as Record<string, unknown>).plan
+    : undefined;
+  let prePlanOk = isPaidPlanId(prePlan);
+  if (!prePlanOk && typeof prePlan === "string" && prePlan) {
+    const catalogPlan = await getCatalogPlan(prePlan).catch(() => null);
+    prePlanOk = !!catalogPlan && catalogPlan.active;
+  }
+
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(claimRef);
     if (!snap.exists) {
@@ -117,7 +134,7 @@ export async function approveSubscriptionClaim(
 
     const plan = claim.plan;
     const interval = isBillingInterval(claim.interval) ? claim.interval : "monthly";
-    if (!isPaidPlanId(plan)) {
+    if (!isPaidPlanId(plan) && !(prePlanOk && plan === prePlan)) {
       throw new Error(`Claim ${claimId} has an invalid plan.`);
     }
 
