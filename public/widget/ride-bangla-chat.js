@@ -1,6 +1,13 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-22.2 (NEW: the mascot still/poster is
+ * CANONICAL EMBED — v2026-10-22.3 (NEW: agent-brand wiring — the three agent
+ * character URLs now resolve at init from the platform's public
+ * GET /api/widget/brand record (Firestore agent_brand/current, Admin SDK,
+ * ~60s server cache) with a 2.5s fail-soft timeout; when it answers, the URLs
+ * re-resolve with a ?v=<version> cache-buster and the live launcher/header
+ * markup is swapped in place, while the hardcoded platform defaults stay the
+ * fallback so a dead record or endpoint changes NOTHING. Prior:
+ * v2026-10-22.2 (NEW: the mascot still/poster is
  * now a TRUE BUST ASSET — agent-avatar.png itself is the
  * head+shoulders crop of the mascot artwork (owner reference
  * framing: figure x 4.5-94% / y 4-100% of the square), so the
@@ -112,14 +119,81 @@
   // The agent character is a PLATFORM asset: the bust still (also
   // the video poster + the no-video fallback), the idle clip and
   // the working clip resolve from these three constants and
-  // nowhere else in the embed. Central-control hook for the
-  // brand-assets build: when the Super Admin panel gains
-  // brand-asset settings, resolve the three URLs HERE (from the
-  // central settings record, with its version cache-bust) and
-  // every placement in this file follows automatically.
+  // nowhere else in the embed. Central control for the brand-assets
+  // build (shipped v2026-10-22.3): the Admin Panel's brand record is
+  // fetched at init by fetchAgentBrand() (below); when it answers,
+  // these three vars re-resolve from the record (with its version
+  // cache-bust) and every placement in this file follows automatically.
   var avatarUrl = config.server.replace(/\/$/, "") + "/agent-avatar.png";
   var idleVideoUrl = config.server.replace(/\/$/, "") + "/agent-idle.mp4";
   var workingVideoUrl = config.server.replace(/\/$/, "") + "/agent-working.mp4";
+
+  // ---- Agent brand record (Admin-controlled) ----
+  // The agent character is an Admin Panel setting (Super Admin only,
+  // Firestore agent_brand/current). The platform serves it publicly at
+  // GET /api/widget/brand (relative to config.server). At init the embed
+  // asks for it ONCE; when the record answers, the three URL vars above
+  // re-resolve with the record's version as a cache-buster, and the
+  // already-rendered launcher/header markup is swapped in place.
+  // Fail-soft by contract: a dead endpoint, a timeout, or a partial
+  // record changes NOTHING -- the hardcoded platform defaults stay live,
+  // and the widget never waits on this fetch.
+  function brandCacheBust(url, version) {
+    if (!url) return url;
+    return url + (url.indexOf("?") >= 0 ? "&" : "?") + "v=" + encodeURIComponent(String(version == null ? 0 : version));
+  }
+  function applyBrandRecord(rec) {
+    if (!rec || typeof rec !== "object") return false;
+    var v = rec.version == null ? 0 : rec.version;
+    var changed = false;
+    if (typeof rec.logoUrl === "string" && rec.logoUrl) { avatarUrl = brandCacheBust(rec.logoUrl, v); changed = true; }
+    if (typeof rec.idleVideoUrl === "string" && rec.idleVideoUrl) { idleVideoUrl = brandCacheBust(rec.idleVideoUrl, v); changed = true; }
+    if (typeof rec.workingVideoUrl === "string" && rec.workingVideoUrl) { workingVideoUrl = brandCacheBust(rec.workingVideoUrl, v); changed = true; }
+    return changed;
+  }
+  function applyBrandToLiveDom() {
+    // The brand fetch can resolve after createWidget already rendered the
+    // defaults: swap the mounted launcher/header markup in place so a panel
+    // change propagates without any page rebuild or widget re-init.
+    var i, el;
+    var idles = document.querySelectorAll(".rbai-vid-idle");
+    for (i = 0; i < idles.length; i++) {
+      el = idles[i];
+      if (el.getAttribute("src") !== idleVideoUrl) {
+        el.setAttribute("src", idleVideoUrl);
+        try { el.load(); } catch (e1) {}
+      }
+      el.setAttribute("poster", avatarUrl);
+    }
+    var workings = document.querySelectorAll(".rbai-vid-working");
+    for (i = 0; i < workings.length; i++) {
+      el = workings[i];
+      el.setAttribute("data-src", workingVideoUrl);
+      if (el.getAttribute("src")) el.setAttribute("src", workingVideoUrl);
+      el.setAttribute("poster", avatarUrl);
+    }
+    var fallbacks = document.querySelectorAll(".rbai-avatar-fallback");
+    for (i = 0; i < fallbacks.length; i++) fallbacks[i].setAttribute("src", avatarUrl);
+    kickActiveVideos();
+  }
+  function fetchAgentBrand() {
+    var endpoint;
+    try { endpoint = config.server.replace(/\/$/, "") + "/api/widget/brand"; }
+    catch (e0) { return; }
+    var settled = false;
+    function finish(rec) {
+      if (settled) return;
+      settled = true;
+      if (rec && applyBrandRecord(rec) && widgetContainer) applyBrandToLiveDom();
+    }
+    try {
+      // Timeout = fail-soft defaults: the widget never waits on this.
+      setTimeout(function () { finish(null); }, 2500);
+      fetch(endpoint, { credentials: "omit" }).then(function (r) {
+        return (r && r.ok) ? r.json() : null;
+      }).then(finish).catch(function () { finish(null); });
+    } catch (e2) { /* fetch unavailable -- the defaults stay */ }
+  }
   var agentState = "idle";
   var pendingRequests = 0;
   var workingWatchdog = null;
@@ -1496,6 +1570,11 @@
     var observer = new MutationObserver(function () { syncInlineMount(); });
     observer.observe(document.body, { childList: true, subtree: true });
   }
+
+  // The brand fetch fires at once and never blocks the render:
+  // the widget builds instantly from the defaults and the live
+  // markup is swapped only when the record actually answers.
+  fetchAgentBrand();
 
   // Initialize
   if (document.readyState === "loading") {

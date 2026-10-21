@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
+import { AgentAvatar } from "@/components/agent-avatar";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -119,13 +119,7 @@ export function Sidebar() {
       )}
     >
       <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10">
-        <Image
-          src="/agent-avatar.png"
-          alt="Ride Bangla AI Agent"
-          width={32}
-          height={32}
-          className="rounded-lg flex-shrink-0"
-        />
+        <AgentAvatar width={32} height={32} />
         {!collapsed && (
           <div className="overflow-hidden">
             <h1 className="text-base font-bold tracking-tight">Ride Bangla AI Agent</h1>
