@@ -487,6 +487,43 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
 
       {/* Footer */}
       <footer className="border-t border-slate-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-10">
+          <h2 className="font-semibold text-sm">Services of Ride Bangla Limited</h2>
+          <ul className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <li>
+              <a href="https://ridebangla.bd" className="text-sm font-medium text-slate-700 hover:text-slate-900">
+                Ride Bangla
+              </a>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                Bangladesh&apos;s super-app for ride-sharing, food delivery, courier and digital services.
+              </p>
+            </li>
+            <li>
+              <a href="https://studio.ridebangla.bd" className="text-sm font-medium text-slate-700 hover:text-slate-900">
+                Ride Bangla Studio
+              </a>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                AI-powered ad, image and video generation for your brand and products — 5 generator modes, including text + image to video.
+              </p>
+            </li>
+            <li>
+              <a href="https://tools.ridebangla.bd" className="text-sm font-medium text-slate-700 hover:text-slate-900">
+                Ride Bangla Tools
+              </a>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                Unlimited free online tools for everyday tasks — PDF, image, QR, calculators, text tools and more.
+              </p>
+            </li>
+            <li>
+              <a href="https://it.ridebangla.bd" className="text-sm font-medium text-slate-700 hover:text-slate-900">
+                Ride Bangla IT Team
+              </a>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                App &amp; Web Development
+              </p>
+            </li>
+          </ul>
+        </div>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
             <Image
