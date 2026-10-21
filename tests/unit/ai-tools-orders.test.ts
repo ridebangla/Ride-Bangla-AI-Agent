@@ -38,6 +38,33 @@ describe("AI tools: take_order + schedule_followup (real persistence)", () => {
     expect(data.metadata.pickup).toBe("Faridpur Sadar");
   });
 
+  it("take_order recomputes the total from priced items — a model-supplied total never wins (attack regression)", async () => {
+    mockPrisma.ticket.create.mockResolvedValue({ id: "ticket-123" });
+    mockPrisma.order.create.mockResolvedValue({ id: "order-456" });
+    const { executeToolCall } = await import("@/lib/ai/tools");
+
+    const raw = await executeToolCall(
+      "take_order",
+      {
+        serviceType: "food_delivery",
+        details: "2 cakes",
+        customerName: "Mallory",
+        customerPhone: "01712345678",
+        customFields: {
+          customer_name: "Mallory",
+          phone: "01712345678",
+          delivery_address: "House 12, Road 3, Faridpur Sadar",
+        },
+        items: [{ name: "Chocolate Cake", qty: 2, price: 450 }],
+        total: 1,
+      },
+      "conv-1"
+    );
+    expect(JSON.parse(raw).success).toBe(true);
+    const data = mockPrisma.order.create.mock.calls[0][0].data;
+    expect(data.total).toBe(900);
+  });
+
   it("take_order rejects missing essentials", async () => {
     const { executeToolCall } = await import("@/lib/ai/tools");
     const raw = await executeToolCall("take_order", { serviceType: "", details: "" }, "conv-1");

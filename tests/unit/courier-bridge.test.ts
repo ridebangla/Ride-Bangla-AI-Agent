@@ -26,6 +26,7 @@ import {
   DISPATCH_QUEUE_COLLECTION,
   ADMIN_ORDERS_COLLECTION,
   courierOrderIdFor,
+  classifyExistingBooking,
   resolveCourierDeliveryEnabled,
   extractDeliveryDetails,
   buildCourierOrderDoc,
@@ -64,11 +65,50 @@ class FakeStore implements CourierBridgeStore {
   ) {
     this.createCalls += 1;
     const key = this.key(COURIER_ORDERS_COLLECTION, courierOrderId);
-    if (this.docs.has(key)) return { created: false };
+    if (this.docs.has(key))
+      return {
+        created: false,
+        existing: classifyExistingBooking(
+          this.docs.get(key)!,
+          String(docs.courier.agentOrderId ?? ""),
+          String(docs.courier.agentBusinessId ?? "")
+        ),
+      };
     this.docs.set(key, docs.courier);
     this.docs.set(this.key(DISPATCH_QUEUE_COLLECTION, courierOrderId), docs.queue);
     this.docs.set(this.key(ADMIN_ORDERS_COLLECTION, courierOrderId), docs.adminOrder);
     return { created: true };
+  }
+
+  async reviveCancelledBooking(
+    courierOrderId: string,
+    docs: {
+      courier: Record<string, unknown>;
+      queue: Record<string, unknown>;
+      adminOrder: Record<string, unknown>;
+    }
+  ) {
+    const ck = this.key(COURIER_ORDERS_COLLECTION, courierOrderId);
+    const courier = this.docs.get(ck);
+    if (!courier) return "missing" as const;
+    const info = classifyExistingBooking(
+      courier,
+      String(docs.courier.agentOrderId ?? ""),
+      String(docs.courier.agentBusinessId ?? "")
+    );
+    if (!info?.owned) return "foreign" as const;
+    if (courier.status !== "cancelled") return "closed" as const;
+    const qk = this.key(DISPATCH_QUEUE_COLLECTION, courierOrderId);
+    const queue = this.docs.get(qk) ?? {};
+    const rider =
+      (typeof queue.riderId === "string" && queue.riderId) ||
+      (typeof courier.riderId === "string" && courier.riderId) ||
+      "";
+    if (rider) return "claimed" as const;
+    this.docs.set(ck, docs.courier);
+    this.docs.set(qk, docs.queue);
+    this.docs.set(this.key(ADMIN_ORDERS_COLLECTION, courierOrderId), docs.adminOrder);
+    return "revived" as const;
   }
 
   async cancelBookingIfUnclaimed(courierOrderId: string, ts: unknown) {
@@ -657,5 +697,100 @@ describe("whitelist (Round-2 forgery regression)", () => {
     expect(doc.status).toBe("pending_rider_assignment");
     expect(doc.source).toBe("ai_agent");
     expect(doc.created_by).toBe("ai_agent");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 10. Attack regressions (Team-3 attack test, 2026-10-21)               */
+/* ------------------------------------------------------------------ */
+
+describe("attack regressions", () => {
+  it("forged link on order A cannot cancel business B's booking", async () => {
+    const b = makeOrder({ id: "order-b", businessId: "biz-cake" });
+    const a = makeOrder({ id: "order-a", businessId: "biz-rb" });
+    const { deps, store } = makeHarness([a, b], [RB_BUSINESS, TENANT_ON]);
+    await handleOrderConfirmed("order-b", deps);
+    a.courierBooking = {
+      state: "booked",
+      courierOrderId: courierOrderIdFor("order-b"),
+      updatedAt: "x",
+    } as unknown as Order["courierBooking"];
+    a.status = "cancelled";
+    await handleOrderCancelled("order-a", deps);
+    expect(
+      store.courierDoc(courierOrderIdFor("order-b"))!.status
+    ).toBe("pending_rider_assignment");
+  });
+
+  it("forged link on order A cannot read business B's delivery status", async () => {
+    const b = makeOrder({ id: "order-b", businessId: "biz-cake" });
+    const a = makeOrder({ id: "order-a", businessId: "biz-rb" });
+    const { deps, store } = makeHarness([a, b], [RB_BUSINESS, TENANT_ON]);
+    await handleOrderConfirmed("order-b", deps);
+    const doc = store.courierDoc(courierOrderIdFor("order-b"))!;
+    store.docs.set(`${COURIER_ORDERS_COLLECTION}/${courierOrderIdFor("order-b")}`, {
+      ...doc,
+      status: "delivered",
+      riderId: "rider-secret",
+    });
+    a.courierBooking = {
+      state: "booked",
+      courierOrderId: courierOrderIdFor("order-b"),
+      updatedAt: "x",
+    } as unknown as Order["courierBooking"];
+    const st = await getCourierDeliveryStatus("order-a", deps);
+    expect(st?.courierOrderId).not.toBe(courierOrderIdFor("order-b"));
+    expect(st?.opsStatus).not.toBe("delivered");
+  });
+
+  it("cancel then re-confirm REVIVES the booking in place (never booked-over-cancelled)", async () => {
+    const order = makeOrder();
+    const { deps, store } = makeHarness([order], [RB_BUSINESS]);
+    await handleOrderConfirmed("order-1", deps);
+    await handleOrderCancelled("order-1", deps);
+    expect(store.courierDoc(CID)!.status).toBe("cancelled");
+    order.status = "confirmed";
+    const out = await handleOrderConfirmed("order-1", deps);
+    expect(out.state).toBe("booked");
+    expect(store.courierDoc(CID)!.status).toBe("pending_rider_assignment");
+    expect(store.queueDoc(CID)!.dispatchStatus).toBe("ready_for_dispatch");
+    expect(readLinkState(order)).toBe("booked");
+  });
+
+  it("a foreign doc squatting at agent_<id> is a collision, never adopted", async () => {
+    const order = makeOrder();
+    const { deps, store } = makeHarness([order], [RB_BUSINESS]);
+    store.docs.set(`${COURIER_ORDERS_COLLECTION}/${CID}`, {
+      status: "pending_rider_assignment",
+      customerId: "attacker-ops-uid",
+      total_amount: 1,
+      source: "customer_app",
+    });
+    const out = await handleOrderConfirmed("order-1", deps);
+    expect(out.state).toBe("failed");
+    expect(readLinkState(order)).toBe("failed");
+    expect(store.queueDoc(CID)).toBeUndefined();
+  });
+
+  it("an order id with a path separator fails closed", async () => {
+    const order = makeOrder({ id: "a/b" });
+    const { deps, store } = makeHarness([order], [RB_BUSINESS]);
+    const out = await handleOrderConfirmed("a/b", deps);
+    expect(out.state).toBe("failed");
+    expect(store.size).toBe(0);
+  });
+
+  it("zero-width padding cannot inflate a short address past the needs-info gate", async () => {
+    const order = makeOrder({
+      customFields: {
+        customer_name: "Rahim",
+        phone: "01712345678",
+        delivery_address: "ab" + "\u200B".repeat(10),
+      },
+    });
+    const { deps, store } = makeHarness([order], [RB_BUSINESS]);
+    const out = await handleOrderConfirmed("order-1", deps);
+    expect(out.state).toBe("needs_info");
+    expect(store.size).toBe(0);
   });
 });

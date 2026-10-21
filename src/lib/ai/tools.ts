@@ -557,6 +557,7 @@ async function takeOrder(
     getOrderFields,
     getMissingOrderFields,
     normalizeItems,
+    computeTotal,
     createOrder,
   } = await import("../orders");
 
@@ -641,10 +642,19 @@ async function takeOrder(
     rawTotal === null || rawTotal === undefined || rawTotal === ""
       ? null
       : Number(rawTotal);
+  // Amount integrity: `args.total` comes from the MODEL (driven by the
+  // customer's conversation), so it is never trusted when the items
+  // carry prices — the server recomputes the total from the items,
+  // exactly as createOrder's own default does. The model-supplied
+  // total is only a fallback for orders whose items are unpriced
+  // (service quotes), where no server-side sum exists.
+  const computedTotal = computeTotal(items);
   const total =
-    parsedTotal !== null && Number.isFinite(parsedTotal) && parsedTotal >= 0
-      ? parsedTotal
-      : null;
+    computedTotal !== null
+      ? computedTotal
+      : parsedTotal !== null && Number.isFinite(parsedTotal) && parsedTotal >= 0
+        ? parsedTotal
+        : null;
 
   // Link the order to the conversation's customer when known. Never link
   // across tenants: the conversation must belong to this business.

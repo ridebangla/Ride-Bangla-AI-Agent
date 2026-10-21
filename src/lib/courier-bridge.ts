@@ -77,6 +77,18 @@ export function courierOrderIdFor(agentOrderId: string): string {
   return `agent_${agentOrderId}`;
 }
 
+/**
+ * Agent order ids are server-minted UUIDs (the Firestore shim's
+ * `randomUUID()`), so a legitimate id is always doc-id safe. An id
+ * outside this charset (path separators, dots, unicode tricks) can
+ * never come from the platform's own order creation — fail closed
+ * rather than letting it shape a Firestore doc path.
+ */
+const SAFE_AGENT_ORDER_ID = /^[A-Za-z0-9_-]{1,128}$/;
+export function isSafeAgentOrderId(agentOrderId: string): boolean {
+  return SAFE_AGENT_ORDER_ID.test(agentOrderId);
+}
+
 /* ------------------------------------------------------------------ */
 /* Link + setting                                                      */
 /* ------------------------------------------------------------------ */
@@ -160,7 +172,15 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function cleanText(value: unknown, max = 500): string {
-  if (typeof value === "string") return value.trim().slice(0, max);
+  if (typeof value === "string")
+    // Strip zero-width / format characters (ZWSP, ZWNJ/ZWJ, BOM, soft
+    // hyphen, word joiner): they are invisible, so a "blank" address
+    // padded with them must not pass the deliverability length check,
+    // and they have no place in names/notes shown to riders either.
+    return value
+      .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060]/g, "")
+      .trim()
+      .slice(0, max);
   if (typeof value === "number" && Number.isFinite(value))
     return String(value).slice(0, max);
   return "";
@@ -491,17 +511,49 @@ export function normalizeCourierPhase(
 /* Store (Firestore in production; fake in the harness)                */
 /* ------------------------------------------------------------------ */
 
+/** What an already-existing doc at the deterministic booking id is:
+ *  genuinely this order's bridge booking (owned) or something else. */
+export interface ExistingBookingInfo {
+  /** True only when the doc carries THIS order's bridge link fields
+   *  (agentOrderId + agentBusinessId + source "ai_agent"). A foreign
+   *  doc squatting at the deterministic id is never adopted. */
+  owned: boolean;
+  /** The doc's raw ops status (null when absent/not a string). */
+  status: string | null;
+}
+
+/** Classify a doc found at a booking id against the booking being built. */
+export function classifyExistingBooking(
+  doc: Record<string, unknown> | null,
+  agentOrderId: string,
+  businessId: string
+): ExistingBookingInfo | null {
+  if (!doc) return null;
+  const owned =
+    (doc.agentOrderId === agentOrderId || doc.agent_order_id === agentOrderId) &&
+    (doc.agentBusinessId === businessId ||
+      doc.agent_business_id === businessId) &&
+    doc.source === "ai_agent";
+  return {
+    owned,
+    status: typeof doc.status === "string" ? doc.status : null,
+  };
+}
+
 export interface CourierBridgeStore {
   getDoc(
     collection: string,
     id: string
   ): Promise<Record<string, unknown> | null>;
   /** Atomically create courier + queue + admin docs iff the courier doc
-   *  does not already exist. Returns whether this call created them. */
+   *  does not already exist. Returns whether this call created them;
+   *  when it did not, `existing` classifies the doc that was found
+   *  (older store implementations may omit it — callers then classify
+   *  via getDoc). */
   createBookingIfAbsent(
     courierOrderId: string,
     docs: { courier: DocData; queue: DocData; adminOrder: DocData }
-  ): Promise<{ created: boolean }>;
+  ): Promise<{ created: boolean; existing?: ExistingBookingInfo | null }>;
   /** Cancel a booking iff it is still unclaimed and non-terminal.
    *  "claimed" = a rider already holds it (ops owns it now);
    *  "closed" = terminal ops status; "missing" = no courier doc. */
@@ -509,6 +561,15 @@ export interface CourierBridgeStore {
     courierOrderId: string,
     ts: unknown
   ): Promise<"cancelled" | "claimed" | "closed" | "missing">;
+  /** Re-create a booking whose ops docs were cancelled through this
+   *  bridge (agent order re-confirmed after an agent-side cancel):
+   *  replaces the cancelled docs with the fresh payload iff the
+   *  existing doc is this order's own bridge booking, still
+   *  `cancelled`, and still unclaimed. */
+  reviveCancelledBooking(
+    courierOrderId: string,
+    docs: { courier: DocData; queue: DocData; adminOrder: DocData }
+  ): Promise<"revived" | "claimed" | "closed" | "missing" | "foreign">;
 }
 
 export function createFirestoreStore(
@@ -526,7 +587,15 @@ export function createFirestoreStore(
         .doc(courierOrderId);
       return db.runTransaction(async (tx) => {
         const existing = await tx.get(courierRef);
-        if (existing.exists) return { created: false };
+        if (existing.exists)
+          return {
+            created: false,
+            existing: classifyExistingBooking(
+              existing.data() as Record<string, unknown>,
+              String(docs.courier.agentOrderId ?? ""),
+              String(docs.courier.agentBusinessId ?? "")
+            ),
+          };
         tx.set(courierRef, docs.courier);
         tx.set(
           db.collection(DISPATCH_QUEUE_COLLECTION).doc(courierOrderId),
@@ -537,6 +606,45 @@ export function createFirestoreStore(
           docs.adminOrder
         );
         return { created: true };
+      });
+    },
+
+    async reviveCancelledBooking(courierOrderId, docs) {
+      const courierRef = db
+        .collection(COURIER_ORDERS_COLLECTION)
+        .doc(courierOrderId);
+      const queueRef = db
+        .collection(DISPATCH_QUEUE_COLLECTION)
+        .doc(courierOrderId);
+      return db.runTransaction(async (tx) => {
+        const courierSnap = await tx.get(courierRef);
+        if (!courierSnap.exists) return "missing" as const;
+        const courier = courierSnap.data() as Record<string, unknown>;
+        const info = classifyExistingBooking(
+          courier,
+          String(docs.courier.agentOrderId ?? ""),
+          String(docs.courier.agentBusinessId ?? "")
+        );
+        if (!info?.owned) return "foreign" as const;
+        if (courier.status !== "cancelled") return "closed" as const;
+        const queueSnap = await tx.get(queueRef);
+        const queue = queueSnap.exists
+          ? (queueSnap.data() as Record<string, unknown>)
+          : {};
+        const riderId =
+          (typeof queue.riderId === "string" && queue.riderId) ||
+          (typeof queue.rider_id === "string" && queue.rider_id) ||
+          (typeof courier.riderId === "string" && courier.riderId) ||
+          (typeof courier.rider_id === "string" && courier.rider_id) ||
+          "";
+        if (riderId) return "claimed" as const;
+        tx.set(courierRef, docs.courier);
+        tx.set(queueRef, docs.queue);
+        tx.set(
+          db.collection(ADMIN_ORDERS_COLLECTION).doc(courierOrderId),
+          docs.adminOrder
+        );
+        return "revived" as const;
       });
     },
 
@@ -669,17 +777,41 @@ export async function handleOrderConfirmed(
     }
     if (!resolveCourierDeliveryEnabled(business)) return { state: "disabled" };
 
+    // Order ids are server-minted UUIDs; anything else can never be a
+    // legitimate platform order and must not shape a Firestore doc id.
+    if (!isSafeAgentOrderId(orderId)) {
+      await recordLink(d, orderId, {
+        state: "failed",
+        error: "unsafe_order_id",
+        updatedAt: d.now().toISOString(),
+      });
+      return { state: "failed", error: "unsafe_order_id" };
+    }
+
     const courierOrderId = courierOrderIdFor(orderId);
     const existingLink = readBookingLink(order);
 
     // Idempotency: a live booking for this order already exists → done.
+    // The doc found at the deterministic id must be verified as THIS
+    // order's bridge booking first — a foreign doc squatting at the id
+    // is a collision to surface, never a booking to adopt.
     if (existingLink?.state === "booked") {
       const doc = await d.store.getDoc(
         COURIER_ORDERS_COLLECTION,
         courierOrderId
       );
-      if (doc)
+      if (doc) {
+        const info = classifyExistingBooking(doc, orderId, order.businessId);
+        if (!info?.owned) {
+          await recordLink(d, orderId, {
+            state: "failed",
+            error: "courier_id_collision",
+            updatedAt: d.now().toISOString(),
+          });
+          return { state: "failed", error: "courier_id_collision" };
+        }
         return { state: "booked", courierOrderId, created: false };
+      }
       // Link says booked but the ops doc is gone — fall through and
       // recreate it under the same deterministic id (self-healing).
     }
@@ -707,11 +839,81 @@ export async function handleOrderConfirmed(
     );
     const queueDoc = buildDispatchQueueDoc(extracted.prepared, orderId, ts);
     const adminDoc = buildAdminOrderDoc(courierDoc);
-    const { created } = await d.store.createBookingIfAbsent(courierOrderId, {
+    const docs = {
       courier: courierDoc,
       queue: queueDoc,
       adminOrder: adminDoc,
-    });
+    };
+    const { created, existing } = await d.store.createBookingIfAbsent(
+      courierOrderId,
+      docs
+    );
+
+    if (!created) {
+      // Something already lives at the deterministic id. Adopt it ONLY
+      // when it is verifiably this order's own bridge booking in a live
+      // state; revive the bridge-cancelled case; refuse everything else
+      // instead of stamping the order "booked" over a foreign, terminal
+      // or cancelled doc nobody will ever dispatch.
+      const info =
+        existing ??
+        classifyExistingBooking(
+          await d.store.getDoc(COURIER_ORDERS_COLLECTION, courierOrderId),
+          orderId,
+          order.businessId
+        );
+      if (!info) return { state: "failed", error: "booking_vanished" };
+      if (!info.owned) {
+        await recordLink(d, orderId, {
+          state: "failed",
+          error: "courier_id_collision",
+          updatedAt: d.now().toISOString(),
+        });
+        logger.error("[courier-bridge] courier id collision", {
+          orderId,
+          courierOrderId,
+        });
+        return { state: "failed", error: "courier_id_collision" };
+      }
+      if (info.status === "cancelled") {
+        const revived = await d.store.reviveCancelledBooking(
+          courierOrderId,
+          docs
+        );
+        if (revived !== "revived") {
+          await recordLink(d, orderId, {
+            state: "failed",
+            error: `booking_not_revivable_${revived}`,
+            updatedAt: d.now().toISOString(),
+          });
+          return {
+            state: "failed",
+            error: `booking_not_revivable_${revived}`,
+          };
+        }
+        await recordLink(d, orderId, {
+          state: "booked",
+          courierOrderId,
+          bookedAt: d.now().toISOString(),
+          updatedAt: d.now().toISOString(),
+        });
+        logger.info("[courier-bridge] cancelled booking revived", {
+          orderId,
+          courierOrderId,
+        });
+        return { state: "booked", courierOrderId, created: false };
+      }
+      if (info.status && isTerminalOpsStatus(info.status)) {
+        await recordLink(d, orderId, {
+          state: "failed",
+          error: "booking_terminal",
+          opsStatus: info.status,
+          updatedAt: d.now().toISOString(),
+        });
+        return { state: "failed", error: "booking_terminal" };
+      }
+      // Own live booking (e.g. the link was lost) — adopt it below.
+    }
 
     await recordLink(d, orderId, {
       state: "booked",
@@ -763,11 +965,17 @@ export async function handleOrderCancelled(
     const order = await d.loadOrder(orderId);
     if (!order) return { state: "none" };
     const link = readBookingLink(order);
-    if (!link || link.state !== "booked" || !link.courierOrderId)
-      return { state: "none" };
+    if (!link || link.state !== "booked") return { state: "none" };
+    if (!isSafeAgentOrderId(orderId)) return { state: "none" };
+
+    // NEVER trust the link's stored courierOrderId: it is data on a
+    // document other writers can touch, while the booking id is a pure
+    // function of THIS order's id. A forged link must not be able to
+    // cancel (or point at) another business's booking.
+    const courierOrderId = courierOrderIdFor(orderId);
 
     const result = await d.store.cancelBookingIfUnclaimed(
-      link.courierOrderId,
+      courierOrderId,
       d.serverTimestamp()
     );
 
@@ -775,6 +983,7 @@ export async function handleOrderCancelled(
       await recordLink(d, orderId, {
         ...link,
         state: "cancelled",
+        courierOrderId,
         ...(result === "missing" ? { opsStatus: "missing" } : {}),
         updatedAt: d.now().toISOString(),
       });
@@ -784,11 +993,12 @@ export async function handleOrderCancelled(
     // "claimed" | "closed": leave the ops docs untouched; ops owns them.
     const doc = await d.store.getDoc(
       COURIER_ORDERS_COLLECTION,
-      link.courierOrderId
+      courierOrderId
     );
     await recordLink(d, orderId, {
       ...link,
       state: "cancel_requested",
+      courierOrderId,
       ...(doc && typeof doc.status === "string"
         ? { opsStatus: doc.status }
         : {}),
@@ -817,7 +1027,14 @@ export async function getCourierDeliveryStatus(
   const order = await d.loadOrder(orderId);
   if (!order) return null;
   const link = readBookingLink(order);
-  if (!link?.courierOrderId) {
+  // Read back ONLY this order's own deterministic booking id — never
+  // the link's stored pointer, which a forged link could aim at
+  // another business's courier doc (cross-tenant status leak).
+  const courierOrderId =
+    link && (link.state === "booked" || link.courierOrderId) && isSafeAgentOrderId(orderId)
+      ? courierOrderIdFor(orderId)
+      : null;
+  if (!courierOrderId) {
     return {
       linkState: link?.state ?? "none",
       courierOrderId: null,
@@ -830,11 +1047,11 @@ export async function getCourierDeliveryStatus(
   }
   const courier = await d.store.getDoc(
     COURIER_ORDERS_COLLECTION,
-    link.courierOrderId
+    courierOrderId
   );
   const queue = await d.store.getDoc(
     DISPATCH_QUEUE_COLLECTION,
-    link.courierOrderId
+    courierOrderId
   );
   const opsStatus =
     courier && typeof courier.status === "string" ? courier.status : null;
@@ -850,8 +1067,8 @@ export async function getCourierDeliveryStatus(
     (courier && typeof courier.riderId === "string" && courier.riderId) ||
     null;
   return {
-    linkState: link.state,
-    courierOrderId: link.courierOrderId,
+    linkState: link?.state ?? "none",
+    courierOrderId,
     opsStatus,
     dispatchStatus,
     riderAssigned: Boolean(riderId),
