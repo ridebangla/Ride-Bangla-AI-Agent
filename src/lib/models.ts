@@ -121,6 +121,13 @@ export interface Business {
   landingQuality?: JsonValue;
   /** Phase 2: per-business custom order fields (Order Settings). */
   orderFields?: JsonValue;
+  /** Courier bridge (owner directive 2026-10-21): when true, confirming
+      an order automatically creates a courier booking in Ride Bangla's
+      own courier system (Rider app dispatch). Absent = platform default
+      (ON for the platform's own Ride Bangla business only, OFF for every
+      other tenant). Edited in Orders → Order Settings; the effective
+      value is resolved server-side by resolveCourierDeliveryEnabled. */
+  courierDeliveryEnabled?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -723,6 +730,15 @@ export interface Order {
   summary: string;
   status: string; // 'pending' | 'confirmed' | 'cancelled'
   total: number | null;
+  /** Courier bridge link (owner directive 2026-10-21), written
+      server-side by src/lib/courier-bridge.ts when the order is
+      confirmed/cancelled. Shape: CourierBookingLink —
+      { state: 'booked' | 'needs_info' | 'cancelled' |
+        'cancel_requested' | 'failed', courierOrderId?, missing?,
+        opsStatus?, bookedAt?, updatedAt, error? }. Absent = the bridge
+      has not processed this order (not confirmed, or delivery disabled
+      for the business). */
+  courierBooking?: JsonValue;
   createdAt: Date;
   updatedAt: Date;
 }

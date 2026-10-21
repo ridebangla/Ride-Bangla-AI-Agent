@@ -15,6 +15,7 @@
  */
 
 import { prisma, withBusinessId, getUnscopedPrisma } from "./prisma";
+import { logger } from "./logger";
 import type { JsonValue } from "./models";
 
 export type OrderFieldType = "text" | "select" | "date" | "number" | "textarea";
@@ -219,8 +220,33 @@ export async function setOrderStatus(orderId: string, status: OrderStatus) {
   if (!["pending", "confirmed", "cancelled"].includes(status)) {
     throw new Error(`Invalid status: ${status}`);
   }
-  return prisma.order.update({
+  const updated = await prisma.order.update({
     where: { id: orderId },
     data: { status },
   });
+
+  // Courier bridge (owner directive 2026-10-21): confirming an order
+  // automatically creates its Ride Bangla courier booking; cancelling
+  // mirrors into a still-unclaimed booking. This hook is the single
+  // funnel — every channel's orders are confirmed through here. The
+  // bridge NEVER throws into the status update (its outcome is recorded
+  // on the order itself as `courierBooking`); the order is re-read so
+  // the caller sees the booking state.
+  if (status === "confirmed" || status === "cancelled") {
+    try {
+      const bridge = await import("./courier-bridge");
+      if (status === "confirmed") {
+        await bridge.handleOrderConfirmed(orderId);
+      } else {
+        await bridge.handleOrderCancelled(orderId);
+      }
+      const fresh = await getUnscopedPrisma().order.findUnique({
+        where: { id: orderId },
+      });
+      if (fresh) return fresh;
+    } catch (err) {
+      logger.error("Courier bridge hook failed:", err);
+    }
+  }
+  return updated;
 }

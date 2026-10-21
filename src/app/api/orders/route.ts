@@ -25,7 +25,30 @@ export async function GET(request: NextRequest) {
         orderBy: { createdAt: "desc" },
         take: 100,
       });
-      return NextResponse.json({ orders });
+      // Courier bridge: attach the LIVE delivery status (read back from
+      // the ops courier doc) for orders that have a booking, so the
+      // dashboard shows real rider-side state. Best-effort by design —
+      // any bridge failure returns the plain list untouched.
+      let enriched: unknown = orders;
+      try {
+        const { getCourierDeliveryStatus, readBookingLink } = await import(
+          "@/lib/courier-bridge"
+        );
+        enriched = await Promise.all(
+          (orders as Array<{ id: string; courierBooking?: unknown }>).map(
+            async (o) => {
+              if (!readBookingLink(o)?.courierOrderId) return o;
+              const courierDelivery = await getCourierDeliveryStatus(
+                o.id
+              ).catch(() => null);
+              return courierDelivery ? { ...o, courierDelivery } : o;
+            }
+          )
+        );
+      } catch {
+        enriched = orders;
+      }
+      return NextResponse.json({ orders: enriched });
     } catch (error) {
       logger.error("Failed to fetch orders:", error);
       return NextResponse.json({ error: "Failed to fetch orders" }, { status: 500 });

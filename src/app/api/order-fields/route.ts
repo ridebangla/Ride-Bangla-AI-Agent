@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUnscopedPrisma, runWithBusiness } from "@/lib/prisma";
 import { validateOrderFields, DEFAULT_ORDER_FIELDS } from "@/lib/orders";
+import { resolveCourierDeliveryEnabled } from "@/lib/courier-bridge";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 
@@ -31,15 +32,35 @@ export async function GET(request: NextRequest) {
     try {
       const business = (await getUnscopedPrisma().business.findUnique({
         where: { id: auth.businessId },
-        select: { orderFields: true },
-      })) as { orderFields?: unknown } | null;
+        select: {
+          orderFields: true,
+          courierDeliveryEnabled: true,
+          isInternalAccount: true,
+          siteKey: true,
+        },
+      })) as {
+        orderFields?: unknown;
+        courierDeliveryEnabled?: unknown;
+        isInternalAccount?: unknown;
+        siteKey?: unknown;
+      } | null;
       let orderFields: unknown[] = [];
       try {
         orderFields = validateOrderFields(business?.orderFields ?? []);
       } catch {
         orderFields = [];
       }
-      return NextResponse.json({ orderFields, defaults: DEFAULT_ORDER_FIELDS });
+      return NextResponse.json({
+        orderFields,
+        defaults: DEFAULT_ORDER_FIELDS,
+        courierDelivery: {
+          enabled: business ? resolveCourierDeliveryEnabled(business) : false,
+          stored:
+            typeof business?.courierDeliveryEnabled === "boolean"
+              ? business.courierDeliveryEnabled
+              : null,
+        },
+      });
     } catch (error) {
       logger.error("Failed to fetch order fields:", error);
       return NextResponse.json(
@@ -73,14 +94,50 @@ export async function PUT(request: NextRequest) {
         );
       }
 
+      // Courier bridge setting (optional in the body — order-fields
+      // saves that don't mention it leave it untouched).
+      let courierDeliveryEnabled: boolean | undefined;
+      if (body.courierDeliveryEnabled !== undefined) {
+        if (typeof body.courierDeliveryEnabled !== "boolean") {
+          return NextResponse.json(
+            { error: "courierDeliveryEnabled must be a boolean." },
+            { status: 400 }
+          );
+        }
+        courierDeliveryEnabled = body.courierDeliveryEnabled;
+      }
+
       const updated = await getUnscopedPrisma().business.update({
         where: { id: auth.businessId },
-        data: { orderFields: cleaned },
-        select: { orderFields: true },
+        data: {
+          orderFields: cleaned,
+          ...(courierDeliveryEnabled !== undefined
+            ? { courierDeliveryEnabled }
+            : {}),
+        },
+        select: {
+          orderFields: true,
+          courierDeliveryEnabled: true,
+          isInternalAccount: true,
+          siteKey: true,
+        },
       });
 
+      const updatedBiz = updated as {
+        orderFields: unknown;
+        courierDeliveryEnabled?: unknown;
+        isInternalAccount?: unknown;
+        siteKey?: unknown;
+      };
       return NextResponse.json({
-        orderFields: (updated as { orderFields: unknown }).orderFields ?? [],
+        orderFields: updatedBiz.orderFields ?? [],
+        courierDelivery: {
+          enabled: resolveCourierDeliveryEnabled(updatedBiz),
+          stored:
+            typeof updatedBiz.courierDeliveryEnabled === "boolean"
+              ? updatedBiz.courierDeliveryEnabled
+              : null,
+        },
       });
     } catch (error) {
       logger.error("Failed to update order fields:", error);

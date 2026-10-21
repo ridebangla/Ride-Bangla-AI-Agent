@@ -72,6 +72,20 @@ interface OrderItem {
   productId?: string | null;
 }
 
+interface CourierBookingView {
+  state: string;
+  courierOrderId?: string;
+  missing?: string[];
+  opsStatus?: string;
+}
+
+interface CourierDeliveryView {
+  opsStatus: string | null;
+  dispatchStatus: string | null;
+  riderAssigned: boolean;
+  phase: string;
+}
+
 interface Order {
   id: string;
   conversationId: string | null;
@@ -82,6 +96,25 @@ interface Order {
   total: number | null;
   summary?: string;
   createdAt: string;
+  courierBooking?: CourierBookingView | null;
+  courierDelivery?: CourierDeliveryView | null;
+}
+
+function courierBookingLabel(b: CourierBookingView): string {
+  switch (b.state) {
+    case "booked":
+      return "Booked with Ride Bangla Courier";
+    case "needs_info":
+      return `Needs info${b.missing?.length ? ` (missing: ${b.missing.join(", ")})` : ""}`;
+    case "cancelled":
+      return "Cancelled";
+    case "cancel_requested":
+      return "Cancel requested";
+    case "failed":
+      return "Booking failed";
+    default:
+      return b.state;
+  }
 }
 
 type FieldType = "text" | "select" | "date" | "number" | "textarea";
@@ -355,6 +388,30 @@ function OrdersTab({ toast }: { toast: (t: "success" | "error", m: string) => vo
                                   </dd>
                                 </div>
                               )}
+                              {o.courierBooking && (
+                                <div className="flex gap-2">
+                                  <dt className="text-rbai-text-light min-w-32">Courier booking:</dt>
+                                  <dd className="text-rbai-text">
+                                    {courierBookingLabel(o.courierBooking)}
+                                    {o.courierBooking.courierOrderId && (
+                                      <span className="block font-mono text-xs text-rbai-text-light">
+                                        {o.courierBooking.courierOrderId}
+                                      </span>
+                                    )}
+                                  </dd>
+                                </div>
+                              )}
+                              {o.courierDelivery && (
+                                <div className="flex gap-2">
+                                  <dt className="text-rbai-text-light min-w-32">Delivery status:</dt>
+                                  <dd className="text-rbai-text">
+                                    {o.courierDelivery.opsStatus ?? o.courierDelivery.phase}
+                                    <span className="text-rbai-text-light">
+                                      {" "}— {o.courierDelivery.riderAssigned ? "rider assigned" : "waiting for rider"}
+                                    </span>
+                                  </dd>
+                                </div>
+                              )}
                             </dl>
                           </div>
                         </div>
@@ -381,6 +438,7 @@ function OrderSettingsTab({ toast }: { toast: (t: "success" | "error", m: string
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState<null | { index: number | null; field: OrderField }>(null);
   const [defaults, setDefaults] = useState<OrderField[]>([]);
+  const [courierEnabled, setCourierEnabled] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -390,6 +448,7 @@ function OrderSettingsTab({ toast }: { toast: (t: "success" | "error", m: string
         const json = await res.json();
         setFields(json.orderFields ?? []);
         setDefaults(json.defaults ?? []);
+        setCourierEnabled(json.courierDelivery?.enabled ?? false);
       } catch {
         toast("error", "Could not load order fields.");
       } finally {
@@ -405,7 +464,7 @@ function OrderSettingsTab({ toast }: { toast: (t: "success" | "error", m: string
       const res = await fetch("/api/order-fields", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderFields: fields }),
+        body: JSON.stringify({ orderFields: fields, courierDeliveryEnabled: courierEnabled }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Save failed");
@@ -476,6 +535,29 @@ function OrderSettingsTab({ toast }: { toast: (t: "success" | "error", m: string
         </div>
       ) : (
         <>
+          <div className="rounded-xl border border-rbai-border bg-rbai-surface p-5">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={courierEnabled}
+                onChange={(e) => setCourierEnabled(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-rbai-primary"
+              />
+              <span>
+                <span className="font-semibold text-rbai-text block">
+                  Delivery via Ride Bangla Courier
+                </span>
+                <span className="text-sm text-rbai-text-light mt-1 leading-relaxed block">
+                  When you confirm an order, a courier booking is created automatically in
+                  Ride Bangla rider dispatch — no separate courier booking is needed. The
+                  booking uses the order&apos;s delivery address and phone; pickup is your
+                  profile address unless the order carries its own pickup. Saved together
+                  with the fields below.
+                </span>
+              </span>
+            </label>
+          </div>
+
           <div className="flex items-center gap-2">
             <button
               onClick={() =>
