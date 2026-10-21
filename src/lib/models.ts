@@ -172,6 +172,19 @@ export interface Settings {
    * `conversations.aiEnabled` decides. Flipped from Settings > AI.
    */
   aiEnabled: boolean;
+  /**
+   * Behaviour package (owner directive 2026-10-21): per-business agent
+   * behaviour switches, normalised by getBehaviourSettings() in
+   * src/lib/ai/behaviour.ts. Absent = platform defaults (review asks ON,
+   * follow-ups ON, order check-in 24h, dropped-conversation revival 48h,
+   * review link = primary website).
+   */
+  reviewRequestsEnabled?: boolean;
+  followUpsEnabled?: boolean;
+  /** The business's own review link (e.g. its Google review link). */
+  reviewUrl?: string;
+  followUpOrderCheckInHours?: number;
+  followUpDroppedHours?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -595,9 +608,40 @@ export interface FollowUp {
   message: string;
   dueAt: Date;
   status: string;
+  /**
+   * Behaviour package (2026-10-21): what created this follow-up —
+   * "order_checkin" (engine, when an order was taken) or
+   * "dropped_revival" (follow-up processor, quiet conversation).
+   * Absent/null = a customer-requested reminder (schedule_followup tool)
+   * or a pre-package record.
+   */
+  kind?: string | null;
   createdAt: Date;
   updatedAt: Date;
   conversation: Conversation;
+}
+
+/**
+ * Behaviour package (2026-10-21): one recorded review ask. Written by
+ * the chat engine at the moment it appends the polite review request to
+ * a reply, and read back to enforce the per-customer cap (at most one
+ * ask per REVIEW_ASK_MIN_INTERVAL_DAYS across ALL of the customer's
+ * conversations with this business). Tenant-scoped like every other
+ * customer-facing record — one business's asks never affect another's.
+ */
+export interface ReviewAsk {
+
+  [key: string]: unknown;  id: string;
+  businessId: string;
+  /** `cust:<customerId>` or `contact:<normalised contact>` — see
+   *  customerKeyFor() in src/lib/ai/behaviour.ts. */
+  customerKey: string;
+  conversationId: string;
+  /** "order_completed" | "positive_closing" | "high_satisfaction" */
+  trigger: string;
+  askedAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface SocialAccount {

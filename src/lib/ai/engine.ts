@@ -1,4 +1,4 @@
-import { prisma, withBusinessId, getBusinessId } from "@/lib/prisma";
+import { prisma, withBusinessId, getBusinessId, getUnscopedPrisma } from "@/lib/prisma";
 import {
   completeWithFallback,
   hasAnyProviderKey,
@@ -10,6 +10,17 @@ import {
 import { recordAiMessage } from "@/lib/billing-usage";
 import { agentTools, executeToolCall } from "./tools";
 import { reportActivity, clearActivity, activityKindForTool } from "./activity";
+import {
+  AGENT_BEHAVIOUR_DOCTRINE,
+  detectHandoff,
+  getBehaviourSettings,
+  handoffText,
+  maybeAppendReviewAsk,
+  performHandoff,
+  resolveBehaviourLang,
+  scheduleOrderCheckIn,
+  type BehaviourSettings,
+} from "./behaviour";
 import { emitNewMessage } from "@/lib/realtime";
 import { analyzeSentiment, detectIntent, estimateConfidence, requiresHumanApproval } from "./guardrails";
 import { classifyIntent, getIntentGuidance, RETENTION_DOCTRINE, UNAVAILABLE_PRODUCT_RULE } from "./intent";
@@ -128,6 +139,8 @@ ${RETENTION_DOCTRINE}
 
 ${UNAVAILABLE_PRODUCT_RULE}
 
+${AGENT_BEHAVIOUR_DOCTRINE}
+
 ${extras?.catalogBrief ? `## ${extras.catalogBrief}\n` : ""}
 ${extras?.intentGuidance ? `## How to handle THIS message\n${extras.intentGuidance}\n` : ""}
 ## Order Taking
@@ -152,7 +165,9 @@ async function getKnowledgeBase(): Promise<KnowledgeItem[]> {
 }
 
 /** Exported for the Phase 3 media endpoints (/api/chat/vision, /api/chat/voice). */
-export async function getAIConfig(): Promise<AIConfig & ConversationContext> {
+export async function getAIConfig(): Promise<
+  AIConfig & ConversationContext & { behaviour: BehaviourSettings }
+> {
   let settings = await prisma.settings.findFirst();
   if (!settings) {
     settings = await prisma.settings.create({ data: withBusinessId({}) });
@@ -174,6 +189,9 @@ export async function getAIConfig(): Promise<AIConfig & ConversationContext> {
     language: settings.language,
     // Per-business behavior instructions (settings.agentBehavior, "" = none).
     agentBehavior: (settings.agentBehavior as string) || "",
+    // Behaviour package (owner directive 2026-10-21): normalised
+    // behaviour switches/timing from the same settings doc.
+    behaviour: getBehaviourSettings(settings),
     knowledgeBase: [],
     customerName: "",
     customerHistory: [],
@@ -276,6 +294,58 @@ export async function chat(
     }),
   });
 
+  // ---- Human handoff (owner addition 2026-10-21) ----
+  // A serious problem, or an explicit ask for a human / a support
+  // ticket, ends the bot's turn-taking in this thread RIGHT HERE —
+  // before any AI reply (and even when the brain is offline: the
+  // handoff machinery needs no LLM). The agent creates the ticket
+  // itself, tells the customer plainly that a human agent will
+  // continue in this same conversation, and yields: performHandoff
+  // flips the conversation into the platform's handoff state
+  // (aiEnabled=false), so every later message stores silently for the
+  // human team via the takeover path above. If the handoff machinery
+  // itself fails, fall through to the normal flow — never strand the
+  // customer.
+  const handoff = detectHandoff(effectiveMessage);
+  if (handoff.needed && handoff.kind) {
+    try {
+      await reportActivity(conversationId, "creating_ticket");
+      const { ticketId } = await performHandoff({
+        conversation,
+        customerMessage: effectiveMessage,
+        detection: { kind: handoff.kind, matched: handoff.matched },
+      });
+      const text = handoffText(
+        resolveBehaviourLang(config.language, effectiveMessage),
+        ticketId
+      );
+      const savedHandoff = await prisma.message.create({
+        data: withBusinessId({
+          conversationId,
+          role: "assistant",
+          content: text,
+        }),
+      });
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { updatedAt: new Date() },
+      });
+      emitNewMessage(conversationId, {
+        id: savedHandoff.id,
+        role: "assistant",
+        content: text,
+      });
+      await clearActivity(conversationId);
+      return { response: text, products: [], silent: false };
+    } catch (err) {
+      logger.warn("[brain] handoff failed; continuing with normal AI flow", {
+        conversationId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      await clearActivity(conversationId);
+    }
+  }
+
   if (!brainOnline) {
     // Graceful degradation: an honest message, never a faked AI reply.
     // Deterministic product cards still attach when the customer names a
@@ -363,12 +433,58 @@ export async function chat(
   );
   const products = attached.products;
 
+  // Confidence scoring (unchanged inputs). Computed BEFORE the behaviour
+  // appends below so a turn that is about to escalate never receives a
+  // review ask.
+  const confidence = estimateConfidence(aiResult.response, knowledgeBase.length, false);
+
+  // ---- Behaviour package (owner directive 2026-10-21) ----
+  // Success-path behaviours driven by REAL turn signals only: an order
+  // actually taken this turn schedules the post-order check-in; a
+  // genuinely successful interaction may earn ONE polite review ask
+  // (capped per customer, never after a negative/escalated turn — see
+  // lib/ai/behaviour.ts). Both hooks are fail-soft.
+  const behaviour = config.behaviour;
+  const behaviourLang = resolveBehaviourLang(config.language, effectiveMessage);
+  if (aiResult.orderTaken) {
+    await scheduleOrderCheckIn({
+      conversationId,
+      customerName: conversation.customerName,
+      orderRef: aiResult.orderRef,
+      behaviour,
+      businessName: config.businessName,
+      lang: behaviourLang,
+    });
+  }
+  let business: { websiteUrl?: string | null; websites?: Array<{ url?: string | null }> | null } | null = null;
+  try {
+    const bid = getBusinessId();
+    if (bid) {
+      business = await getUnscopedPrisma().business.findUnique({
+        where: { id: bid },
+      });
+    }
+  } catch {
+    business = null;
+  }
+  const finalResponse = await maybeAppendReviewAsk({
+    conversation,
+    response: aiResult.response,
+    customerMessage: effectiveMessage,
+    orderTaken: aiResult.orderTaken,
+    escalated: approval.required || confidence.shouldEscalate,
+    behaviour,
+    business,
+    businessName: config.businessName,
+    lang: behaviourLang,
+  });
+
   // Save assistant message
   const savedMessage = await prisma.message.create({
     data: withBusinessId({
       conversationId,
       role: "assistant",
-      content: aiResult.response,
+      content: finalResponse,
     }),
   });
 
@@ -378,8 +494,6 @@ export async function chat(
     data: { updatedAt: new Date() },
   });
 
-  // Confidence scoring
-  const confidence = estimateConfidence(aiResult.response, knowledgeBase.length, false);
   if (confidence.shouldEscalate) {
     await prisma.conversation.update({
       where: { id: conversationId },
@@ -387,7 +501,7 @@ export async function chat(
     });
   }
 
-  emitNewMessage(conversationId, { id: savedMessage.id, role: "assistant", content: aiResult.response });
+  emitNewMessage(conversationId, { id: savedMessage.id, role: "assistant", content: finalResponse });
 
   // Billing Phase 2: meter the finalized AI reply (fire-and-forget — a
   // metering failure must never break the reply). The 402 hard-stop runs
@@ -403,7 +517,7 @@ export async function chat(
   // provider send immediately after this returns.)
   await clearActivity(conversationId);
 
-  return { response: aiResult.response, products, silent: false };
+  return { response: finalResponse, products, silent: false };
 }
 
 /**
@@ -494,19 +608,49 @@ function collectShownProducts(
   }
 }
 
+/**
+ * Behaviour package: harvest the order signal out of a take_order tool
+ * result (its JSON carries { success, orderId } — see tools.ts) so the
+ * caller can run the success-path behaviours (post-order check-in,
+ * review ask) on REAL events only. Malformed JSON simply never signals.
+ */
+function collectOrderSignal(
+  toolName: string,
+  resultJson: string,
+  into: { taken: boolean; ref: string }
+): void {
+  if (toolName !== "take_order" || into.taken) return;
+  try {
+    const parsed = JSON.parse(resultJson) as {
+      success?: unknown;
+      orderId?: unknown;
+    };
+    if (parsed.success === true) {
+      into.taken = true;
+      into.ref =
+        typeof parsed.orderId === "string" ? parsed.orderId.slice(0, 8) : "";
+    }
+  } catch {
+    /* malformed tool JSON: no signal */
+  }
+}
+
 async function callAI(
   config: AIConfig,
   messages: AIMessage[],
   conversationId: string,
   keys: ProviderKeys,
   depth = 0,
-  collectedProducts: ProductCard[] = []
-): Promise<{ response: string; products: ProductCard[] }> {
+  collectedProducts: ProductCard[] = [],
+  orderSignal: { taken: boolean; ref: string } = { taken: false, ref: "" }
+): Promise<{ response: string; products: ProductCard[]; orderTaken: boolean; orderRef: string }> {
   if (depth > 5) {
     return {
       response:
         "I apologize, but I'm having trouble processing your request. Let me connect you with a team member.",
       products: collectedProducts,
+      orderTaken: orderSignal.taken,
+      orderRef: orderSignal.ref,
     };
   }
 
@@ -541,6 +685,8 @@ async function callAI(
       response:
         "I'm temporarily unable to process your request. Please try again in a moment, or I can connect you with a team member.",
       products: collectedProducts,
+      orderTaken: orderSignal.taken,
+      orderRef: orderSignal.ref,
     };
   }
   if (!completion) {
@@ -548,6 +694,8 @@ async function callAI(
       response:
         "I'm temporarily unable to process your request. Please try again in a moment, or I can connect you with a team member.",
       products: collectedProducts,
+      orderTaken: orderSignal.taken,
+      orderRef: orderSignal.ref,
     };
   }
 
@@ -597,6 +745,8 @@ async function callAI(
       // Phase 3: harvest product cards from show_products tool results so
       // the widget can render them.
       collectShownProducts(toolCall.function.name, result, collectedProducts);
+      // Behaviour package: harvest the order-completed signal.
+      collectOrderSignal(toolCall.function.name, result, orderSignal);
 
       messages.push({
         role: "tool",
@@ -606,13 +756,15 @@ async function callAI(
     }
 
     // Continue the conversation with tool results
-    return callAI(config, messages, conversationId, keys, depth + 1, collectedProducts);
+    return callAI(config, messages, conversationId, keys, depth + 1, collectedProducts, orderSignal);
   }
 
   return {
     response:
       choice.message.content || "I apologize, I could not generate a response.",
     products: collectedProducts,
+    orderTaken: orderSignal.taken,
+    orderRef: orderSignal.ref,
   };
 }
 

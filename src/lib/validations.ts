@@ -191,6 +191,14 @@ export const updateSettingsSchema = z.object({
   // AI across every conversation; true (default) leaves the decision to
   // each conversation's own aiEnabled switch.
   aiEnabled: z.boolean().optional(),
+  // Behaviour package (owner directive 2026-10-21): agent behaviour
+  // switches + timing + the business's own review link. All optional —
+  // absent fields keep the platform defaults (see src/lib/ai/behaviour.ts).
+  reviewRequestsEnabled: z.boolean().optional(),
+  followUpsEnabled: z.boolean().optional(),
+  reviewUrl: z.string().max(500).optional(),
+  followUpOrderCheckInHours: z.number().int().min(1).max(168).optional(),
+  followUpDroppedHours: z.number().int().min(4).max(336).optional(),
 }).strict();
 
 // Canned Responses

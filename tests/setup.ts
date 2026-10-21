@@ -98,6 +98,7 @@ function createMockPrismaClient() {
     "channel",
     "schedule",
     "followUp",
+    "reviewAsk",
     "webhook",
     "webhookDelivery",
     "activityLog",

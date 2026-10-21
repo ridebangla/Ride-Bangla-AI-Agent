@@ -70,6 +70,7 @@ import type {
   Campaign,
   Flow,
   FollowUp,
+  ReviewAsk,
   SocialAccount,
   ScheduledPost,
   SocialInteraction,
@@ -215,6 +216,16 @@ const MODEL_META: Record<string, ModelMeta> = {
       whatsappPhone: "",
       telegramBotToken: "",
       telegramWebhookSecret: "",
+      // Behaviour package (owner directive 2026-10-21): review asks +
+      // proactive follow-ups ON by default with conservative timing;
+      // reviewUrl empty = the agent links the business's primary
+      // website when it asks for a review. Normalised again at read
+      // time by getBehaviourSettings() (src/lib/ai/behaviour.ts).
+      reviewRequestsEnabled: true,
+      followUpsEnabled: true,
+      reviewUrl: "",
+      followUpOrderCheckInHours: 24,
+      followUpDroppedHours: 48,
     },
     uniques: ["businessId"],
   }),
@@ -424,6 +435,10 @@ const MODEL_META: Record<string, ModelMeta> = {
   followUp: M("followUps", {
     hasUpdatedAt: true,
     defaults: { status: "pending" },
+  }),
+  reviewAsk: M("reviewAsks", {
+    hasUpdatedAt: true,
+    defaults: {},
   }),
   socialAccount: M("socialAccounts", {
     hasUpdatedAt: true,
@@ -1403,6 +1418,7 @@ export interface DbClient {
   campaign: ModelDelegate<Campaign>;
   flow: ModelDelegate<Flow>;
   followUp: ModelDelegate<FollowUp>;
+  reviewAsk: ModelDelegate<ReviewAsk>;
   socialAccount: ModelDelegate<SocialAccount>;
   scheduledPost: ModelDelegate<ScheduledPost>;
   socialInteraction: ModelDelegate<SocialInteraction>;
@@ -1502,6 +1518,7 @@ const TENANT_MODELS = new Set([
   "flow",
   "schedule",
   "followUp",
+  "reviewAsk",
   "productCategory",
   "product",
   "order",

@@ -18,6 +18,7 @@ import {
   AlertCircle,
   Loader2,
   ShieldCheck,
+  HeartHandshake,
   Globe,
 } from "lucide-react";
 import WebsitesManager from "@/components/dashboard/websites-manager";
@@ -57,6 +58,13 @@ interface SettingsData {
   whatsappPhone: string;
   /** Phase 5 (user decision 17): global AI kill-switch. */
   aiEnabled: boolean;
+  /** Behaviour package (owner directive 2026-10-21): review asks,
+   *  proactive follow-ups, review link + timing. */
+  reviewRequestsEnabled: boolean;
+  followUpsEnabled: boolean;
+  reviewUrl: string;
+  followUpOrderCheckInHours: number;
+  followUpDroppedHours: number;
 }
 
 type SectionKey =
@@ -96,7 +104,16 @@ const tabs: TabDef[] = [
 // can ever touch key material.
 const sectionFields: Record<SectionKey, (keyof SettingsData)[]> = {
   general: ["businessName", "businessDesc", "welcomeMessage", "tone", "language"],
-  ai: ["aiEnabled", "maxTokens", "temperature"],
+  ai: [
+    "aiEnabled",
+    "maxTokens",
+    "temperature",
+    "reviewRequestsEnabled",
+    "followUpsEnabled",
+    "reviewUrl",
+    "followUpOrderCheckInHours",
+    "followUpDroppedHours",
+  ],
   voice: ["elevenLabsKey", "elevenLabsVoice"],
   phone: ["twilioSid", "twilioToken", "twilioPhone"],
   email: [
@@ -437,6 +454,45 @@ function GeneralSection({
   );
 }
 
+/** Behaviour package: one switch row (same pattern as the kill-switch). */
+function BehaviourSwitch({
+  label,
+  description,
+  checked,
+  onToggle,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div>
+        <p className="text-sm font-semibold text-rbai-text">{label}</p>
+        <p className="text-xs text-rbai-text-light mt-1 max-w-md">{description}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={onToggle}
+        className={cn(
+          "relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:ring-offset-2",
+          checked ? "bg-rbai-primary" : "bg-rbai-border"
+        )}
+      >
+        <span
+          className={cn(
+            "pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+            checked ? "translate-x-5" : "translate-x-0"
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+
 function AISection({
   data,
   update,
@@ -537,6 +593,70 @@ function AISection({
           displayValue={data.temperature.toFixed(1)}
         />
       </FormField>
+      {/* Behaviour package (owner directive 2026-10-21): how the agent
+          treats customers between answers — polite review requests after
+          successful help, and proactive follow-ups. Defaults are ON with
+          conservative timing; every business can shape or stop them. */}
+      <div className="rounded-xl border border-rbai-border bg-rbai-bg/50 p-4 space-y-5">
+        <p className="text-sm font-semibold text-rbai-text flex items-center gap-2">
+          <HeartHandshake className="h-4 w-4 text-rbai-primary" />
+          Customer care behaviour
+        </p>
+        <BehaviourSwitch
+          label="Ask happy customers for a review"
+          description="After a genuinely successful conversation (an order placed, a problem solved, a clearly happy ending) the agent politely asks for a review — at most once per customer every 30 days, and never after an unhappy or unresolved conversation."
+          checked={data.reviewRequestsEnabled !== false}
+          onToggle={() =>
+            update("reviewRequestsEnabled", !(data.reviewRequestsEnabled !== false))
+          }
+        />
+        <FormField
+          label="Review link"
+          description="Where the review request sends customers — for example your Google review link. Leave empty to use your main website."
+        >
+          <TextInput
+            value={data.reviewUrl || ""}
+            onChange={(v) => update("reviewUrl", v)}
+            placeholder="https://…"
+          />
+        </FormField>
+        <BehaviourSwitch
+          label="Proactive follow-ups"
+          description="The agent checks in after an order and sends one polite message when a conversation goes quiet. Reminders a customer asked for are always sent."
+          checked={data.followUpsEnabled !== false}
+          onToggle={() =>
+            update("followUpsEnabled", !(data.followUpsEnabled !== false))
+          }
+        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField label="Order check-in after">
+            <SelectInput
+              value={String(data.followUpOrderCheckInHours || 24)}
+              onChange={(v) => update("followUpOrderCheckInHours", Number(v))}
+              options={[
+                { value: "6", label: "6 hours" },
+                { value: "12", label: "12 hours" },
+                { value: "24", label: "24 hours" },
+                { value: "48", label: "48 hours" },
+                { value: "72", label: "72 hours" },
+              ]}
+            />
+          </FormField>
+          <FormField label="Revive a quiet conversation after">
+            <SelectInput
+              value={String(data.followUpDroppedHours || 48)}
+              onChange={(v) => update("followUpDroppedHours", Number(v))}
+              options={[
+                { value: "24", label: "24 hours" },
+                { value: "48", label: "48 hours" },
+                { value: "72", label: "72 hours" },
+                { value: "120", label: "5 days" },
+                { value: "168", label: "7 days" },
+              ]}
+            />
+          </FormField>
+        </div>
+      </div>
     </div>
   );
 }
@@ -821,6 +941,11 @@ const defaultSettings: SettingsData = {
   whatsappApiKey: "",
   whatsappPhone: "",
   aiEnabled: true,
+  reviewRequestsEnabled: true,
+  followUpsEnabled: true,
+  reviewUrl: "",
+  followUpOrderCheckInHours: 24,
+  followUpDroppedHours: 48,
 };
 
 export default function SettingsPage() {
