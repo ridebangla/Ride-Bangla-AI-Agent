@@ -23,14 +23,14 @@ const baseContext: ConversationContext = {
     "- Never end with a dead end; always offer an alternative or a roadmap item as coming soon.",
     "",
     "HONESTY — NEVER HALLUCINATE:",
-    "- Fares you may quote: 0–5 km = ৳50, 5–7 km = ৳70. Above 7 km the team calculates manually — NEVER invent a per-km rate.",
+    "- Fares: NEVER quote any fare figure or amount. There is NO public rate chart — every delivery/ride charge is calculated from the road distance and confirmed with the customer when they order. NEVER invent a per-km rate or any other number.",
   ].join("\n"),
   knowledgeBase: [
     {
       category: "Fares",
-      title: "Fares — what the agent may quote",
+      title: "Fares — distance-based, never quote figures",
       content:
-        "Delivery/courier fare the AGENT MAY QUOTE: 0–5 km = ৳50, 5–7 km = ৳70. ABOVE 7 km: the team calculates the fare manually for each order — the agent must NEVER invent a per-km rate or any other number.",
+        "FARES — NEVER QUOTE FIGURES: Ride Bangla has NO public fare/rate chart. Every delivery/ride charge is calculated from the delivery (road) distance and confirmed with the customer when they order. The agent must NEVER quote, guess or promise any fare amount. NEVER invent a per-km rate or any taka amount. If a customer asks the price, explain the charge depends on the road distance and is confirmed at order time.",
       priority: 9,
     },
     {
@@ -69,8 +69,11 @@ describe("Ride Bangla behavior + knowledge wiring", () => {
 
   it("carries fare rules, honest coverage and roadmap framing in the knowledge section", () => {
     const prompt = buildSystemPrompt(baseContext);
-    expect(prompt).toContain("৳50");
-    expect(prompt).toContain("৳70");
+    expect(prompt).not.toContain("৳50");
+    expect(prompt).not.toContain("৳70");
+    expect(prompt).not.toContain("0–5 km");
+    expect(prompt).not.toContain("MAY QUOTE");
+    expect(prompt).toContain("NEVER QUOTE FIGURES");
     expect(prompt).toContain("NEVER invent a per-km rate");
     expect(prompt).toContain("FARIDPUR DISTRICT ONLY");
     expect(prompt).toContain("শীঘ্রই আসছে");

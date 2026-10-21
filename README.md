@@ -10,7 +10,7 @@
 
 - **Multi-channel inbox** — WhatsApp, Telegram, SMS, Email, and Phone (Twilio) from one dashboard
 - **Bilingual AI replies** — automatically replies in the customer's language (Bengali বাংলা or English)
-- **Ride Bangla knowledge** — pre-loaded with real facts: services, Faridpur coverage, fare table (0–5 km ৳50, 5–7 km ৳70), contact numbers
+- **Ride Bangla knowledge** — pre-loaded with real facts: services, Faridpur coverage, distance-based fares (no public rate chart — the agent never quotes figures), contact numbers
 - **Customer memory** — unified profile across channels with full conversation history
 - **Human handoff** — creates tickets and escalates to the team when the AI can't help
 - **Guardrails** — sentiment analysis, intent detection, human-approval for sensitive replies
