@@ -383,7 +383,7 @@ describe("fraud heuristics (pure)", () => {
 });
 
 // ---------------------------------------------------------------------------
-describe("exchange adapters (honest stubs)", () => {
+describe("exchange adapters", () => {
   it.each([
     ["binance", binanceAdapter],
     ["bybit", bybitAdapter],
@@ -399,17 +399,26 @@ describe("exchange adapters (honest stubs)", () => {
     expect(res.note).toMatch(/not configured/i);
   });
 
-  it("binance: configured when keys exist, still honest about matching", async () => {
+  it("binance: configured when keys exist, performs a real signed lookup", async () => {
     process.env.BINANCE_API_KEY = "k";
     process.env.BINANCE_API_SECRET = "s";
     expect(binanceAdapter.isConfigured()).toBe(true);
-    const res = await binanceAdapter.findDeposit({
-      refCode: "RB-ABCDEFGH",
-      amountCents: 1900,
-      since: new Date(),
-    });
-    expect(res.found).toBe(false);
-    expect(res.note).toMatch(/not implemented yet/i);
+    // Fixture-verified (payment-auto-verify.test.ts covers matching):
+    // an empty deposit history is an honest no-match, never a fake hit.
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const res = await binanceAdapter.findDeposit({
+        refCode: "RB-ABCDEFGH",
+        amountCents: 1900,
+        since: new Date(),
+      });
+      expect(res.found).toBe(false);
+      expect(res.note).toMatch(/no deposit mentioning/i);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

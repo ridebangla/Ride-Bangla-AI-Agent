@@ -1,26 +1,46 @@
 /**
- * binance.ts — Binance Pay deposit matcher (Billing Phase 2 auto-verify).
+ * binance.ts — Binance deposit matcher (payment auto-verify).
  *
- * Honest stub: until BINANCE_API_KEY / BINANCE_API_SECRET are set,
- * isConfigured() is false and findDeposit() reports "not configured" —
- * claims stay pending and the dashboard says so honestly.
- *
- * ---- PLUG-IN POINT: real matching logic (post key-setup) ----
- *   1. Sign a request to GET /sapi/v1/capital/deposit/hisrec
- *      (HMAC-SHA256 with BINANCE_API_SECRET, X-MBX-APIKEY header).
- *   2. Page through recent deposits (startTime = opts.since).
- *   3. MATCH when a deposit's memo/tag/note contains opts.refCode AND
- *      its amount converts to opts.amountCents (stablecoin deposits are
- *      1:1 USD; convert other assets via the ticker price at deposit time).
- *   4. Return { found: true, note: `Binance deposit ${txId} matched` }.
- * Until that is implemented, findDeposit() returns found:false honestly.
+ * Real implementation (owner directive 2026-10-21): signed request to
+ * GET /sapi/v1/capital/deposit/hisrec (HMAC-SHA256 query signature,
+ * X-MBX-APIKEY header) with startTime = opts.since. A deposit matches
+ * when its addressTag (the memo) contains the claim refCode, the coin
+ * is a USD stablecoin, the amount equals the claim amountCents, and
+ * status == 1 (credited). Live calls need BINANCE_API_KEY /
+ * BINANCE_API_SECRET in the platform env; until then isConfigured()
+ * is false and claims stay pending honestly (never auto-rejected).
  */
 
+import { createHmac } from "crypto";
 import type {
   DepositMatchOptions,
   DepositMatchResult,
   ExchangeAdapter,
 } from "./adapter";
+import { amountToCents, matchDeposits, type NormalizedDeposit } from "./match";
+
+const BASE_URL = "https://api.binance.com";
+const PATH = "/sapi/v1/capital/deposit/hisrec";
+
+interface BinanceDepositRow {
+  amount?: string;
+  coin?: string;
+  status?: number;
+  addressTag?: string;
+  txId?: string;
+  insertTime?: number;
+}
+
+function normalize(row: BinanceDepositRow): NormalizedDeposit {
+  return {
+    memo: typeof row.addressTag === "string" ? row.addressTag : "",
+    amountCents: amountToCents(row.amount),
+    coin: typeof row.coin === "string" ? row.coin : "",
+    txId: typeof row.txId === "string" ? row.txId : "",
+    // Binance capital deposit status: 1 = credited/success.
+    final: row.status === 1,
+  };
+}
 
 export const binanceAdapter: ExchangeAdapter = {
   name: "binance",
@@ -34,14 +54,31 @@ export const binanceAdapter: ExchangeAdapter = {
   async findDeposit(
     opts: DepositMatchOptions
   ): Promise<DepositMatchResult> {
-    if (!this.isConfigured()) {
+    const apiKey = process.env.BINANCE_API_KEY;
+    const apiSecret = process.env.BINANCE_API_SECRET;
+    if (!apiKey || !apiSecret) {
       return { found: false, note: "exchange API not configured" };
     }
-    // ---- PLUG-IN POINT (see file header) ----
-    void opts;
-    return {
-      found: false,
-      note: "Binance deposit-history matching is not implemented yet",
-    };
+    const params = new URLSearchParams({
+      startTime: String(opts.since.getTime()),
+      recvWindow: "10000",
+      timestamp: String(Date.now()),
+    });
+    const signature = createHmac("sha256", apiSecret)
+      .update(params.toString())
+      .digest("hex");
+    const res = await fetch(`${BASE_URL}${PATH}?${params.toString()}&signature=${signature}`, {
+      method: "GET",
+      headers: { "X-MBX-APIKEY": apiKey },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      throw new Error(`Binance deposit history failed: HTTP ${res.status}`);
+    }
+    const rows = (await res.json()) as BinanceDepositRow[];
+    if (!Array.isArray(rows)) {
+      throw new Error("Binance deposit history returned an unexpected shape");
+    }
+    return matchDeposits("Binance", rows.map(normalize), opts);
   },
 };

@@ -23,7 +23,7 @@ import {
   SCREENSHOT_ERROR_MESSAGES,
 } from "@/lib/claim-input";
 import { runFraudHeuristics } from "@/lib/fraud-monitor";
-import { kickVisionPreRead } from "@/lib/auto-verify";
+import { kickVisionPreRead, kickClaimDecision } from "@/lib/auto-verify";
 import { createDepositClaim, WalletError } from "@/lib/wallet";
 
 export const dynamic = "force-dynamic";
@@ -55,8 +55,10 @@ export const runtime = "nodejs";
  *  - kick the Tier-2 vision pre-read of the screenshot (async, never throws).
  *
  * Success: 200 { ok: true, claimId, refCode }. The claim lands in
- * `payment_claims` with status 'pending'; the team verifies it in the Admin
- * Console (crypto claims may auto-verify via POST /api/billing/auto-verify).
+ * `payment_claims` with status 'pending'; the AI verification decision is
+ * kicked immediately (auto-verify.ts) — clean payments auto-activate,
+ * uncertain ones wait in the Admin Console with the evidence attached
+ * (the sweep at POST /api/billing/auto-verify is the backstop).
  *
  * Honest failures (never a silent drop):
  *  401/403  auth (requireAuth — tenant admins only, settings:update)
@@ -291,6 +293,12 @@ export async function POST(request: NextRequest) {
     };
     await runFraudHeuristics(base);
     kickVisionPreRead(claimId);
+    // PRIMARY PATH (owner directive 2026-10-21): the AI verifies the
+    // payment itself right now — a clean, fully-verified claim activates
+    // with no human touch; anything uncertain stays pending for the
+    // Admin Console with the decision evidence attached. Async, never
+    // blocks or fails the claim response.
+    kickClaimDecision(claimId);
     return NextResponse.json({ ok: true, claimId, refCode });
   } catch (err) {
     if (err instanceof DuplicateTxnError) {

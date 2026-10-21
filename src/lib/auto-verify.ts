@@ -1,25 +1,45 @@
 /**
- * auto-verify.ts — crypto claim auto-verification + Tier-2 vision pre-read
- * (Billing Phase 2).
+ * auto-verify.ts — AI payment verification + auto-activation
+ * (Billing Phase 2 + owner directive 2026-10-21: the AUTOMATIC path is
+ * PRIMARY — a clean, fully-verified payment activates with no human
+ * touch; the Admin Console's manual verify is backup/correction only).
  *
  * runAutoVerify(): scans `payment_claims` for pending SUBSCRIPTION claims
- * paid via a crypto method (binance/bybit/okx) and tries to match an
- * incoming exchange deposit whose memo/tag contains the claim's refCode
- * with a matching amount. Outcomes per claim:
- *   - exchange not configured → autoVerify.status = 'not_configured'
- *   - deposit matched         → autoVerify.status = 'matched', then the
- *                               claim is approved and the subscription
- *                               activated (idempotent)
- *   - no match                → left 'pending' (NEVER auto-rejected —
- *                               user decision: lightweight, no false
- *                               rejections)
- *   - non-crypto method       → skipped (human verification path)
+ * and decides each one:
+ *   - crypto method (binance/bybit/okx) → match an incoming exchange
+ *     deposit whose memo/tag contains the claim's refCode with a
+ *     matching amount (real signed deposit-history adapters in
+ *     ./exchanges; live calls are key-gated on the owner's exchange
+ *     API keys):
+ *       - exchange not configured → autoVerify.status = 'not_configured'
+ *       - deposit matched         → autoVerify.status = 'matched', the
+ *                                   claim is approved and the
+ *                                   subscription activated (idempotent),
+ *                                   decision + audit recorded
+ *       - no match                → left 'pending' (NEVER auto-rejected —
+ *                                   the deposit may land later)
+ *   - bank / WeChat (us_bank, wechat_pay) → the AI receipt decision
+ *     engine (payment-decision.ts): the screenshot is read with a
+ *     receipt-specific prompt and EVERY check must pass (exact amount,
+ *     USD-or-unread currency, txn id or refCode visible, sane date,
+ *     configured recipient, txn not already approved elsewhere) to
+ *     auto-activate. Any failure → the claim STAYS 'pending' with the
+ *     full check list recorded as `decision` evidence for the human
+ *     queue (never auto-rejected). Claims that already carry a decision
+ *     are left to the human queue.
  *
- * kickVisionPreRead(): Tier-2 — after a claim is created, read the payment
- * screenshot with the business's configured AI backend (if any) and store
- * the extracted txn id / amount with a confidence level. Async, never
- * throws, never blocks claim creation. When no AI backend is configured
- * the claim records status 'unavailable' honestly.
+ * kickClaimDecision(claimId): the primary path — fired at claim
+ * creation so a clean payment activates immediately, not on the next
+ * sweep. kickVisionPreRead(): Tier-2 advisory pre-read (unchanged):
+ * extract txn id / amount for the console, never decides anything.
+ *
+ * Every AI decision writes `decision` {by:'ai', outcome, checks,
+ * decidedAt} on the claim and an `admin_audit_logs` entry in the
+ * console's exact shape (actor 'Auto-Verify (AI)', role 'system',
+ * category 'finance'; txn ids masked — no full financial identifiers
+ * in logs). approveSubscriptionClaim() also stores
+ * `activationSnapshot` on the claim so the Admin Console can reverse
+ * an approval exactly.
  *
  * SERVER-ONLY.
  */
@@ -28,15 +48,25 @@ import admin from "firebase-admin";
 import { getAdminDb } from "./admin-db";
 import { getAdapterForMethod } from "./exchanges";
 import { isValidRefCode } from "./ref-codes";
-import { perceiveMedia } from "./ai/media";
+import { perceiveMedia, describeImageWithVision } from "./ai/media";
 import { hasAnyProviderKey, resolveSiteKeys, type ProviderKeys } from "./ai/providers";
 import { isPaidPlanId, isBillingInterval } from "./plans";
+import {
+  RECEIPT_QUESTION,
+  parseReceiptExtraction,
+  evaluateReceiptChecks,
+  type DecisionCheck,
+  type ReceiptExtraction,
+} from "./payment-decision";
 import { logger } from "./logger";
 
 const AUTO_VERIFY_METHODS = ["binance", "bybit", "okx"] as const;
+const RECEIPT_METHODS = ["us_bank", "wechat_pay"] as const;
 
 export type AutoVerifyAction =
   | "matched_approved"
+  | "auto_approved"
+  | "human_review"
   | "not_configured"
   | "no_match"
   | "skipped"
@@ -97,8 +127,31 @@ export async function approveSubscriptionClaim(
     else endsAt.setMonth(endsAt.getMonth() + 1);
 
     const businessId = String(claim.businessId ?? "");
+    const bizRef = db.collection("businesses").doc(businessId);
+    // Snapshot the pre-activation state (all reads happen before any
+    // write, per Firestore transaction rules) so the Admin Console can
+    // reverse this approval exactly — restoring what was there instead
+    // of guessing.
+    const bizSnap = await tx.get(bizRef);
+    const bizData = bizSnap.exists
+      ? (bizSnap.data() as Record<string, unknown>)
+      : undefined;
+    const activationSnapshot = {
+      existed: bizSnap.exists,
+      subscriptionStatus:
+        typeof bizData?.subscriptionStatus === "string"
+          ? bizData.subscriptionStatus
+          : null,
+      plan: typeof bizData?.plan === "string" ? bizData.plan : null,
+      billingInterval:
+        typeof bizData?.billingInterval === "string"
+          ? bizData.billingInterval
+          : null,
+      subscriptionEndsAt: toDate(bizData?.subscriptionEndsAt)?.toISOString() ?? null,
+      isActive: typeof bizData?.isActive === "boolean" ? bizData.isActive : null,
+    };
     tx.set(
-      db.collection("businesses").doc(businessId),
+      bizRef,
       {
         subscriptionStatus: "active",
         plan,
@@ -116,6 +169,7 @@ export async function approveSubscriptionClaim(
       status: "approved",
       approvedBy,
       approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+      activationSnapshot,
     });
 
     logger.info("[auto-verify] subscription claim approved", {
@@ -149,9 +203,459 @@ async function markAutoVerify(
     });
 }
 
+/** Mask a txn id for audit-log notes: last 4 characters only. */
+function maskTxn(txn: string): string {
+  const clean = txn.trim();
+  if (!clean) return "n/a";
+  if (clean.length <= 4) return "••••";
+  return `••••${clean.slice(-4)}`;
+}
+
+export interface ClaimDecision {
+  by: "ai";
+  outcome: "auto_approve" | "human_review";
+  checks: DecisionCheck[];
+}
+
 /**
- * One auto-verify sweep over pending crypto subscription claims.
- * Safe to run on a schedule; per-claim failures never abort the sweep.
+ * Record the AI decision on the claim (`decision` field — the evidence
+ * the human queue works from). Returns true when a NEW decision was
+ * written (first decision, or the outcome changed) — the caller writes
+ * the audit entry only then, so sweep retries never flood the log.
+ */
+async function recordDecision(
+  db: admin.firestore.Firestore,
+  claimId: string,
+  existing: unknown,
+  decision: ClaimDecision
+): Promise<boolean> {
+  const prev = (existing ?? null) as { outcome?: unknown } | null;
+  if (prev && prev.outcome === decision.outcome) return false;
+  await db
+    .collection("payment_claims")
+    .doc(claimId)
+    .update({
+      decision: {
+        by: decision.by,
+        outcome: decision.outcome,
+        checks: decision.checks,
+        decidedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+    });
+  return true;
+}
+
+/**
+ * One `admin_audit_logs` entry in the Admin Console's exact shape
+ * (auditLogService.createAuditLog) for an AI verification decision.
+ * Txn ids are masked — no full financial identifiers in logs.
+ * Best-effort: an audit failure never undoes a verification decision.
+ */
+async function writeAutoVerifyAudit(
+  db: admin.firestore.Firestore,
+  entry: {
+    claimId: string;
+    outcome: "auto_approve" | "human_review";
+    note: string;
+  }
+): Promise<void> {
+  try {
+    await db.collection("admin_audit_logs").doc().set({
+      actorUid: null,
+      actorName: "Auto-Verify (AI)",
+      actorEmail: "",
+      actorRole: "system",
+      action:
+        entry.outcome === "auto_approve"
+          ? "ai_saas.payment_claim.auto_verify_approve"
+          : "ai_saas.payment_claim.auto_verify_review",
+      entityType: "ai_saas_payment_claim",
+      entityId: entry.claimId,
+      category: "finance",
+      status: entry.outcome === "auto_approve" ? "success" : "info",
+      note: entry.note,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    logger.warn("[auto-verify] audit write failed", {
+      claimId: entry.claimId,
+      error: String(err),
+    });
+  }
+}
+
+function claimAmountCents(claim: Record<string, unknown>): number {
+  return typeof claim.amountCents === "number"
+    ? Math.trunc(claim.amountCents)
+    : Math.round(Number(claim.amount ?? 0) * 100);
+}
+
+/**
+ * Process one pending crypto subscription claim: match the exchange
+ * deposit, and on a match approve + activate + record the decision and
+ * audit entry. No match is NOT a rejection — the claim stays pending.
+ */
+async function processCryptoClaim(
+  db: admin.firestore.Firestore,
+  claimId: string,
+  claim: Record<string, unknown>
+): Promise<{ action: AutoVerifyAction; note: string }> {
+  const method = String(claim.method ?? "");
+
+  const adapter = getAdapterForMethod(method as "binance" | "bybit" | "okx");
+  if (!adapter || !adapter.isConfigured()) {
+    await markAutoVerify(db, claimId, {
+      status: "not_configured",
+      exchange: method,
+      note: "Exchange API keys are not configured — human verification required.",
+    }).catch((err) =>
+      logger.warn("[auto-verify] mark not_configured failed", {
+        claimId,
+        error: String(err),
+      })
+    );
+    return { action: "not_configured", note: "exchange API not configured" };
+  }
+
+  const refCode = claim.refCode;
+  const amountCents = claimAmountCents(claim);
+  if (!isValidRefCode(refCode) || !Number.isInteger(amountCents) || amountCents <= 0) {
+    return { action: "skipped", note: "claim has no usable refCode/amount" };
+  }
+
+  const since =
+    toDate(claim.createdAt) ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  let match;
+  try {
+    match = await adapter.findDeposit({ refCode, amountCents, since });
+  } catch (err) {
+    await markAutoVerify(db, claimId, {
+      status: "failed",
+      exchange: method,
+      note: `Exchange lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+    }).catch(() => {});
+    return { action: "error", note: "exchange lookup failed" };
+  }
+
+  if (!match.found) {
+    // Lightweight by design: no match is NOT a rejection — the claim
+    // stays pending for human verification / a later sweep.
+    await markAutoVerify(db, claimId, {
+      status: "pending",
+      exchange: method,
+      note: match.note,
+    }).catch(() => {});
+    return { action: "no_match", note: match.note };
+  }
+
+  await markAutoVerify(db, claimId, {
+    status: "matched",
+    exchange: method,
+    note: match.note,
+  });
+  const checks: DecisionCheck[] = [
+    { name: "exchange_deposit_match", ok: true, detail: match.note },
+  ];
+  try {
+    const { approved } = await approveSubscriptionClaim(claimId, "auto-verify");
+    if (approved) {
+      const wrote = await recordDecision(db, claimId, claim.decision, {
+        by: "ai",
+        outcome: "auto_approve",
+        checks,
+      }).catch(() => false);
+      if (wrote) {
+        await writeAutoVerifyAudit(db, {
+          claimId,
+          outcome: "auto_approve",
+          note:
+            `Auto-verified ${method} payment (${(amountCents / 100).toFixed(2)} USD, ` +
+            `ref ${refCode}) for business ${String(claim.businessId ?? "")}: exchange ` +
+            `deposit matched on reference + exact amount; subscription activated by Auto-Verify (AI).`,
+        });
+      }
+    }
+    return { action: "matched_approved", note: match.note };
+  } catch (err) {
+    return {
+      action: "error",
+      note: `deposit matched but approval failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/** The configured recipient for the receipt decision's recipient check. */
+async function configuredRecipient(
+  db: admin.firestore.Firestore,
+  method: string
+): Promise<string | null> {
+  // Design contract: the recipient check applies when a recipient is
+  // configured for the method (us_bank accountName). WeChat Pay carries
+  // no recipient name (QR only) — the check is skipped there.
+  if (method !== "us_bank") return null;
+  try {
+    const snap = await db
+      .collection("payment_methods_config")
+      .doc(method)
+      .get();
+    if (!snap.exists) return null;
+    const name = (snap.data() as Record<string, unknown>).accountName;
+    return typeof name === "string" && name.trim() ? name.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide one pending bank/WeChat subscription claim from its payment
+ * screenshot. EVERY check must pass to auto-activate; any failure
+ * leaves the claim pending with the check list as evidence.
+ */
+async function decideReceiptClaim(
+  db: admin.firestore.Firestore,
+  claimId: string,
+  claim: Record<string, unknown>
+): Promise<{ action: AutoVerifyAction; note: string }> {
+  const businessId = String(claim.businessId ?? "");
+  const method = String(claim.method ?? "");
+  const amountCents = claimAmountCents(claim);
+  const refCode = typeof claim.refCode === "string" ? claim.refCode : "";
+  const claimTxnId = typeof claim.txnId === "string" ? claim.txnId : "";
+
+  // One transaction ID funds at most one subscription: if another
+  // claim was already APPROVED with this txnId, never auto-activate.
+  let txnAlreadyApprovedElsewhere = false;
+  if (claimTxnId) {
+    try {
+      const dup = await db
+        .collection("payment_claims")
+        .where("txnId", "==", claimTxnId)
+        .where("status", "==", "approved")
+        .limit(5)
+        .get();
+      txnAlreadyApprovedElsewhere = dup.docs.some((d) => d.id !== claimId);
+    } catch (err) {
+      logger.warn("[auto-verify] txn uniqueness check failed", {
+        claimId,
+        error: String(err),
+      });
+    }
+  }
+
+  // Read the receipt with the business's resolved AI backend (its own
+  // keys first, platform env keys as fallback — the same resolution
+  // the vision pre-read uses). No backend → no AI decision → human.
+  let extraction: ReceiptExtraction | null = null;
+  let visionUnavailableReason: string | undefined;
+  const shot = claim.screenshotDataUrl;
+  if (typeof shot !== "string" || !shot.startsWith("data:image/")) {
+    visionUnavailableReason = "No readable payment screenshot on the claim.";
+  } else {
+    const keys = await resolveSiteKeys(businessId).catch(
+      () => ({}) as ProviderKeys
+    );
+    if (!hasAnyProviderKey(keys)) {
+      visionUnavailableReason =
+        "AI backend not configured for this business — the payment screenshot could not be read.";
+    } else {
+      const parts = shot.split(",");
+      if (parts.length < 2 || !parts[1]) {
+        visionUnavailableReason = "The payment screenshot could not be read by AI.";
+      } else {
+        try {
+          const answer = await describeImageWithVision(
+            keys,
+            "gpt-4o-mini",
+            Buffer.from(parts[1], "base64"),
+            "image/jpeg",
+            RECEIPT_QUESTION
+          );
+          extraction = parseReceiptExtraction(answer);
+        } catch (err) {
+          visionUnavailableReason = "The payment screenshot could not be read by AI.";
+          logger.warn("[auto-verify] receipt read failed", {
+            claimId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+  }
+
+  const expectedRecipient = await configuredRecipient(db, method);
+  const decision = evaluateReceiptChecks({
+    claimAmountCents: amountCents,
+    claimTxnId,
+    refCode,
+    claimCreatedAt: toDate(claim.createdAt),
+    extraction,
+    visionUnavailableReason,
+    expectedRecipient,
+    txnAlreadyApprovedElsewhere,
+  });
+
+  if (decision.outcome === "auto_approve") {
+    try {
+      const { approved } = await approveSubscriptionClaim(claimId, "auto-verify");
+      if (!approved) {
+        return {
+          action: "skipped",
+          note: "claim was no longer pending when activation ran",
+        };
+      }
+    } catch (err) {
+      // The payment evidence passed but activation failed — hand the
+      // claim to a human WITH the passing checks plus the failure.
+      const checks: DecisionCheck[] = [
+        ...decision.checks,
+        {
+          name: "activation",
+          ok: false,
+          detail: `Automatic activation failed (${err instanceof Error ? err.message : String(err)}) — a human must activate this claim manually.`,
+        },
+      ];
+      const wrote = await recordDecision(db, claimId, claim.decision, {
+        by: "ai",
+        outcome: "human_review",
+        checks,
+      }).catch(() => false);
+      if (wrote) {
+        await writeAutoVerifyAudit(db, {
+          claimId,
+          outcome: "human_review",
+          note:
+            `Receipt checks passed for ${method} payment (${(amountCents / 100).toFixed(2)} USD, ` +
+            `ref ${refCode || "n/a"}, txn ${maskTxn(claimTxnId)}) for business ${businessId}, ` +
+            `but automatic activation failed — routed to human review.`,
+        });
+      }
+      return { action: "error", note: "activation failed after receipt checks passed" };
+    }
+
+    await markAutoVerify(db, claimId, {
+      status: "matched",
+      note: "AI receipt verification passed every check — subscription auto-activated.",
+    }).catch(() => {});
+    const wrote = await recordDecision(db, claimId, claim.decision, {
+      by: "ai",
+      outcome: "auto_approve",
+      checks: decision.checks,
+    }).catch(() => false);
+    if (wrote) {
+      await writeAutoVerifyAudit(db, {
+        claimId,
+        outcome: "auto_approve",
+        note:
+          `Auto-verified ${method} payment (${(amountCents / 100).toFixed(2)} USD, ` +
+          `ref ${refCode || "n/a"}, txn ${maskTxn(claimTxnId)}) for business ${businessId}: ` +
+          `receipt checks all passed; subscription activated by Auto-Verify (AI).`,
+      });
+    }
+    return { action: "auto_approved", note: "receipt checks passed — auto-activated" };
+  }
+
+  const wrote = await recordDecision(db, claimId, claim.decision, {
+    by: "ai",
+    outcome: "human_review",
+    checks: decision.checks,
+  }).catch(() => false);
+  if (wrote) {
+    const failed = decision.checks.filter((c) => !c.ok).map((c) => c.name);
+    await writeAutoVerifyAudit(db, {
+      claimId,
+      outcome: "human_review",
+      note:
+        `AI receipt verification for ${method} payment (${(amountCents / 100).toFixed(2)} USD, ` +
+        `ref ${refCode || "n/a"}, txn ${maskTxn(claimTxnId)}) for business ${businessId} ` +
+        `needs human review — failed checks: ${failed.join(", ") || "none recorded"}. ` +
+        `Claim left pending (never auto-rejected).`,
+    });
+  }
+  return {
+    action: "human_review",
+    note: "receipt checks did not all pass — left pending for human review",
+  };
+}
+
+/**
+ * Decide ONE claim by id (the primary path, kicked at claim creation,
+ * and the sweep's per-claim worker). Only pending SUBSCRIPTION claims
+ * are decided; wallet deposits keep the existing pre-read + human path.
+ * Never throws.
+ */
+export async function runClaimDecision(
+  claimId: string
+): Promise<AutoVerifyOutcome> {
+  const db = getAdminDb();
+  try {
+    const snap = await db.collection("payment_claims").doc(claimId).get();
+    if (!snap.exists) {
+      return { claimId, businessId: "", action: "skipped", note: "claim not found" };
+    }
+    const claim = snap.data() as Record<string, unknown>;
+    const businessId = String(claim.businessId ?? "");
+    const kind = typeof claim.kind === "string" ? claim.kind : "subscription";
+    if (claim.status !== "pending" || kind !== "subscription") {
+      return {
+        claimId,
+        businessId,
+        action: "skipped",
+        note: "claim is not a pending subscription claim",
+      };
+    }
+    const method = String(claim.method ?? "");
+    if ((AUTO_VERIFY_METHODS as readonly string[]).includes(method)) {
+      const r = await processCryptoClaim(db, claimId, claim);
+      return { claimId, businessId, ...r };
+    }
+    if ((RECEIPT_METHODS as readonly string[]).includes(method)) {
+      if (claim.decision) {
+        return {
+          claimId,
+          businessId,
+          action: "skipped",
+          note: "AI decision already recorded — awaiting human review",
+        };
+      }
+      const r = await decideReceiptClaim(db, claimId, claim);
+      return { claimId, businessId, ...r };
+    }
+    return {
+      claimId,
+      businessId,
+      action: "skipped",
+      note: `method ${method || "unknown"} is not auto-verifiable`,
+    };
+  } catch (err) {
+    logger.warn("[auto-verify] claim decision failed", {
+      claimId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      claimId,
+      businessId: "",
+      action: "error",
+      note: "decision failed — claim left pending",
+    };
+  }
+}
+
+/** Fire-and-forget entry point — never throws, never blocks claim creation. */
+export function kickClaimDecision(claimId: string): void {
+  void runClaimDecision(claimId).catch((err) =>
+    logger.warn("[auto-verify] claim decision kick failed (claim unaffected)", {
+      claimId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  );
+}
+
+/**
+ * One auto-verify sweep over pending subscription claims — the backstop
+ * for the creation-time kick (deposits that land after the claim,
+ * missed kicks, retries). Safe to run on a schedule; per-claim failures
+ * never abort the sweep.
  */
 export async function runAutoVerify(): Promise<AutoVerifyOutcome[]> {
   const db = getAdminDb();
@@ -164,94 +668,41 @@ export async function runAutoVerify(): Promise<AutoVerifyOutcome[]> {
     .get();
 
   for (const doc of snap.docs) {
-    const claimId = doc.id;
     const claim = doc.data() as Record<string, unknown>;
     const businessId = String(claim.businessId ?? "");
     const method = String(claim.method ?? "");
 
-    const finish = (action: AutoVerifyAction, note: string) => {
-      outcomes.push({ claimId, businessId, action, note });
-    };
-
-    if (!(AUTO_VERIFY_METHODS as readonly string[]).includes(method)) {
-      finish("skipped", `method ${method || "unknown"} is not auto-verifiable`);
+    if ((AUTO_VERIFY_METHODS as readonly string[]).includes(method)) {
+      const r = await processCryptoClaim(db, doc.id, claim);
+      outcomes.push({ claimId: doc.id, businessId, ...r });
       continue;
     }
-
-    const adapter = getAdapterForMethod(
-      method as "binance" | "bybit" | "okx"
-    );
-    if (!adapter || !adapter.isConfigured()) {
-      await markAutoVerify(db, claimId, {
-        status: "not_configured",
-        exchange: method,
-        note: "Exchange API keys are not configured — human verification required.",
-      }).catch((err) =>
-        logger.warn("[auto-verify] mark not_configured failed", {
-          claimId,
-          error: String(err),
-        })
-      );
-      finish("not_configured", "exchange API not configured");
-      continue;
-    }
-
-    const refCode = claim.refCode;
-    const amountCents =
-      typeof claim.amountCents === "number"
-        ? Math.trunc(claim.amountCents)
-        : Math.round(Number(claim.amount ?? 0) * 100);
-    if (!isValidRefCode(refCode) || !Number.isInteger(amountCents) || amountCents <= 0) {
-      finish("skipped", "claim has no usable refCode/amount");
-      continue;
-    }
-
-    const since =
-      toDate(claim.createdAt) ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-
-    let match;
-    try {
-      match = await adapter.findDeposit({ refCode, amountCents, since });
-    } catch (err) {
-      await markAutoVerify(db, claimId, {
-        status: "failed",
-        exchange: method,
-        note: `Exchange lookup failed: ${err instanceof Error ? err.message : String(err)}`,
-      }).catch(() => {});
-      finish("error", "exchange lookup failed");
-      continue;
-    }
-
-    if (match.found) {
-      await markAutoVerify(db, claimId, {
-        status: "matched",
-        exchange: method,
-        note: match.note,
-      });
-      try {
-        await approveSubscriptionClaim(claimId, "auto-verify");
-        finish("matched_approved", match.note);
-      } catch (err) {
-        finish(
-          "error",
-          `deposit matched but approval failed: ${err instanceof Error ? err.message : String(err)}`
-        );
+    if ((RECEIPT_METHODS as readonly string[]).includes(method)) {
+      if (claim.decision) {
+        outcomes.push({
+          claimId: doc.id,
+          businessId,
+          action: "skipped",
+          note: "AI decision already recorded — awaiting human review",
+        });
+        continue;
       }
-    } else {
-      // Lightweight by design: no match is NOT a rejection — the claim
-      // stays pending for human verification.
-      await markAutoVerify(db, claimId, {
-        status: "pending",
-        exchange: method,
-        note: match.note,
-      }).catch(() => {});
-      finish("no_match", match.note);
+      const r = await decideReceiptClaim(db, doc.id, claim);
+      outcomes.push({ claimId: doc.id, businessId, ...r });
+      continue;
     }
+    outcomes.push({
+      claimId: doc.id,
+      businessId,
+      action: "skipped",
+      note: `method ${method || "unknown"} is not auto-verifiable`,
+    });
   }
 
   logger.info("[auto-verify] sweep complete", {
     checked: outcomes.length,
     matched: outcomes.filter((o) => o.action === "matched_approved").length,
+    autoApproved: outcomes.filter((o) => o.action === "auto_approved").length,
   });
   return outcomes;
 }
