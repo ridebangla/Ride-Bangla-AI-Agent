@@ -9,12 +9,16 @@ import {
   isBillingConfigured,
   isPaidPlanId,
   isBillingInterval,
-  PLAN_META,
   StripeNotConfiguredError,
   StripePriceMissingError,
   type PaidPlanId,
   type BillingInterval,
 } from "@/lib/stripe";
+import {
+  getPlanCatalog,
+  resolveChargePrice,
+  type EffectivePlan,
+} from "@/lib/plan-catalog";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,7 +29,7 @@ export const runtime = "nodejs";
  * client_reference_id is the caller's own businessId, so the webhook can
  * only ever activate the business that paid.
  *
- * Body: { plan: "starter" | "growth" | "pro", interval?: "monthly" | "yearly" }
+ * Body: { plan: <active catalog plan id>, interval?: "monthly" | "yearly" }
  * Success: 200 { url } — the frontend redirects the browser there.
  *
  * Honest failures (never a fake checkout):
@@ -62,26 +66,51 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const plan: PaidPlanId | null = isPaidPlanId(body.plan) ? body.plan : null;
-  if (!plan) {
-    return NextResponse.json(
-      {
-        error: "invalid_plan",
-        message: "plan must be one of: starter, growth, pro.",
-      },
-      { status: 400 }
-    );
-  }
+  // Panel-driven catalog (2026-10-21): any ACTIVE catalog plan (code or
+  // panel-created) can check out. Price resolution order:
+  //   (a) a live offer → inline price_data at the offer price;
+  //   (b) else a Stripe price id — the env mapping for code plans, else
+  //       the plan's stripePriceId/stripeYearlyPriceId from its config;
+  //   (c) else the honest StripePriceMissingError failure.
+  const plan: string = typeof body.plan === "string" ? body.plan : "";
   // Monthly is the default — existing callers send no interval and keep
   // working exactly as before.
   const interval: BillingInterval = isBillingInterval(body.interval)
     ? body.interval
     : "monthly";
+  const charge = plan ? await resolveChargePrice(plan, interval) : null;
+  if (!charge || !charge.plan.active) {
+    const activeIds = (await getPlanCatalog())
+      .filter((p) => p.active)
+      .map((p) => p.id)
+      .join(", ");
+    return NextResponse.json(
+      {
+        error: "invalid_plan",
+        message: `plan must be one of: ${activeIds}.`,
+      },
+      { status: 400 }
+    );
+  }
+  const catalogPlan: EffectivePlan = charge.plan;
 
   try {
     if (!isBillingConfigured()) throw new StripeNotConfiguredError();
-    const priceId = getPriceIdForPlanInterval(plan, interval);
-    if (!priceId) throw new StripePriceMissingError(plan, interval);
+    let priceId: string | null = null;
+    if (!charge.offer) {
+      priceId = isPaidPlanId(plan)
+        ? getPriceIdForPlanInterval(plan, interval)
+        : null;
+      if (!priceId) {
+        priceId =
+          interval === "yearly"
+            ? catalogPlan.stripeYearlyPriceId
+            : catalogPlan.stripePriceId;
+      }
+      if (!priceId) {
+        throw new StripePriceMissingError(plan as PaidPlanId, interval);
+      }
+    }
     const stripe = getStripe();
     if (!stripe) throw new StripeNotConfiguredError();
 
@@ -116,10 +145,15 @@ export async function POST(request: NextRequest) {
 
     // Never stack a second subscription on an already-paying business —
     // plan changes and cancellations go through the customer portal.
+    // (A catalog plan id — code or panel-created — counts as paid.)
+    const businessPlanKnown =
+      isPaidPlanId(business.plan) ||
+      (typeof business.plan === "string" &&
+        (await getPlanCatalog()).some((p) => p.id === business.plan));
     if (
       business.subscriptionStatus === "active" &&
       business.stripeSubscriptionId &&
-      isPaidPlanId(business.plan)
+      businessPlanKnown
     ) {
       return NextResponse.json(
         {
@@ -159,14 +193,41 @@ export async function POST(request: NextRequest) {
     }
 
     const appUrl = getAppUrl();
+    // Offer metadata (panel-offers): carried on BOTH the session and the
+    // subscription so the webhook/panel can see what was actually priced.
+    const offerMeta: Record<string, string> = charge.offer
+      ? {
+          offerId: charge.offer.offerId,
+          regularAmountCents: String(
+            Math.round(charge.regularPriceUsd * 100)
+          ),
+          offerAmountCents: String(
+            Math.round(charge.effectivePriceUsd * 100)
+          ),
+        }
+      : {};
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
       client_reference_id: business.id,
-      line_items: [{ price: priceId, quantity: 1 }],
-      metadata: { businessId: business.id, plan, interval },
+      line_items: charge.offer
+        ? [
+            {
+              price_data: {
+                currency: "usd",
+                unit_amount: Math.round(charge.effectivePriceUsd * 100),
+                recurring: {
+                  interval: interval === "yearly" ? "year" : "month",
+                },
+                product_data: { name: catalogPlan.name },
+              },
+              quantity: 1,
+            },
+          ]
+        : [{ price: priceId as string, quantity: 1 }],
+      metadata: { businessId: business.id, plan, interval, ...offerMeta },
       subscription_data: {
-        metadata: { businessId: business.id, plan, interval },
+        metadata: { businessId: business.id, plan, interval, ...offerMeta },
       },
       success_url: `${appUrl}/billing?checkout=success`,
       cancel_url: `${appUrl}/billing?checkout=cancelled`,
@@ -181,7 +242,7 @@ export async function POST(request: NextRequest) {
     }
 
     logger.info(
-      `[billing] checkout session ${session.id} created for business ${business.id} (plan ${plan} / ${interval} / ${interval === "yearly" ? PLAN_META[plan].yearlyPriceUsd : PLAN_META[plan].priceUsd}$)`
+      `[billing] checkout session ${session.id} created for business ${business.id} (plan ${plan} / ${interval} / ${charge.effectivePriceUsd}$${charge.offer ? ` — offer ${charge.offer.offerId}, regular ${charge.regularPriceUsd}$` : ""})`
     );
     return NextResponse.json({ url: session.url });
   } catch (err) {

@@ -104,6 +104,11 @@ export interface PaymentClaim {
   amount: number;
   /** Integer cents — the money field of record (Billing Phase 2). */
   amountCents?: number;
+  /** Panel-offers (2026-10-21): set when a live ai_offers offer priced
+   *  this claim — the offer id, and the regular (pre-offer) amount in
+   *  cents, so the panel and the fraud monitor can see both figures. */
+  offerId?: string;
+  regularAmountCents?: number;
   reference: string;
   txnId: string;
   screenshotDataUrl: string;
@@ -244,6 +249,11 @@ export async function createPaymentClaim(input: {
   screenshotDataUrl: string;
   kind?: ClaimKind;
   createdBy?: string;
+  /** Panel-offers: the live offer that priced this claim, when one did. */
+  offerId?: string;
+  /** Panel-offers: the regular (pre-offer) amount in cents, when an
+   *  offer priced this claim. */
+  regularAmountCents?: number;
 }): Promise<{ claimId: string; refCode: string }> {
   await assertTxnIdNotClaimed(input.txnId);
   const { createWithUniqueRefCode } = await import("./ref-codes");
@@ -263,6 +273,12 @@ export async function createPaymentClaim(input: {
         typeof input.amountCents === "number"
           ? input.amountCents
           : Math.round(input.amount * 100),
+      // Panel-offers passthrough: written only when an offer applied, so
+      // pre-offer claim docs keep their exact old shape.
+      ...(input.offerId ? { offerId: input.offerId } : {}),
+      ...(typeof input.regularAmountCents === "number"
+        ? { regularAmountCents: input.regularAmountCents }
+        : {}),
       reference: input.reference,
       txnId: input.txnId,
       screenshotDataUrl: input.screenshotDataUrl,

@@ -15,6 +15,7 @@
 
 import { getUnscopedPrisma } from "./prisma";
 import { PLAN_META, isPaidPlanId, type PaidPlanId } from "./plans";
+import { getPlanCatalog, type EffectivePlan } from "./plan-catalog";
 import { logger } from "./logger";
 
 export const USAGE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
@@ -51,6 +52,29 @@ function messagesLimitForPlan(plan: string | undefined): number | null {
   if (isPaidPlanId(plan)) return PLAN_META[plan as PaidPlanId].messagesPerMonth;
   if (plan === "trial") return PLAN_META.starter.messagesPerMonth;
   return null;
+}
+
+/**
+ * Catalog-aware limit resolution (panel-driven plans, 2026-10-21): the
+ * limit comes from the EFFECTIVE catalog (ai_plans merged over PLAN_META),
+ * so a Super Admin edit in the Admin Panel moves the gate. Plan "trial"
+ * borrows the CURRENT starter entry's messagesPerMonth — config edits to
+ * starter move the trial allowance too. Returns undefined when the plan
+ * is unknown to the catalog, letting callers fall back to the code
+ * behaviour (messagesLimitForPlan). getPlanCatalog itself never throws
+ * (it falls back to the code catalog), so any config read error degrades
+ * to exactly the PLAN_META behaviour.
+ */
+async function catalogLimitForPlan(
+  plan: string
+): Promise<number | null | undefined> {
+  const catalog: EffectivePlan[] = await getPlanCatalog();
+  if (plan === "trial") {
+    const starter = catalog.find((p) => p.id === "starter");
+    return starter ? starter.messagesPerMonth : undefined;
+  }
+  const entry = catalog.find((p) => p.id === plan);
+  return entry ? entry.messagesPerMonth : undefined;
 }
 
 /**
@@ -114,16 +138,23 @@ export function effectiveAiMessagesUsed(
   return used;
 }
 
-/** Pure gate: true when the business has used up its plan's AI messages. */
+/** Pure gate: true when the business has used up its plan's AI messages.
+ *  `limitOverride` (panel-catalog resolution): when provided — including
+ *  an explicit null for "no limit" — it replaces the code-catalog lookup;
+ *  when omitted the PLAN_META behaviour is unchanged. */
 export function isMessageLimitExceeded(
   biz: BusinessUsageFields & { usagePeriodStart?: unknown },
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  limitOverride?: number | null
 ): boolean {
   // Internal owner account (owner rule 2026-10-21): usage is recorded
   // by recordAiMessage but NEVER blocks — no plan limit applies.
   if (biz.isInternalAccount === true) return false;
   const plan = typeof biz.plan === "string" && biz.plan ? biz.plan : "unknown";
-  const limit = messagesLimitForPlan(plan === "trial" ? "trial" : plan);
+  const limit =
+    limitOverride !== undefined
+      ? limitOverride
+      : messagesLimitForPlan(plan === "trial" ? "trial" : plan);
   if (limit === null) return false; // unknown/legacy plan: subscription gate covers it
   return effectiveAiMessagesUsed(biz, nowMs) >= limit;
 }
@@ -151,7 +182,13 @@ export async function checkMessageLimitExceeded(
       },
     })) as unknown as (BusinessUsageFields & { usagePeriodStart?: unknown }) | null;
     if (!biz) return false;
-    return isMessageLimitExceeded(biz);
+    // Catalog-aware gate: the limit is resolved from the effective
+    // (panel-merged) catalog; unknown plans fall back to PLAN_META.
+    const plan = typeof biz.plan === "string" && biz.plan ? biz.plan : "unknown";
+    const limitOverride = await catalogLimitForPlan(
+      plan === "trial" ? "trial" : plan
+    );
+    return isMessageLimitExceeded(biz, Date.now(), limitOverride);
   } catch (err) {
     logger.warn("[metering] message-limit check failed (allowing request)", {
       businessId,
@@ -198,7 +235,8 @@ const USAGE_THRESHOLDS = [80, 100] as const;
  */
 export function buildCountdown(
   biz: BusinessUsageFields,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  limitOverride?: number | null
 ): BillingCountdown {
   const rawNotice = biz.adminNotice;
   const adminNotice =
@@ -237,7 +275,10 @@ export function buildCountdown(
     ? Math.ceil((endDate.getTime() - nowMs) / (24 * 60 * 60 * 1000))
     : null;
 
-  const limit = messagesLimitForPlan(plan === "trial" ? "trial" : plan);
+  const limit =
+    limitOverride !== undefined
+      ? limitOverride
+      : messagesLimitForPlan(plan === "trial" ? "trial" : plan);
   const used =
     typeof biz.aiMessagesUsed === "number" && biz.aiMessagesUsed >= 0
       ? Math.trunc(biz.aiMessagesUsed)
@@ -299,7 +340,13 @@ export async function getBillingCountdown(
       },
     })) as unknown as BusinessUsageFields | null;
     if (!biz) return null;
-    return buildCountdown(biz);
+    // Catalog-aware: limits shown in the countdown come from the
+    // effective (panel-merged) catalog, same as the spend gate.
+    const plan = typeof biz.plan === "string" && biz.plan ? biz.plan : "unknown";
+    const limitOverride = await catalogLimitForPlan(
+      plan === "trial" ? "trial" : plan
+    );
+    return buildCountdown(biz, Date.now(), limitOverride);
   } catch (err) {
     logger.warn("[billing] getBillingCountdown failed", {
       businessId,

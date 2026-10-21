@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, CreditCard, Loader2 } from "lucide-react";
-import { PAID_PLANS, PLAN_META, type PaidPlanId } from "@/lib/plans";
+import { PAID_PLANS, PLAN_META } from "@/lib/plans";
+import type { CatalogPlanView } from "@/lib/plan-catalog";
 
 interface BillingActionsProps {
   subscriptionStatus: string;
@@ -12,6 +13,36 @@ interface BillingActionsProps {
   billingConfigured: boolean;
   /** True when the viewer's role may move money (settings:update). */
   canPay: boolean;
+  /** Effective catalog view-model (panel-driven plans + live offers).
+   *  When absent/empty, the code catalog renders exactly as before. */
+  catalog?: CatalogPlanView[];
+}
+
+/** Code-catalog fallback view (no offers) — today's exact behaviour. */
+const FALLBACK_CATALOG: CatalogPlanView[] = PAID_PLANS.map((id) => ({
+  id,
+  name: PLAN_META[id].name,
+  tagline: PLAN_META[id].tagline,
+  messagesPerMonth: PLAN_META[id].messagesPerMonth,
+  active: true,
+  source: "code",
+  monthly: { regularPriceUsd: PLAN_META[id].priceUsd, offer: null },
+  yearly: { regularPriceUsd: PLAN_META[id].yearlyPriceUsd, offer: null },
+}));
+
+function fmtPrice(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+function fmtEnds(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
 }
 
 /**
@@ -26,8 +57,10 @@ export default function BillingActions({
   isActive,
   billingConfigured,
   canPay,
+  catalog,
 }: BillingActionsProps) {
-  const [loadingPlan, setLoadingPlan] = useState<PaidPlanId | null>(null);
+  const plans = catalog && catalog.length > 0 ? catalog : FALLBACK_CATALOG;
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState<"success" | "cancelled" | null>(null);
@@ -54,14 +87,17 @@ export default function BillingActions({
         /* storage unavailable */
       }
     };
+    // The pick is accepted when it names a plan in the effective catalog
+    // (code plans, or a panel-created plan passed via the catalog prop).
+    const validIds = plans.map((p) => p.id);
     const qp = params.get("plan");
-    if (qp && (PAID_PLANS as readonly string[]).includes(qp)) {
+    if (qp && validIds.includes(qp)) {
       setChosenPlan(qp);
       save("rbai-chosen-plan", qp);
     } else {
       try {
         const stored = localStorage.getItem("rbai-chosen-plan");
-        if (stored && (PAID_PLANS as readonly string[]).includes(stored)) {
+        if (stored && validIds.includes(stored)) {
           setChosenPlan(stored);
         }
       } catch {
@@ -83,7 +119,7 @@ export default function BillingActions({
     }
   }, []);
 
-  async function startCheckout(selected: PaidPlanId) {
+  async function startCheckout(selected: string) {
     setError("");
     setLoadingPlan(selected);
     try {
@@ -123,8 +159,7 @@ export default function BillingActions({
     }
   }
 
-  const isPaidPlan =
-    plan === "starter" || plan === "growth" || plan === "pro";
+  const isPaidPlan = plans.some((p) => p.id === plan);
   const showPlanPicker =
     billingConfigured &&
     canPay &&
@@ -252,46 +287,65 @@ export default function BillingActions({
                 {showPlanPicker && (
                   <>
                     <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {PAID_PLANS.map((p) => (
-                        <button
-                          key={p}
-                          onClick={() => startCheckout(p)}
-                          disabled={loadingPlan !== null}
-                          className={`rounded-xl border p-4 text-left transition-colors disabled:opacity-50 ${
-                            plan === p && isActive
-                              ? "border-rbai-primary bg-rbai-primary-50"
-                              : "border-rbai-border bg-rbai-bg hover:border-rbai-primary"
-                          }`}
-                        >
-                          <span className="flex items-center justify-between">
-                            <span className="font-semibold text-rbai-text text-sm">
-                              {PLAN_META[p].name}
-                            </span>
-                            {loadingPlan === p ? (
-                              <Loader2 className="h-4 w-4 animate-spin text-rbai-primary" />
-                            ) : chosenPlan === p ? (
-                              <span className="text-[10px] font-semibold uppercase tracking-wide text-rbai-primary bg-rbai-primary-50 border border-rbai-primary/20 rounded-full px-2 py-0.5">
-                                Your pick
+                      {plans.map((p) => {
+                        const view =
+                          chosenInterval === "yearly" ? p.yearly : p.monthly;
+                        const offer = view.offer;
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => startCheckout(p.id)}
+                            disabled={loadingPlan !== null}
+                            className={`rounded-xl border p-4 text-left transition-colors disabled:opacity-50 ${
+                              plan === p.id && isActive
+                                ? "border-rbai-primary bg-rbai-primary-50"
+                                : "border-rbai-border bg-rbai-bg hover:border-rbai-primary"
+                            }`}
+                          >
+                            <span className="flex items-center justify-between">
+                              <span className="font-semibold text-rbai-text text-sm">
+                                {p.name}
                               </span>
-                            ) : null}
-                          </span>
-                          <span className="block mt-1 text-lg font-bold text-rbai-text">
-                            $
-                            {chosenInterval === "yearly"
-                              ? PLAN_META[p].yearlyPriceUsd
-                              : PLAN_META[p].priceUsd}
-                            <span className="text-xs font-normal text-rbai-text-light">
-                              {" "}
-                              {chosenInterval === "yearly" ? "/ year" : "/ month"}
+                              {loadingPlan === p.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin text-rbai-primary" />
+                              ) : chosenPlan === p.id ? (
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-rbai-primary bg-rbai-primary-50 border border-rbai-primary/20 rounded-full px-2 py-0.5">
+                                  Your pick
+                                </span>
+                              ) : null}
                             </span>
-                          </span>
-                          {chosenInterval === "yearly" && (
-                            <span className="block mt-0.5 text-[11px] font-medium text-emerald-700">
-                              2 months free
+                            <span className="block mt-1 text-lg font-bold text-rbai-text">
+                              $
+                              {fmtPrice(
+                                offer
+                                  ? offer.effectivePriceUsd
+                                  : view.regularPriceUsd
+                              )}
+                              {offer && (
+                                <span className="ml-1.5 text-sm font-normal text-rbai-text-light line-through">
+                                  ${fmtPrice(view.regularPriceUsd)}
+                                </span>
+                              )}
+                              <span className="text-xs font-normal text-rbai-text-light">
+                                {" "}
+                                {chosenInterval === "yearly" ? "/ year" : "/ month"}
+                              </span>
                             </span>
-                          )}
-                        </button>
-                      ))}
+                            {offer && (
+                              <span className="block mt-0.5 text-[11px] font-medium text-emerald-700">
+                                {offer.name} · ends {fmtEnds(offer.endsAt)}
+                              </span>
+                            )}
+                            {chosenInterval === "yearly" &&
+                              p.yearly.regularPriceUsd ===
+                                p.monthly.regularPriceUsd * 10 && (
+                                <span className="block mt-0.5 text-[11px] font-medium text-emerald-700">
+                                  2 months free
+                                </span>
+                              )}
+                          </button>
+                        );
+                      })}
                     </div>
                     <p className="text-xs text-rbai-text-light mt-3">
                       {subscriptionStatus === "trialing"

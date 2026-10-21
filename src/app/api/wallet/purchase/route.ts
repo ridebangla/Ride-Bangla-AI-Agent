@@ -3,16 +3,14 @@ import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 import {
-  isPaidPlanId,
   isBillingInterval,
-  type PaidPlanId,
   type BillingInterval,
 } from "@/lib/plans";
 import {
   purchaseFromWallet,
-  planPriceCents,
   WalletError,
 } from "@/lib/wallet";
+import { getPlanCatalog, resolveChargePrice } from "@/lib/plan-catalog";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,8 +18,8 @@ export const runtime = "nodejs";
 /**
  * POST /api/wallet/purchase — buy/renew a plan from the wallet balance.
  *
- * Body: { plan, interval? } (price is computed server-side from PLAN_META —
- * never trusted from the client).
+ * Body: { plan, interval? } (price is computed server-side from the
+ * effective plan catalog, offer applied — never trusted from the client).
  * Success: 200 { ok: true, plan, interval, priceCents, balanceCents,
  *                 subscriptionEndsAt } — the subscription is active from
  *                 this call (single atomic transaction).
@@ -81,19 +79,28 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const plan: PaidPlanId | null = isPaidPlanId(body.plan) ? body.plan : null;
-  if (!plan) {
+  // Panel-driven catalog (2026-10-21): any ACTIVE catalog plan (code or
+  // panel-created) is purchasable; the price is the catalog price with a
+  // live offer applied, computed server-side in purchaseFromWallet.
+  const plan: string = typeof body.plan === "string" ? body.plan : "";
+  const interval: BillingInterval = isBillingInterval(body.interval)
+    ? body.interval
+    : "monthly";
+  const charge = plan ? await resolveChargePrice(plan, interval) : null;
+  if (!charge || !charge.plan.active) {
+    const activeIds = (await getPlanCatalog())
+      .filter((p) => p.active)
+      .map((p) => p.id)
+      .join(", ");
     return NextResponse.json(
       {
         error: "invalid_plan",
-        message: "plan must be one of: starter, growth, pro.",
+        message: `plan must be one of: ${activeIds}.`,
       },
       { status: 400 }
     );
   }
-  const interval: BillingInterval = isBillingInterval(body.interval)
-    ? body.interval
-    : "monthly";
+  const priceCents = Math.round(charge.effectivePriceUsd * 100);
 
   try {
     const result = await purchaseFromWallet(auth.businessId, {
@@ -104,7 +111,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       plan,
       interval,
-      priceCents: planPriceCents(plan, interval),
+      priceCents: result.priceCents,
       balanceCents: result.balanceCents,
       subscriptionEndsAt: result.subscriptionEndsAt.toISOString(),
     });
@@ -114,7 +121,7 @@ export async function POST(request: NextRequest) {
         {
           error: "insufficient_balance",
           message: err.message,
-          priceCents: planPriceCents(plan, interval),
+          priceCents,
         },
         { status: 402 }
       );

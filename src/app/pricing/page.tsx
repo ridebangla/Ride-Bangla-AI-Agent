@@ -3,6 +3,9 @@ import Image from "next/image";
 import { ArrowRight } from "lucide-react";
 import PlanCards from "./PlanCards";
 import { TRIAL_DAYS } from "@/lib/plans";
+import { getCatalogView, type CatalogPlanView } from "@/lib/plan-catalog";
+
+export const dynamic = "force-dynamic";
 
 const SITE_URL = "https://ai.ridebangla.bd";
 
@@ -35,46 +38,38 @@ export const metadata = {
   },
 };
 
-// Product/Offer structured data: real prices from the plan catalog.
-const PRODUCT_JSON_LD = {
-  "@context": "https://schema.org",
-  "@type": "Product",
-  name: "Ride Bangla AI Agent",
-  description:
-    "AI customer-service agent SaaS: 24/7 chat support, WhatsApp/Facebook/Instagram/Telegram automation, website & landing-page builder, product catalog, order handling, lead engine.",
-  brand: { "@type": "Brand", name: "Ride Bangla" },
-  image: SITE_URL + "/agent-avatar.png",
-  url: SITE_URL + "/pricing",
-  offers: [
-    {
-      "@type": "Offer",
-      name: "Starter",
-      price: "19",
-      priceCurrency: "USD",
-      description: `Starter plan, $${19}/month or $${190}/year (2 months free). Includes a ${TRIAL_DAYS}-day free trial.`,
-      availability: "https://schema.org/InStock",
-      url: SITE_URL + "/signup?plan=starter",
-    },
-    {
-      "@type": "Offer",
-      name: "Growth",
-      price: "49",
-      priceCurrency: "USD",
-      description: `Growth plan, $${49}/month or $${490}/year (2 months free). Includes a ${TRIAL_DAYS}-day free trial.`,
-      availability: "https://schema.org/InStock",
-      url: SITE_URL + "/signup?plan=growth",
-    },
-    {
-      "@type": "Offer",
-      name: "Pro",
-      price: "99",
-      priceCurrency: "USD",
-      description: `Pro plan, $${99}/month or $${990}/year (2 months free). Includes a ${TRIAL_DAYS}-day free trial.`,
-      availability: "https://schema.org/InStock",
-      url: SITE_URL + "/signup?plan=pro",
-    },
-  ],
-};
+// Product/Offer structured data: prices from the EFFECTIVE plan catalog
+// (panel-driven ai_plans merged over the code catalog) — the monthly
+// price is the live offer's price when a monthly offer is live.
+function buildProductJsonLd(plans: CatalogPlanView[]) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: "Ride Bangla AI Agent",
+    description:
+      "AI customer-service agent SaaS: 24/7 chat support, WhatsApp/Facebook/Instagram/Telegram automation, website & landing-page builder, product catalog, order handling, lead engine.",
+    brand: { "@type": "Brand", name: "Ride Bangla" },
+    image: SITE_URL + "/agent-avatar.png",
+    url: SITE_URL + "/pricing",
+    offers: plans.map((p) => {
+      const monthlyPrice = p.monthly.offer
+        ? p.monthly.offer.effectivePriceUsd
+        : p.monthly.regularPriceUsd;
+      const yearlyPrice = p.yearly.offer
+        ? p.yearly.offer.effectivePriceUsd
+        : p.yearly.regularPriceUsd;
+      return {
+        "@type": "Offer",
+        name: p.name,
+        price: String(monthlyPrice),
+        priceCurrency: "USD",
+        description: `${p.name} plan, $${monthlyPrice}/month or $${yearlyPrice}/year (2 months free). Includes a ${TRIAL_DAYS}-day free trial.`,
+        availability: "https://schema.org/InStock",
+        url: SITE_URL + `/signup?plan=${p.id}`,
+      };
+    }),
+  };
+}
 
 const FAQS = [
   {
@@ -99,12 +94,18 @@ const FAQS = [
   },
 ];
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  // Effective catalog (code + panel config) with live offers applied.
+  // Only ACTIVE plans are listed; getCatalogView never throws — on any
+  // config read error it degrades to the code catalog.
+  const catalogView = await getCatalogView();
+  const activePlans = catalogView.filter((p) => p.active);
+  const productJsonLd = buildProductJsonLd(activePlans);
   return (
     <div className="min-h-screen bg-white text-slate-900 antialiased">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(PRODUCT_JSON_LD) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd) }}
       />
       {/* Nav */}
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-slate-200">
@@ -148,7 +149,7 @@ export default function PricingPage() {
       </section>
 
       {/* Plan cards + comparison (client: Monthly/Yearly toggle) */}
-      <PlanCards />
+      <PlanCards plans={activePlans} />
 
       {/* FAQ */}
       <section className="bg-slate-50 border-y border-slate-200">

@@ -9,9 +9,9 @@ import {
   isBillingInterval,
   WebhookNotConfiguredError,
   WebhookSignatureError,
-  type PaidPlanId,
   type BillingInterval,
 } from "@/lib/stripe";
+import { getCatalogPlan, getPlanCatalog } from "@/lib/plan-catalog";
 
 export const dynamic = "force-dynamic";
 // Stripe's signature check uses node:crypto (timingSafeEqual) — must run on
@@ -163,11 +163,37 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       ? subMetaInterval
       : "monthly";
 
-  let plan: PaidPlanId | null = isPaidPlanId(metaPlan) ? metaPlan : null;
-  if (!plan && isPaidPlanId(subMetaPlan)) plan = subMetaPlan;
-  // Last resort: resolve the plan from a Price id if Stripe expanded it.
+  // Plan resolution: session/subscription metadata first. A metadata plan
+  // is accepted when it is a code plan id OR present in the effective
+  // catalog (panel-created plans check out with inline price_data, so
+  // their metadata plan is the only resolution path).
+  let plan: string | null = null;
+  if (
+    typeof metaPlan === "string" &&
+    metaPlan &&
+    (isPaidPlanId(metaPlan) || (await getCatalogPlan(metaPlan)) !== null)
+  ) {
+    plan = metaPlan;
+  }
+  if (
+    !plan &&
+    typeof subMetaPlan === "string" &&
+    subMetaPlan &&
+    (isPaidPlanId(subMetaPlan) || (await getCatalogPlan(subMetaPlan)) !== null)
+  ) {
+    plan = subMetaPlan;
+  }
+  // Last resort: resolve the plan from a Price id if Stripe expanded it —
+  // the env mapping first, then the catalog's configured Stripe price ids.
   const linePrice = (session as { line_items?: { data?: Array<{ price?: { id?: string } }> } }).line_items?.data?.[0]?.price?.id;
   if (!plan && linePrice) plan = getPlanForPriceId(linePrice);
+  if (!plan && linePrice) {
+    const catalog = await getPlanCatalog();
+    const match = catalog.find(
+      (p) => p.stripePriceId === linePrice || p.stripeYearlyPriceId === linePrice
+    );
+    if (match) plan = match.id;
+  }
 
   if (!businessId || !plan) {
     logger.error(

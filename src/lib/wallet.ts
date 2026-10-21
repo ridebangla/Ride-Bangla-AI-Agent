@@ -35,11 +35,11 @@ import {
 } from "./claim-dedupe";
 import {
   PLAN_META,
-  isPaidPlanId,
   isBillingInterval,
   type PaidPlanId,
   type BillingInterval,
 } from "./plans";
+import { resolveChargePrice } from "./plan-catalog";
 import { logger } from "./logger";
 
 export type WalletTransactionType = "deposit" | "purchase" | "adjustment";
@@ -60,7 +60,10 @@ export interface WalletTransaction {
   amountCents: number;
   method?: ManualMethodId;
   claimId?: string;
-  plan?: PaidPlanId;
+  /** Plan id — a code plan id or a panel-created catalog plan id. */
+  plan?: string;
+  /** Panel-offers (2026-10-21): the live offer that priced a purchase. */
+  offerId?: string;
   interval?: BillingInterval;
   /** Integer cents — wallet balance right after this transaction. */
   balanceAfterCents: number;
@@ -103,7 +106,8 @@ function asTransaction(
       typeof data.amountCents === "number" ? Math.trunc(data.amountCents) : 0,
     method: isManualMethodId(data.method) ? data.method : undefined,
     claimId: typeof data.claimId === "string" ? data.claimId : undefined,
-    plan: isPaidPlanId(data.plan) ? data.plan : undefined,
+    plan: typeof data.plan === "string" && data.plan ? data.plan : undefined,
+    offerId: typeof data.offerId === "string" ? data.offerId : undefined,
     interval: isBillingInterval(data.interval) ? data.interval : undefined,
     balanceAfterCents:
       typeof data.balanceAfterCents === "number"
@@ -280,15 +284,29 @@ export async function createDepositClaim(
  * business subscription activation. Throws WalletError('insufficient_balance')
  * when the wallet cannot cover the price. Idempotent per call — one call
  * performs at most one deduction.
+ *
+ * Panel plans + offers (2026-10-21): any ACTIVE catalog plan (code or
+ * panel-created) is purchasable, and the price is the catalog price with
+ * a live offer applied when one exists — resolved server-side via
+ * resolveChargePrice, never trusted from the client.
  */
 export async function purchaseFromWallet(
   businessId: string,
-  input: { plan: PaidPlanId; interval: BillingInterval }
-): Promise<{ balanceCents: number; subscriptionEndsAt: Date }> {
-  if (!isPaidPlanId(input.plan) || !isBillingInterval(input.interval)) {
+  input: { plan: string; interval: BillingInterval }
+): Promise<{
+  balanceCents: number;
+  subscriptionEndsAt: Date;
+  priceCents: number;
+  offerId?: string;
+}> {
+  if (!isBillingInterval(input.interval)) {
     throw new WalletError("Invalid plan or interval.", "invalid_amount");
   }
-  const priceCents = planPriceCents(input.plan, input.interval);
+  const charge = await resolveChargePrice(input.plan, input.interval);
+  if (!charge || !charge.plan.active) {
+    throw new WalletError("Invalid plan or interval.", "invalid_amount");
+  }
+  const priceCents = Math.round(charge.effectivePriceUsd * 100);
   const db = getAdminDb();
   const walletRef = db.collection("wallets").doc(businessId);
   const businessRef = db.collection("businesses").doc(businessId);
@@ -332,10 +350,15 @@ export async function purchaseFromWallet(
       amountCents: -priceCents,
       plan: input.plan,
       interval: input.interval,
+      // Panel-offers: the transaction record has no metadata/details
+      // sub-object — the applied offer id is recorded as a top-level
+      // field on the transaction row itself, only when an offer priced
+      // this purchase.
+      ...(charge.offer ? { offerId: charge.offer.offerId } : {}),
       balanceAfterCents: newBalance,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       createdBy: `tenant:${businessId}`,
-      note: `${PLAN_META[input.plan].name} ${input.interval} subscription`,
+      note: `${charge.plan.name} ${input.interval} subscription`,
     });
     tx.set(
       businessRef,
@@ -364,7 +387,11 @@ export async function purchaseFromWallet(
     priceCents,
     balanceCents: result.balanceCents,
   });
-  return result;
+  return {
+    ...result,
+    priceCents,
+    ...(charge.offer ? { offerId: charge.offer.offerId } : {}),
+  };
 }
 
 /**

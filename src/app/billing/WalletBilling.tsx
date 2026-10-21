@@ -5,13 +5,13 @@ import Image from "next/image";
 import {
   PLAN_META,
   PAID_PLANS,
-  type PaidPlanId,
   type BillingInterval,
 } from "@/lib/plans";
 import type {
   ManualPaymentMethod,
   ManualMethodId,
 } from "@/lib/manual-payments";
+import type { CatalogPlanView } from "@/lib/plan-catalog";
 
 /**
  * WalletBilling — the "Wallet" section on /billing (Billing Phase 2).
@@ -34,10 +34,36 @@ const MAX_SCREENSHOT_BYTES = 400 * 1024;
 
 interface WalletBillingProps {
   balanceCents: number;
-  defaultPlan: PaidPlanId;
+  defaultPlan: string;
   defaultInterval: BillingInterval;
   methods: ManualPaymentMethod[];
   canPay: boolean;
+  /** Effective catalog view-model (panel-driven plans + live offers).
+   *  When absent/empty, the code catalog renders exactly as before. */
+  catalog?: CatalogPlanView[];
+}
+
+/** Code-catalog fallback view (no offers) — today's exact behaviour. */
+const FALLBACK_CATALOG: CatalogPlanView[] = PAID_PLANS.map((id) => ({
+  id,
+  name: PLAN_META[id].name,
+  tagline: PLAN_META[id].tagline,
+  messagesPerMonth: PLAN_META[id].messagesPerMonth,
+  active: true,
+  source: "code",
+  monthly: { regularPriceUsd: PLAN_META[id].priceUsd, offer: null },
+  yearly: { regularPriceUsd: PLAN_META[id].yearlyPriceUsd, offer: null },
+}));
+
+function fmtEnds(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
 }
 
 function formatUsd(cents: number): string {
@@ -106,9 +132,11 @@ export default function WalletBilling({
   defaultInterval,
   methods,
   canPay,
+  catalog,
 }: WalletBillingProps) {
+  const plans = catalog && catalog.length > 0 ? catalog : FALLBACK_CATALOG;
   // ---- Pay from wallet ----
-  const [plan, setPlan] = useState<PaidPlanId>(defaultPlan);
+  const [plan, setPlan] = useState<string>(defaultPlan);
   const [interval, setInterval] = useState<BillingInterval>(defaultInterval);
   const [purchasing, setPurchasing] = useState(false);
   const [purchaseMsg, setPurchaseMsg] = useState<{
@@ -131,10 +159,21 @@ export default function WalletBilling({
 
   if (!canPay) return null;
 
-  const priceCents =
-    (interval === "yearly"
-      ? PLAN_META[plan].yearlyPriceUsd
-      : PLAN_META[plan].priceUsd) * 100;
+  // Price = the catalog price for the selected plan + interval, with a
+  // live offer applied when one exists — the same figure the server
+  // charges in purchaseFromWallet.
+  const selected = plans.find((p) => p.id === plan) ?? plans[0];
+  const selectedView = selected
+    ? interval === "yearly"
+      ? selected.yearly
+      : selected.monthly
+    : null;
+  const offer = selectedView?.offer ?? null;
+  const priceCents = selectedView
+    ? Math.round(
+        (offer?.effectivePriceUsd ?? selectedView.regularPriceUsd) * 100
+      )
+    : 0;
 
   async function onPurchase() {
     setPurchaseMsg(null);
@@ -143,7 +182,7 @@ export default function WalletBilling({
       const res = await fetch("/api/wallet/purchase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan, interval }),
+        body: JSON.stringify({ plan: selected?.id ?? plan, interval }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -159,7 +198,7 @@ export default function WalletBilling({
       }
       setPurchaseMsg({
         kind: "ok",
-        text: `Done — your ${PLAN_META[plan].name} plan (${interval}) is active. New balance: ${formatUsd(data.balanceCents ?? 0)}.`,
+        text: `Done — your ${selected?.name ?? plan} plan (${interval}) is active. New balance: ${formatUsd(data.balanceCents ?? 0)}.`,
       });
     } catch {
       setPurchaseMsg({
@@ -264,13 +303,13 @@ export default function WalletBilling({
             </label>
             <select
               id="wallet-plan"
-              value={plan}
-              onChange={(e) => setPlan(e.target.value as PaidPlanId)}
+              value={selected?.id ?? plan}
+              onChange={(e) => setPlan(e.target.value)}
               className={inputClass}
             >
-              {PAID_PLANS.map((p) => (
-                <option key={p} value={p}>
-                  {PLAN_META[p].name}
+              {plans.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
                 </option>
               ))}
             </select>
@@ -290,6 +329,15 @@ export default function WalletBilling({
             </select>
           </div>
         </div>
+        {offer && selectedView && (
+          <p className="text-xs font-medium text-emerald-700 mt-3">
+            {offer.name} ·{" "}
+            <span className="line-through text-rbai-text-light">
+              {formatUsd(Math.round(selectedView.regularPriceUsd * 100))}
+            </span>{" "}
+            · ends {fmtEnds(offer.endsAt)}
+          </p>
+        )}
         <button
           type="button"
           onClick={onPurchase}

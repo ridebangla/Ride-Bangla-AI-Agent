@@ -3,12 +3,10 @@ import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 import {
-  isPaidPlanId,
   isBillingInterval,
-  PLAN_META,
-  type PaidPlanId,
   type BillingInterval,
 } from "@/lib/plans";
+import { getPlanCatalog, resolveChargePrice } from "@/lib/plan-catalog";
 import {
   DuplicateTxnError,
   isManualMethodId,
@@ -232,19 +230,26 @@ export async function POST(request: NextRequest) {
   }
 
   // ---- kind='subscription': pay for a plan ----
-  const plan: PaidPlanId | null = isPaidPlanId(body.plan) ? body.plan : null;
-  if (!plan) {
+  // Panel-driven catalog (2026-10-21): the plan must exist in the
+  // effective catalog (code plans + ai_plans config) and be active.
+  const plan: string = typeof body.plan === "string" ? body.plan : "";
+  const interval: BillingInterval = isBillingInterval(body.interval)
+    ? body.interval
+    : "monthly";
+  const charge = plan ? await resolveChargePrice(plan, interval) : null;
+  if (!charge || !charge.plan.active) {
+    const activeIds = (await getPlanCatalog())
+      .filter((p) => p.active)
+      .map((p) => p.id)
+      .join(", ");
     return NextResponse.json(
       {
         error: "invalid_plan",
-        message: "plan must be one of: starter, growth, pro.",
+        message: `plan must be one of: ${activeIds}.`,
       },
       { status: 400 }
     );
   }
-  const interval: BillingInterval = isBillingInterval(body.interval)
-    ? body.interval
-    : "monthly";
 
   // The customer-supplied reference is kept for backwards compatibility
   // with older claims; the server-generated refCode is the field of
@@ -261,12 +266,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Amount is computed server-side from the plan catalog — never trusted
-  // from the client.
-  const amount =
-    interval === "yearly"
-      ? PLAN_META[plan].yearlyPriceUsd
-      : PLAN_META[plan].priceUsd;
+  // Amount is computed server-side from the effective plan catalog —
+  // never trusted from the client. When a live offer prices this plan +
+  // interval, the claim is created at the OFFER price and carries the
+  // offerId + the regular amount for the panel and the fraud monitor.
+  const amount = charge.effectivePriceUsd;
 
   try {
     const { claimId, refCode } = await createPaymentClaim({
@@ -280,6 +284,12 @@ export async function POST(request: NextRequest) {
       reference,
       txnId,
       screenshotDataUrl,
+      ...(charge.offer
+        ? {
+            offerId: charge.offer.offerId,
+            regularAmountCents: Math.round(charge.regularPriceUsd * 100),
+          }
+        : {}),
     });
     // Fraud heuristics + Tier-2 vision pre-read: async, never block the claim.
     const base = {
@@ -290,6 +300,7 @@ export async function POST(request: NextRequest) {
       plan,
       interval,
       txnId,
+      ...(charge.offer ? { offerId: charge.offer.offerId } : {}),
     };
     await runFraudHeuristics(base);
     kickVisionPreRead(claimId);

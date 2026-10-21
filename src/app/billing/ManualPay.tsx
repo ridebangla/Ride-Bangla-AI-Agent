@@ -5,13 +5,13 @@ import Image from "next/image";
 import {
   PLAN_META,
   PAID_PLANS,
-  type PaidPlanId,
   type BillingInterval,
 } from "@/lib/plans";
 import type {
   ManualPaymentMethod,
   ManualMethodId,
 } from "@/lib/manual-payments";
+import type { CatalogPlanView } from "@/lib/plan-catalog";
 
 /**
  * ManualPay — the "Pay manually" section on /billing (Phase 4b).
@@ -32,9 +32,39 @@ const MAX_SCREENSHOT_BYTES = 400 * 1024;
 
 interface ManualPayProps {
   methods: ManualPaymentMethod[];
-  defaultPlan: PaidPlanId;
+  defaultPlan: string;
   reference: string;
   canPay: boolean;
+  /** Effective catalog view-model (panel-driven plans + live offers).
+   *  When absent/empty, the code catalog renders exactly as before. */
+  catalog?: CatalogPlanView[];
+}
+
+/** Code-catalog fallback view (no offers) — today's exact behaviour. */
+const FALLBACK_CATALOG: CatalogPlanView[] = PAID_PLANS.map((id) => ({
+  id,
+  name: PLAN_META[id].name,
+  tagline: PLAN_META[id].tagline,
+  messagesPerMonth: PLAN_META[id].messagesPerMonth,
+  active: true,
+  source: "code",
+  monthly: { regularPriceUsd: PLAN_META[id].priceUsd, offer: null },
+  yearly: { regularPriceUsd: PLAN_META[id].yearlyPriceUsd, offer: null },
+}));
+
+function fmtPrice(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+function fmtEnds(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
 }
 
 function loadImage(file: File): Promise<HTMLImageElement> {
@@ -155,8 +185,10 @@ export default function ManualPay({
   defaultPlan,
   reference,
   canPay,
+  catalog,
 }: ManualPayProps) {
-  const [plan, setPlan] = useState<PaidPlanId>(defaultPlan);
+  const plans = catalog && catalog.length > 0 ? catalog : FALLBACK_CATALOG;
+  const [plan, setPlan] = useState<string>(defaultPlan);
   const [interval, setInterval] = useState<BillingInterval>("monthly");
   const [methodId, setMethodId] = useState<ManualMethodId | "">(
     methods[0]?.id ?? ""
@@ -175,10 +207,19 @@ export default function ManualPay({
   // Only tenant admins move money.
   if (!canPay) return null;
 
-  const amount =
-    interval === "yearly"
-      ? PLAN_META[plan].yearlyPriceUsd
-      : PLAN_META[plan].priceUsd;
+  // Amount = the catalog price for the selected plan + interval, with a
+  // live offer applied when one exists — the same figure the server
+  // recomputes at claim time.
+  const selected = plans.find((p) => p.id === plan) ?? plans[0];
+  const selectedView = selected
+    ? interval === "yearly"
+      ? selected.yearly
+      : selected.monthly
+    : null;
+  const offer = selectedView?.offer ?? null;
+  const amount = selectedView
+    ? (offer?.effectivePriceUsd ?? selectedView.regularPriceUsd)
+    : 0;
 
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     setError("");
@@ -217,7 +258,7 @@ export default function ManualPay({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          plan,
+          plan: selected?.id ?? plan,
           interval,
           method: methodId,
           reference,
@@ -296,14 +337,14 @@ export default function ManualPay({
                 </label>
                 <select
                   id="mp-plan"
-                  value={plan}
-                  onChange={(e) => setPlan(e.target.value as PaidPlanId)}
+                  value={selected?.id ?? plan}
+                  onChange={(e) => setPlan(e.target.value)}
                   className="w-full rounded-lg border border-rbai-border bg-rbai-bg px-3.5 py-2.5 text-sm text-rbai-text focus:outline-none focus:ring-2 focus:ring-rbai-primary"
                 >
-                  {PAID_PLANS.map((p) => (
-                    <option key={p} value={p}>
-                      {PLAN_META[p].name} — ${PLAN_META[p].priceUsd}/mo or $
-                      {PLAN_META[p].yearlyPriceUsd}/yr
+                  {plans.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} — ${fmtPrice(p.monthly.regularPriceUsd)}/mo or $
+                      {fmtPrice(p.yearly.regularPriceUsd)}/yr
                     </option>
                   ))}
                 </select>
@@ -342,12 +383,22 @@ export default function ManualPay({
                   Amount to pay
                 </p>
                 <p className="text-2xl font-bold text-rbai-text">
-                  ${amount}
+                  ${fmtPrice(amount)}
+                  {offer && selectedView && (
+                    <span className="ml-2 text-base font-normal text-rbai-text-light line-through">
+                      ${fmtPrice(selectedView.regularPriceUsd)}
+                    </span>
+                  )}
                   <span className="text-sm font-normal text-rbai-text-light">
                     {" "}
                     USD / {interval === "yearly" ? "year" : "month"}
                   </span>
                 </p>
+                {offer && (
+                  <p className="text-xs font-medium text-emerald-700 mt-1">
+                    {offer.name} · ends {fmtEnds(offer.endsAt)}
+                  </p>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-xs text-rbai-text-light font-medium">

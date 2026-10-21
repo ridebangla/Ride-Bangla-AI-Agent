@@ -16,6 +16,10 @@ import WalletBilling from "./WalletBilling";
 import { getPublicManualPaymentMethods } from "@/lib/manual-payments";
 import { getWallet } from "@/lib/wallet";
 import {
+  getCatalogView,
+  type CatalogPlanView,
+} from "@/lib/plan-catalog";
+import {
   AlertTriangle,
   BadgeCheck,
   CalendarClock,
@@ -47,13 +51,46 @@ const PLAN_PRICE_MONTHLY: Record<string, string> = {
   internal: "$0 — internal account, never billed",
 };
 
-/** Price line for the current plan + billing interval (yearly = 2 months free). */
-function planPriceLine(plan: string, billingInterval: string | null): string {
+function fmtUsd(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+/**
+ * Price line for the current plan + billing interval, derived from the
+ * EFFECTIVE catalog (panel-driven) when the plan is in it — a Super Admin
+ * price edit moves this line. Falls back to the static code lines.
+ * (Yearly carries the "2 months free" note only when the plan's yearly
+ * price really is 10x monthly.)
+ */
+function planPriceLine(
+  plan: string,
+  billingInterval: string | null,
+  catalog: CatalogPlanView[]
+): string {
   if (plan === "trial") return PLAN_PRICE_MONTHLY.trial;
+  if (plan === "internal") return PLAN_PRICE_MONTHLY.internal;
+  const entry = catalog.find((p) => p.id === plan);
+  if (entry) {
+    if (billingInterval === "yearly") {
+      const tenX =
+        entry.yearly.regularPriceUsd === entry.monthly.regularPriceUsd * 10;
+      return `$${fmtUsd(entry.yearly.regularPriceUsd)} / year${tenX ? " · 2 months free" : ""}`;
+    }
+    return `$${fmtUsd(entry.monthly.regularPriceUsd)} / month`;
+  }
   if (isPaidPlanId(plan) && billingInterval === "yearly") {
     return `$${PLAN_META[plan].yearlyPriceUsd} / year · 2 months free`;
   }
   return PLAN_PRICE_MONTHLY[plan] ?? "";
+}
+
+/** Display label for the current plan: fixed labels for the special
+ *  states, the catalog name for catalog plans. */
+function planLabel(plan: string, catalog: CatalogPlanView[]): string {
+  if (plan === "trial" || plan === "internal" || plan === "super_admin" || plan === "unknown") {
+    return PLAN_LABEL[plan];
+  }
+  return catalog.find((p) => p.id === plan)?.name ?? PLAN_LABEL[plan] ?? plan;
 }
 
 function formatDate(d: Date | null): string {
@@ -117,6 +154,19 @@ export default async function BillingPage() {
     !isSuperAdmin && admin.businessId
       ? await getWallet(admin.businessId)
       : { balanceCents: 0 };
+  // Effective plan catalog + live offers (panel-driven, 2026-10-21) —
+  // serialized to the billing client components; getCatalogView never
+  // throws (code-catalog fallback on any read error).
+  const catalogView = !isSuperAdmin ? await getCatalogView() : [];
+  const activeCatalog = catalogView.filter((p) => p.active);
+  // Default picker selection: the business's current plan when it is an
+  // active catalog plan, else Growth when available, else the first
+  // active plan.
+  const defaultCatalogPlan =
+    activeCatalog.find((p) => p.id === sub.plan)?.id ??
+    activeCatalog.find((p) => p.id === "growth")?.id ??
+    activeCatalog[0]?.id ??
+    "growth";
 
   return (
     <div className="min-h-screen bg-rbai-bg">
@@ -179,10 +229,10 @@ export default async function BillingPage() {
                     Current plan
                   </p>
                   <h2 className="text-2xl font-bold text-rbai-text mt-1">
-                    {PLAN_LABEL[sub.plan] ?? sub.plan}
+                    {planLabel(sub.plan, catalogView)}
                   </h2>
                   <p className="text-sm text-rbai-text-light mt-1">
-                    {planPriceLine(sub.plan, sub.billingInterval)}
+                    {planPriceLine(sub.plan, sub.billingInterval, catalogView)}
                   </p>
                 </div>
                 {sub.isActive ? (
@@ -261,6 +311,7 @@ export default async function BillingPage() {
                     isActive={sub.isActive}
                     billingConfigured={billingConfigured}
                     canPay={canPay}
+                    catalog={activeCatalog}
                   />
                 </div>
 
@@ -270,9 +321,10 @@ export default async function BillingPage() {
                 <div className="mt-6">
                   <ManualPay
                     methods={manualMethods}
-                    defaultPlan={isPaidPlanId(sub.plan) ? sub.plan : "growth"}
+                    defaultPlan={defaultCatalogPlan}
                     reference={manualReference}
                     canPay={canPay}
+                    catalog={activeCatalog}
                   />
                 </div>
 
@@ -281,12 +333,13 @@ export default async function BillingPage() {
                 <div className="mt-6">
                   <WalletBilling
                     balanceCents={wallet.balanceCents}
-                    defaultPlan={isPaidPlanId(sub.plan) ? sub.plan : "growth"}
+                    defaultPlan={defaultCatalogPlan}
                     defaultInterval={
                       sub.billingInterval === "yearly" ? "yearly" : "monthly"
                     }
                     methods={manualMethods}
                     canPay={canPay}
+                    catalog={activeCatalog}
                   />
                 </div>
               </>
