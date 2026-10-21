@@ -73,6 +73,7 @@ const PUBLIC_EMBED_PREFIXES = [
   "/api/chat/vision",
   "/api/chat/voice",
   "/api/chat/activity",
+  "/api/chat/thread",
   "/api/public/ai/generate",
   "/api/public/reviews",
   "/api/public/firebase-config",

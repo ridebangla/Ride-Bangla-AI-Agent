@@ -1,6 +1,12 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-21.1 (dual-video avatar completed with the
+ * CANONICAL EMBED — v2026-10-21.2 (NEW: same-thread human handoff —
+ * the embed now persists its visitor/conversation ids in sessionStorage
+ * and polls GET /api/chat/thread while open, so replies a human writes
+ * from the dashboard Inbox render in this chat, and a returning visitor
+ * re-enters the same conversation instead of orphaning it; the read
+ * endpoint enforces the same visitor-ownership rule as the chat
+ * endpoint). Prior: v2026-10-21.1 (dual-video avatar completed with the
  * owner's canonical full-scene clips; the working clip now lazy-loads on
  * first open instead of taxing every host page; NEW: an action-specific
  * live caption under the header avatar, fed by GET /api/chat/activity —
@@ -60,8 +66,41 @@
   var agentState = "idle";
   var pendingRequests = 0;
 
-  var conversationId = null;
   var isOpen = false;
+
+  // ---- Thread identity (session-scoped) ----
+  // The visitor id and the platform conversation id persist in
+  // sessionStorage (per site key), so the thread survives panel closes
+  // and page reloads within the tab session: a human who takes over
+  // the conversation keeps talking to the SAME thread, and this embed
+  // can read that thread back via GET /api/chat/thread. A host-supplied
+  // data-visitor-id always wins over the generated one.
+  var storePrefix = "rbai-" + (config.siteKey || "default") + "-";
+  function storeGet(key) {
+    try { return window.sessionStorage.getItem(storePrefix + key); } catch (e) { return null; }
+  }
+  function storeSet(key, value) {
+    try { window.sessionStorage.setItem(storePrefix + key, value); } catch (e) {}
+  }
+  if (!config.visitorId) {
+    config.visitorId = storeGet("visitor") || "";
+    if (!config.visitorId) {
+      config.visitorId =
+        "web-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+      storeSet("visitor", config.visitorId);
+    }
+  }
+  var conversationId = storeGet("conv") || null;
+
+  // ---- Thread sync state ----
+  // seenRemoteIds: thread message ids already rendered (or deliberately
+  // skipped as local echoes). pendingEcho: the (role, content) pairs
+  // this tab rendered itself from its own sends/replies, consumed by
+  // the sync so nothing renders twice.
+  var seenRemoteIds = {};
+  var pendingEcho = [];
+  var threadTimer = null;
+  var threadSyncedOnce = false;
   var isPaused = false;
 
   // Live-activity caption channel: one random token per page session,
@@ -340,8 +379,15 @@
     panel.classList.toggle("open", isOpen);
     // First open: lazily fetch the working clip (never on host-page load).
     if (isOpen) ensureWorkingVideo();
-    if (isOpen && !document.querySelector(".rbai-msg")) {
-      addMessage(config.greeting, "bot");
+    if (isOpen) {
+      // A restored conversation renders its own history via the thread
+      // sync; the greeting is only for a brand-new thread.
+      if (!conversationId && !document.querySelector(".rbai-msg")) {
+        addMessage(config.greeting, "bot");
+      }
+      startThreadSync();
+    } else {
+      stopThreadSync();
     }
   }
 
@@ -522,6 +568,55 @@
     renderStatus();
   }
 
+  // ---- Thread sync (human handoff) ----
+  // Polls GET /api/chat/thread while the panel is open. Assistant-side
+  // messages the tab has not rendered yet (a human's Inbox replies,
+  // above all) are appended in order. Customer-side messages are only
+  // rendered on the first sync of a restored conversation (history);
+  // during live polling they are this tab's own echoes.
+  function syncThread() {
+    if (!conversationId || !config.siteKey || !config.visitorId) return;
+    var q =
+      "siteKey=" + encodeURIComponent(config.siteKey) +
+      "&conversationId=" + encodeURIComponent(conversationId) +
+      "&visitorId=" + encodeURIComponent(config.visitorId);
+    fetch(config.server + "/api/chat/thread?" + q)
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (data) {
+        if (!data || !data.messages) return;
+        var initial = !threadSyncedOnce;
+        threadSyncedOnce = true;
+        data.messages.forEach(function (m) {
+          if (!m || !m.id || seenRemoteIds[m.id]) return;
+          // Consume a local echo instead of rendering a duplicate.
+          for (var i = 0; i < pendingEcho.length; i++) {
+            if (pendingEcho[i].role === m.role && pendingEcho[i].content === m.content) {
+              pendingEcho.splice(i, 1);
+              seenRemoteIds[m.id] = true;
+              return;
+            }
+          }
+          seenRemoteIds[m.id] = true;
+          if (m.role === "customer" && !initial) return;
+          addMessage(m.content, m.role === "customer" ? "user" : "bot");
+        });
+      })
+      .catch(function () {});
+  }
+
+  function startThreadSync() {
+    if (threadTimer) return;
+    syncThread();
+    threadTimer = setInterval(syncThread, 4000);
+  }
+
+  function stopThreadSync() {
+    if (threadTimer) {
+      clearInterval(threadTimer);
+      threadTimer = null;
+    }
+  }
+
   // ---- Shared API plumbing ----
   function postApi(path, payload, typing) {
     startActivityPolling();
@@ -568,10 +663,14 @@
       addMessage("This business has reached its AI message limit for now. Please try again later, or contact the business directly.", "bot");
       return;
     }
-    if (data.conversationId) conversationId = data.conversationId;
+    if (data.conversationId) {
+      conversationId = data.conversationId;
+      storeSet("conv", conversationId);
+    }
     // Human takeover: pure silence — render nothing at all.
     if (data.silent) return;
     if (data.response) {
+      pendingEcho.push({ role: "assistant", content: data.response });
       addMessage(data.response, "bot");
     } else if (data.error) {
       addMessage(data.error, "bot");
@@ -588,6 +687,7 @@
     if (!text || isPaused) return;
 
     addMessage(text, "user");
+    pendingEcho.push({ role: "customer", content: text });
     pendingRequests++;
     setAgentState("working");
 
