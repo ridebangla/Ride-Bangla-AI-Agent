@@ -139,7 +139,12 @@ export async function middleware(request: NextRequest) {
     pathname.endsWith(".svg") ||
     pathname.endsWith(".ico") ||
     pathname.endsWith(".mp4") ||
-    pathname.endsWith(".webm")
+    pathname.endsWith(".webm") ||
+    // The PWA manifest (declared in the root layout metadata) is a public
+    // static asset: browsers fetch it without a session, so it must bypass
+    // the auth gate like the icons do — otherwise /manifest.webmanifest
+    // 307-redirects to /login and the manifest is unreachable.
+    pathname.endsWith(".webmanifest")
   ) {
     return NextResponse.next();
   }
