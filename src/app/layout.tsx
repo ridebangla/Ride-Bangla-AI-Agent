@@ -88,8 +88,8 @@ const ORGANIZATION_JSON_LD = {
   url: "https://ridebangla.bd",
   logo: SITE_URL + "/agent-avatar.png",
   sameAs: [
-    "https://www.facebook.com/share/g/1CfmiTzv1D/",
-    "https://youtube.com/@ridebangla-0",
+    "https://facebook.com/ridebangla",
+    "https://www.youtube.com/@ridebangla-0",
   ],
 };
 
