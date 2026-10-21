@@ -18,6 +18,20 @@
  *    failures that indicate blocking/unsupported environments fall back
  *    to signInWithRedirect, and the redirect result is consumed on
  *    return (getRedirectResult below) and exchanged the same way.
+ *
+ * Round-2 follow-up 2026-10-21 (mirrors the proven Studio fix 349a6a2d —
+ * the owner's Studio button hung on "Loading…" forever):
+ *  - Every awaited step is now BOUNDED: signInWithPopup and the token
+ *    exchange race a 30 s timeout, signInWithRedirect and
+ *    getRedirectResult a 15 s one, so a Firebase promise that never
+ *    settles (blocked popup channel, unreachable auth handler) lands on
+ *    the honest timeout message instead of spinning "Opening Google…"
+ *    without end.
+ *  - The exchange resets the busy state in a finally block on every
+ *    non-navigating path.
+ *  - A redirect-result timeout on a plain page load (no redirect in
+ *    flight) stays silent — log only; when the redirect flag is
+ *    present (a genuine return the user is waiting on) it surfaces.
  */
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -76,6 +90,61 @@ function errorCode(err: unknown): string {
     : "";
 }
 
+const TIMEOUT_MESSAGE =
+  "Google sign-in timed out. Check your connection and try again.";
+
+/** Session-storage flag set just before signInWithRedirect fires, so
+ *  the mount effect can tell a genuine redirect return (where a stuck
+ *  getRedirectResult MUST surface) from a plain page load (where a
+ *  redirect-result timeout stays silent — log only). */
+const REDIRECT_FLAG = "rbai-google-redirect";
+
+/** Worst case the user ever waits on the spinner before an honest error. */
+const POPUP_TIMEOUT_MS = 30_000;
+const SESSION_TIMEOUT_MS = 30_000;
+const REDIRECT_TIMEOUT_MS = 15_000;
+
+type SignInTimeoutError = Error & { isSignInTimeout?: true };
+
+function signInTimeoutError(): SignInTimeoutError {
+  const err = new Error(TIMEOUT_MESSAGE) as SignInTimeoutError;
+  err.isSignInTimeout = true;
+  return err;
+}
+
+function isSignInTimeout(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { isSignInTimeout?: unknown }).isSignInTimeout === true
+  );
+}
+
+/**
+ * Race a promise against a bounded wait. Handlers are attached to the
+ * underlying promise either way, so a late settlement after the
+ * timeout never surfaces as an unhandled rejection.
+ */
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  makeError: () => Error
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(makeError()), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 export function GoogleButton({
   endpoint,
   label,
@@ -93,25 +162,45 @@ export function GoogleButton({
     if (exchangingRef.current) return;
     exchangingRef.current = true;
     setLoading(true);
+    // Stays false unless the session was created and we are navigating
+    // to /dashboard; the finally below guarantees the busy state ALWAYS
+    // resets otherwise.
+    let navigating = false;
     try {
-      const idToken = await user.getIdToken();
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken }),
-      });
+      const idToken = await withTimeout(
+        user.getIdToken(),
+        SESSION_TIMEOUT_MS,
+        () => signInTimeoutError()
+      );
+      const res = await withTimeout(
+        fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ idToken }),
+        }),
+        SESSION_TIMEOUT_MS,
+        () => signInTimeoutError()
+      );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         onError(data.error || "Google sign-in failed. Please try again.");
-        setLoading(false);
-        exchangingRef.current = false;
         return;
       }
+      navigating = true;
       router.replace("/dashboard");
-    } catch {
-      onError("Google sign-in failed. Please check your connection and try again.");
-      setLoading(false);
-      exchangingRef.current = false;
+    } catch (err) {
+      if (isSignInTimeout(err)) {
+        onError(TIMEOUT_MESSAGE);
+      } else {
+        onError(
+          "Google sign-in failed. Please check your connection and try again."
+        );
+      }
+    } finally {
+      if (!navigating) {
+        setLoading(false);
+        exchangingRef.current = false;
+      }
     }
   }
 
@@ -119,16 +208,40 @@ export function GoogleButton({
   // signInWithRedirect, finish the same token exchange.
   useEffect(() => {
     let cancelled = false;
+    // Read + clear the redirect flag first: it distinguishes a genuine
+    // redirect return from a plain page load. Storage may be
+    // unavailable — the result is still consumed either way (never gate
+    // consumption on the flag); the flag only controls whether a
+    // redirect-result TIMEOUT is surfaced or stays silent.
+    let hadRedirectFlag = false;
+    try {
+      hadRedirectFlag = window.sessionStorage.getItem(REDIRECT_FLAG) === "1";
+      window.sessionStorage.removeItem(REDIRECT_FLAG);
+    } catch {
+      /* storage unavailable */
+    }
     (async () => {
       try {
         const auth = getFirebaseAuth();
-        const result = await getRedirectResult(auth);
+        const result = await withTimeout(
+          getRedirectResult(auth),
+          REDIRECT_TIMEOUT_MS,
+          () => signInTimeoutError()
+        );
         if (!cancelled && result?.user) {
           onError("");
           exchange(result.user);
         }
       } catch (err) {
         if (cancelled) return;
+        if (isSignInTimeout(err)) {
+          // A timeout with no redirect in flight is not a user-facing
+          // failure — stay silent, log only. On a genuine redirect
+          // return the user is waiting on us: surface it honestly.
+          console.error("[google-signin] redirect result timed out:", err);
+          if (hadRedirectFlag) onError(TIMEOUT_MESSAGE);
+          return;
+        }
         const code = errorCode(err);
         console.error("[google-signin] redirect result failed:", code || err);
         if (NOT_AVAILABLE_CODES.has(code)) {
@@ -145,6 +258,12 @@ export function GoogleButton({
   }, []);
 
   function reportFailure(err: unknown) {
+    if (isSignInTimeout(err)) {
+      console.error("[google-signin] timed out:", err);
+      onError(TIMEOUT_MESSAGE);
+      setLoading(false);
+      return;
+    }
     const code = errorCode(err);
     console.error("[google-signin] failed:", code || err);
     if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
@@ -176,7 +295,11 @@ export function GoogleButton({
     }
     const provider = new GoogleAuthProvider();
     try {
-      const cred = await signInWithPopup(auth, provider);
+      const cred = await withTimeout(
+        signInWithPopup(auth, provider),
+        POPUP_TIMEOUT_MS,
+        () => signInTimeoutError()
+      );
       await exchange(cred.user);
     } catch (err) {
       const code = errorCode(err);
@@ -184,8 +307,19 @@ export function GoogleButton({
         // Popup path is unusable in this browser (common on Android
         // Chrome) — full-page redirect instead; the result is consumed
         // by the getRedirectResult effect above when the user returns.
+        // Flag the navigation first so the effect can tell a genuine
+        // redirect return from a plain page load.
         try {
-          await signInWithRedirect(auth, provider);
+          window.sessionStorage.setItem(REDIRECT_FLAG, "1");
+        } catch {
+          /* storage unavailable — redirect result is still attempted */
+        }
+        try {
+          await withTimeout(
+            signInWithRedirect(auth, provider),
+            REDIRECT_TIMEOUT_MS,
+            () => signInTimeoutError()
+          );
           return; // page is navigating away
         } catch (redirectErr) {
           reportFailure(redirectErr);

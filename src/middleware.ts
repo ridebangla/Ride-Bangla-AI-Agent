@@ -6,12 +6,24 @@ const API_VERSION = "2026-04-07";
 
 // NOTE: Strict-Transport-Security is sent by Vercel's edge on every
 // response (max-age=63072000) — it is deliberately NOT duplicated here.
+// The Firebase Auth handler host: the SDK loads its sign-in iframe
+// from https://<authDomain>, so frame-src must allow exactly that
+// host. Env-driven to stay in lockstep with the client config
+// (src/lib/firebase-client.ts); fallback = the shared ride-bangla-app
+// project's default authDomain.
+const FIREBASE_AUTH_DOMAIN =
+  process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ||
+  "ride-bangla-app.firebaseapp.com";
+
 const CSP_DIRECTIVES = [
   "default-src 'self'",
   // 'unsafe-inline' is required for Next.js App Router's own inline
   // bootstrap scripts (no nonce infrastructure yet). Everything else is
   // locked down; revisit with nonces if the app adopts them.
-  "script-src 'self' 'unsafe-inline' https://www.gstatic.com",
+  // apis.google.com is Firebase Auth's gapi loader — without it
+  // signInWithPopup dies with auth/internal-error before any popup
+  // opens (same defect class as Studio RC-3, fixed there in 349a6a2d).
+  "script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https: blob:",
   "font-src 'self' data:",
@@ -21,7 +33,9 @@ const CSP_DIRECTIVES = [
   // headers (see the static bypass below), so customer-site embeds are
   // unaffected by this policy.
   "connect-src 'self' https://*.googleapis.com https://*.gstatic.com https://hcaptcha.com https://*.hcaptcha.com wss:",
-  "frame-src https://js.stripe.com https://hcaptcha.com https://*.hcaptcha.com",
+  // The Firebase Auth iframe (see FIREBASE_AUTH_DOMAIN above) joins
+  // the payment/captcha frames; nothing else may be framed in.
+  `frame-src https://js.stripe.com https://hcaptcha.com https://*.hcaptcha.com https://${FIREBASE_AUTH_DOMAIN}`,
   // Our pages are never framed (the widget injects DOM, not an iframe),
   // so framing stays denied — matches X-Frame-Options: DENY above.
   "frame-ancestors 'self'",
