@@ -374,6 +374,18 @@ function openAiClientFor(p: "openai" | "groq" | "openrouter", apiKey: string): O
   });
 }
 
+/**
+ * Defense-in-depth (attack-test 2026-10-21): provider/proxy error bodies are
+ * untrusted text — a gateway that echoes the presented credential would
+ * otherwise carry the key into logs, stored chat messages, and API error
+ * responses. Strip the exact key value from any error text before it
+ * leaves a provider call.
+ */
+export function scrubKeyMaterial(text: string, apiKey?: string | null): string {
+  if (!apiKey || apiKey.length < 8) return text;
+  return text.split(apiKey).join("[redacted]");
+}
+
 function describeProviderError(provider: string, err: unknown): string {
   if (err instanceof Error) {
     const status = (err as { status?: number }).status;
@@ -489,10 +501,12 @@ async function geminiComplete(
       signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     });
   } catch (err) {
-    throw new Error(`gemini: request failed (${err instanceof Error ? err.message : String(err)})`);
+    throw new Error(
+      scrubKeyMaterial(`gemini: request failed (${err instanceof Error ? err.message : String(err)})`, apiKey)
+    );
   }
   if (!res.ok) {
-    const snippet = (await res.text().catch(() => "")).slice(0, 300);
+    const snippet = scrubKeyMaterial((await res.text().catch(() => "")).slice(0, 300), apiKey);
     const err = new Error(`gemini: HTTP ${res.status} ${snippet}`);
     (err as { status?: number }).status = res.status;
     throw err;
@@ -592,7 +606,7 @@ export async function completeWithProvider(
     }
   }
   if (lastErr) {
-    throw new Error(describeProviderError(provider, lastErr));
+    throw new Error(scrubKeyMaterial(describeProviderError(provider, lastErr), apiKey));
   }
   if (!response) {
     // Unreachable in practice — the loop either assigns a response or
@@ -757,7 +771,7 @@ async function describeImageOneProvider(
       signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     });
     if (!res.ok) {
-      const snippet = (await res.text().catch(() => "")).slice(0, 200);
+      const snippet = scrubKeyMaterial((await res.text().catch(() => "")).slice(0, 200), apiKey);
       throw new Error(`gemini: HTTP ${res.status} ${snippet}`);
     }
     const data = (await res.json()) as {
@@ -785,7 +799,7 @@ async function describeImageOneProvider(
       },
     ],
   }).catch((err: unknown) => {
-    throw new Error(describeProviderError(provider, err));
+    throw new Error(scrubKeyMaterial(describeProviderError(provider, err), apiKey));
   });
   const text = response.choices[0]?.message?.content?.trim();
   if (!text) throw new Error(`${provider}: vision returned no description`);
@@ -855,7 +869,7 @@ async function transcribeOneProvider(
       signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     });
     if (!res.ok) {
-      const snippet = (await res.text().catch(() => "")).slice(0, 200);
+      const snippet = scrubKeyMaterial((await res.text().catch(() => "")).slice(0, 200), apiKey);
       throw new Error(`gemini: HTTP ${res.status} ${snippet}`);
     }
     const data = (await res.json()) as {
@@ -877,7 +891,7 @@ async function transcribeOneProvider(
   const result = await client.audio.transcriptions
     .create({ file, model: provider === "groq" ? "whisper-large-v3" : "whisper-1" })
     .catch((err: unknown) => {
-      throw new Error(describeProviderError(provider, err));
+      throw new Error(scrubKeyMaterial(describeProviderError(provider, err), apiKey));
     });
   const text = (result.text ?? "").trim();
   if (!text) throw new Error(`${provider}: transcription came back empty`);

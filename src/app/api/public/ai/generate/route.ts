@@ -242,13 +242,17 @@ export async function POST(request: NextRequest) {
       logger.warn(`[public-ai] providers failed for business ${business.id}`, {
         attempts: err.attempts.map((a) => `${a.provider}: ${a.reason.slice(0, 120)}`),
       });
-      // Pinned provider (or whole chain) failed — honest error, never fake text.
+      // Pinned provider (or whole chain) failed — honest error, never fake
+      // text. The raw provider reasons stay in the server log above ONLY:
+      // this route is reachable with the PUBLIC siteKey, and provider error
+      // text discloses platform internals (provider identity, account
+      // billing state, error codes) to any caller (attack-test 2026-10-21).
       return NextResponse.json(
         {
           ok: false,
           error: `AI provider${err.pinned ? ` "${err.pinned}"` : "s"} failed`,
           provider: err.pinned ?? null,
-          reason: err.attempts.map((a) => a.reason).join(" | ").slice(0, 500),
+          reason: "The AI provider returned an error; details were logged server-side.",
         },
         { status: 502 }
       );

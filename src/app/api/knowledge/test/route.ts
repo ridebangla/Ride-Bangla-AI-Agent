@@ -131,9 +131,13 @@ export async function POST(request: NextRequest) {
       });
     } catch (error) {
       logger.error("Failed to test knowledge base:", error);
-      const message =
-        error instanceof Error ? error.message : "Failed to test knowledge base";
-      return NextResponse.json({ error: message }, { status: 500 });
+      // Never return the raw provider error to the client — it can carry
+      // provider internals (and, from a misbehaving gateway, credential
+      // material). The full error is in the server log above.
+      return NextResponse.json(
+        { error: "Failed to test knowledge base" },
+        { status: 500 }
+      );
     }
 
   });
