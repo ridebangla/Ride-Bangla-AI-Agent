@@ -72,6 +72,7 @@ const PUBLIC_EMBED_PREFIXES = [
   "/api/chat/widget",
   "/api/chat/vision",
   "/api/chat/voice",
+  "/api/chat/activity",
   "/api/public/ai/generate",
   "/api/public/reviews",
   "/api/public/firebase-config",
@@ -231,7 +232,7 @@ export async function middleware(request: NextRequest) {
   // /api/public/firebase-config follow the same siteKey auth model as
   // /api/public/ai/generate (validated + rate-limited in the route
   // handlers), so they must be public here too.
-  const publicPaths = ["/login", "/setup", "/signup", "/pricing", "/privacy", "/terms", "/contact", "/api/contact", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/public/ai/generate", "/api/public/reviews", "/api/public/firebase-config", "/api/landing/quality", "/api/webhooks/stripe", "/p/"];
+  const publicPaths = ["/login", "/setup", "/signup", "/pricing", "/privacy", "/terms", "/contact", "/api/contact", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/chat/activity", "/api/public/ai/generate", "/api/public/reviews", "/api/public/firebase-config", "/api/landing/quality", "/api/webhooks/stripe", "/p/"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   // The SaaS marketing landing page lives at `/` — EXACT match only (a

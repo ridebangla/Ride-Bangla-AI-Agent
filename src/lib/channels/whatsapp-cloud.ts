@@ -19,6 +19,7 @@
 import { prisma } from "@/lib/prisma";
 import { createNewConversation } from "@/lib/ai/engine";
 import { processChannelMessage } from "@/lib/channels/inbound";
+import { reportActivity, clearActivity } from "@/lib/ai/activity";
 import { resolveCustomer } from "@/lib/customer-resolver";
 import { resolveChannelBusiness } from "@/lib/tenant";
 import { logger } from "@/lib/logger";
@@ -153,7 +154,13 @@ export async function handleWhatsAppCloudWebhook(
         const result = await processChannelMessage(conversation.id, businessId, body);
         count++;
         if (!result.silent && result.response) {
-          await sendWhatsAppCloudMessage(from, result.response);
+          // Live activity: caption the real WhatsApp send while it runs.
+          await reportActivity(conversation.id, "sending_reply", { channel: "whatsapp" });
+          try {
+            await sendWhatsAppCloudMessage(from, result.response);
+          } finally {
+            await clearActivity(conversation.id);
+          }
         }
       }
     }

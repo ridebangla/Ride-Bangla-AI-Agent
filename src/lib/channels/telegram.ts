@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { createNewConversation } from "@/lib/ai/engine";
 import { processChannelMessage } from "@/lib/channels/inbound";
+import { reportActivity, clearActivity } from "@/lib/ai/activity";
 import { resolveCustomer } from "@/lib/customer-resolver";
 import { logger } from "@/lib/logger";
 import { enterBusinessContext, resolveChannelBusiness } from "@/lib/tenant";
@@ -159,7 +160,13 @@ export async function handleTelegramUpdate(
     // Send reply via Telegram API
     if (!chatResult.silent) {
       if (token) {
-        await sendTelegramMessage(token, message.chat.id, chatResult.response);
+        // Live activity: caption the real Telegram send while it runs.
+        await reportActivity(conversation.id, "sending_reply", { channel: "telegram" });
+        try {
+          await sendTelegramMessage(token, message.chat.id, chatResult.response);
+        } finally {
+          await clearActivity(conversation.id);
+        }
       }
       return chatResult.response;
     }

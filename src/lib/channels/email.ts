@@ -4,6 +4,7 @@ import nodemailer from "nodemailer";
 import { prisma } from "@/lib/prisma";
 import { createNewConversation } from "@/lib/ai/engine";
 import { processChannelMessage } from "@/lib/channels/inbound";
+import { reportActivity, clearActivity } from "@/lib/ai/activity";
 import { escapeHtml, sanitizeEmailSubject } from "@/lib/security";
 import { logger } from "@/lib/logger";
 import { resolveCustomer } from "@/lib/customer-resolver";
@@ -118,15 +119,21 @@ async function processEmail(parsed: ParsedMail, config: EmailConfig) {
   // Send reply with branding
   const branding = await getEmailBranding();
   const transporter = getSmtpTransporter(config);
-  await transporter.sendMail({
-    from: config.smtpFrom,
-    to: fromAddress,
-    subject: sanitizeEmailSubject(`Re: ${subject}`),
-    text: aiResponse,
-    html: buildEmailHtml(aiResponse, branding),
-    inReplyTo: parsed.messageId,
-    references: parsed.messageId,
-  });
+  // Live activity: caption the real email send while it runs.
+  await reportActivity(conversation.id, "sending_reply", { channel: "email" });
+  try {
+    await transporter.sendMail({
+      from: config.smtpFrom,
+      to: fromAddress,
+      subject: sanitizeEmailSubject(`Re: ${subject}`),
+      text: aiResponse,
+      html: buildEmailHtml(aiResponse, branding),
+      inReplyTo: parsed.messageId,
+      references: parsed.messageId,
+    });
+  } finally {
+    await clearActivity(conversation.id);
+  }
 }
 
 interface EmailBranding {

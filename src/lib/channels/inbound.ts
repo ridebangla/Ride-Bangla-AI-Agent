@@ -20,6 +20,7 @@
  */
 import { prisma, withBusinessId } from "@/lib/prisma";
 import { chat, type ChatResult } from "@/lib/ai/engine";
+import { clearActivity } from "@/lib/ai/activity";
 import type { MediaInput } from "@/lib/ai/media";
 import {
   requireActiveSubscription,
@@ -87,5 +88,13 @@ export async function processChannelMessage(
   }
 
   // `chat()` honors conversations.aiEnabled AND the global kill-switch.
-  return chat(conversationId, userMessage, opts);
+  // The engine reports + clears live activity on its normal paths; this
+  // finally guarantees no activity survives a thrown turn on any channel
+  // (idempotent — a no-op when the engine already cleared). Channel
+  // handlers report `sending_reply` around their provider send next.
+  try {
+    return await chat(conversationId, userMessage, opts);
+  } finally {
+    await clearActivity(conversationId);
+  }
 }

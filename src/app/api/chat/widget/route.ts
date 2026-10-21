@@ -6,6 +6,7 @@ import { getBusinessBySiteKey, enterBusinessContext } from "@/lib/tenant";
 import { getSubscription } from "@/lib/subscription";
 import { prisma, withBusinessId } from "@/lib/prisma";
 import { checkMessageLimitExceeded } from "@/lib/billing-usage";
+import { parseActivityToken, bindActivityToken } from "@/lib/ai/activity";
 import type { MediaInput } from "@/lib/ai/media";
 
 /**
@@ -31,6 +32,11 @@ export async function POST(request: NextRequest) {
       conversationId?: string;
       image?: { mimeType?: string; base64?: string };
     };
+    // Live-activity caption channel (see lib/ai/activity.ts): the embed
+    // polls /api/chat/activity with this token while a reply is pending.
+    const activityToken = parseActivityToken(
+      (body as { activityToken?: unknown }).activityToken
+    );
 
     if (!siteKey || typeof siteKey !== "string") {
       return NextResponse.json({ error: "siteKey is required" }, { status: 401 });
@@ -106,7 +112,11 @@ export async function POST(request: NextRequest) {
       const existing = await prisma.conversation.findUnique({ where: { id: convId } });
       // Scoped to this business by the tenant proxy; also require the same
       // visitor so one visitor cannot read another's thread.
-      if (!existing || existing.customerContact !== visitor) convId = "";
+      if (!existing || existing.customerContact !== visitor) {
+        convId = "";
+      } else if (activityToken) {
+        await bindActivityToken(convId, activityToken, existing.activityToken);
+      }
     }
     if (!convId) {
       // Multi-site identity (A-to-Z audit 2026-10-20): when ONE business's
@@ -134,6 +144,7 @@ export async function POST(request: NextRequest) {
           customerName: "Website Visitor",
           customerContact: visitor,
           status: "open",
+          ...(activityToken ? { activityToken } : {}),
           ...(sourceSite ? { metadata: { sourceSite } } : {}),
           // Phase 3 (user decision 17): AI replies ON by default; the Phase
           // 5 dashboard switch flips this to false for human takeover.

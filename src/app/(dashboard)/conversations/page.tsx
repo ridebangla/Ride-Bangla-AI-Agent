@@ -19,6 +19,8 @@ import {
   getChannelLabel,
   getStatusColor,
 } from "@/lib/utils";
+import { AgentActivityLine } from "@/components/conversations/agent-activity-line";
+import type { AgentActivity } from "@/lib/ai/activity-labels";
 
 interface MessageData {
   id: string;
@@ -46,6 +48,8 @@ interface ConversationData {
   customerContact: string;
   status: string;
   summary: string;
+  /** Live agent activity (engine-reported, real execution points only). */
+  liveActivity?: AgentActivity | null;
   messages: MessageData[];
   _count: { messages: number };
   tags: TagData[];
@@ -116,20 +120,38 @@ export default function ConversationsPage() {
     }
   }, [channelFilter, statusFilter, searchQuery]);
 
-  const fetchConversationDetail = useCallback(async (id: string) => {
-    setDetailLoading(true);
-    try {
-      const res = await fetch(`/api/conversations/${id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setSelectedConversation(data);
+  // Signature of the last rendered detail payload — silent polls skip
+  // the state write when nothing material changed (see inbox page).
+  const detailSigRef = useRef<string>("");
+
+  const fetchConversationDetail = useCallback(
+    async (id: string, opts?: { silent?: boolean }) => {
+      if (!opts?.silent) setDetailLoading(true);
+      try {
+        const res = await fetch(`/api/conversations/${id}`);
+        if (res.ok) {
+          const data = await res.json();
+          const msgs = Array.isArray(data?.messages) ? data.messages : [];
+          const sig = [
+            msgs.length,
+            msgs.length ? msgs[msgs.length - 1]?.id ?? "" : "",
+            data?.liveActivity?.kind ?? "",
+            data?.liveActivity?.at ?? "",
+            data?.status,
+          ].join("|");
+          if (!opts?.silent || sig !== detailSigRef.current) {
+            detailSigRef.current = sig;
+            setSelectedConversation(data);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch conversation detail:", error);
+      } finally {
+        if (!opts?.silent) setDetailLoading(false);
       }
-    } catch (error) {
-      console.error("Failed to fetch conversation detail:", error);
-    } finally {
-      setDetailLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   useEffect(() => {
     fetchConversations();
@@ -139,6 +161,18 @@ export default function ConversationsPage() {
     if (selectedId) {
       fetchConversationDetail(selectedId);
     }
+  }, [selectedId, fetchConversationDetail]);
+
+  // Live detail: silently re-fetch the open conversation every 3s so
+  // the agent-activity line reflects what the agent is doing right now.
+  useEffect(() => {
+    if (!selectedId) return;
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void fetchConversationDetail(selectedId, { silent: true });
+      }
+    }, 3000);
+    return () => clearInterval(t);
   }, [selectedId, fetchConversationDetail]);
 
   useEffect(() => {
@@ -463,6 +497,10 @@ export default function ConversationsPage() {
                   </select>
                 </div>
               </div>
+
+              {/* Live agent activity — only while the agent is
+                  genuinely working on this conversation right now. */}
+              <AgentActivityLine activity={selectedConversation.liveActivity} />
 
               {/* Tags Bar */}
               {selectedConversation.tags.length > 0 && (

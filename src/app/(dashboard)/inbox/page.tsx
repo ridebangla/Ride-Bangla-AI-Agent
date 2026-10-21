@@ -32,6 +32,11 @@ import {
 import { FacebookIcon, InstagramIcon, XBrandIcon } from "@/components/ui/channel-icons";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { AgentActivityLine } from "@/components/conversations/agent-activity-line";
+import {
+  isFreshActivity,
+  type AgentActivity,
+} from "@/lib/ai/activity-labels";
 
 // ---------------------------------------------------------------------------
 // Channel identity — distinct icon + color + label per channel.
@@ -120,6 +125,8 @@ interface InboxConversation {
   customerContact: string;
   status: string;
   aiEnabled: boolean;
+  /** Live agent activity (engine-reported, real execution points only). */
+  liveActivity?: AgentActivity | null;
   unread: number;
   createdAt: string;
   updatedAt: string;
@@ -296,22 +303,63 @@ export default function InboxPage() {
     fetchGlobalAi();
   }, [refreshUnread, fetchGlobalAi]);
 
-  const fetchThread = useCallback(async (id: string) => {
-    setDetailLoading(true);
+  // Signature of the last rendered thread payload — silent polls skip
+  // the state write when nothing material changed, so an idle open
+  // thread never re-renders (or yanks the scroll) every few seconds.
+  const threadSigRef = useRef<string>("");
+
+  const fetchThread = useCallback(async (id: string, opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setDetailLoading(true);
     try {
       const res = await fetch(`/api/conversations/${id}`);
       if (res.ok) {
         const data = await res.json();
-        setThread(data);
+        const msgs = Array.isArray(data?.messages) ? data.messages : [];
+        const sig = [
+          msgs.length,
+          msgs.length ? msgs[msgs.length - 1]?.id ?? "" : "",
+          data?.liveActivity?.kind ?? "",
+          data?.liveActivity?.at ?? "",
+          data?.aiEnabled,
+          data?.status,
+        ].join("|");
+        if (!opts?.silent || sig !== threadSigRef.current) {
+          threadSigRef.current = sig;
+          setThread(data);
+        }
       }
     } catch { /* ignore */ } finally {
-      setDetailLoading(false);
+      if (!opts?.silent) setDetailLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (selectedId) fetchThread(selectedId);
   }, [selectedId, fetchThread]);
+
+  // Live thread: while a conversation is open, silently re-fetch every
+  // 3s so the agent-activity line (and any new messages) appear as the
+  // agent actually works — no spinner, and the signature guard above
+  // keeps unchanged payloads from re-rendering.
+  useEffect(() => {
+    if (!selectedId) return;
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void fetchThread(selectedId, { silent: true });
+      }
+    }, 3000);
+    return () => clearInterval(t);
+  }, [selectedId, fetchThread]);
+
+  // Keep the list rows (incl. their agent-working indicators) fresh too.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        fetchTab(tab, searchQuery).catch(() => undefined);
+      }
+    }, 6000);
+    return () => clearInterval(t);
+  }, [tab, searchQuery, fetchTab]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -543,6 +591,11 @@ export default function InboxPage() {
                                     <BotOff className="h-3 w-3" /> AI off
                                   </span>
                                 )}
+                                {isFreshActivity(conv.liveActivity) && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-700">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-green-600 animate-pulse" /> Agent working
+                                  </span>
+                                )}
                               </div>
                               {conv.lastMessage && (
                                 <p className="text-sm text-rbai-text-light mt-1 truncate">
@@ -621,6 +674,10 @@ export default function InboxPage() {
                       </p>
                     </div>
                   )}
+
+                  {/* Live agent activity — only while the agent is
+                      genuinely working on this conversation right now. */}
+                  <AgentActivityLine activity={thread.liveActivity} />
 
                   {/* Messages */}
                   <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">

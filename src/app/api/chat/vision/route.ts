@@ -15,6 +15,7 @@ import {
   type CatalogProduct,
 } from "@/lib/catalog";
 import { logger } from "@/lib/logger";
+import { parseActivityToken, bindActivityToken } from "@/lib/ai/activity";
 
 /**
  * Phase 3 — photo/video understanding endpoint (user decisions 14 + 15).
@@ -69,6 +70,9 @@ export async function POST(request: NextRequest) {
       image?: Attachment;
       video?: Attachment;
     };
+    const activityToken = parseActivityToken(
+      (body as { activityToken?: unknown }).activityToken
+    );
 
     if (!siteKey || typeof siteKey !== "string") {
       return NextResponse.json({ error: "siteKey is required" }, { status: 401 });
@@ -165,6 +169,9 @@ export async function POST(request: NextRequest) {
           // Human takeover (user decision 17): owner switched the AI off —
           // store the message below and stay silent, no AI reply of any kind.
           takeover = existing.aiEnabled === false;
+          if (activityToken) {
+            await bindActivityToken(convId, activityToken, existing.activityToken);
+          }
         }
       }
       if (!convId) {
@@ -174,6 +181,7 @@ export async function POST(request: NextRequest) {
             customerName: "Website Visitor",
             customerContact: visitor,
             status: "open",
+            ...(activityToken ? { activityToken } : {}),
             aiEnabled: true,
           }),
         });

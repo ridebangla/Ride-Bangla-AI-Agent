@@ -1,9 +1,14 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-20.2 (A-to-Z audit: CORS companion fix in
- * the platform middleware + honest error states below). This is the ONE
- * embed build every project reuses for the company help center; do not
- * fork per-site copies.
+ * CANONICAL EMBED — v2026-10-21.1 (dual-video avatar completed with the
+ * owner's canonical full-scene clips; the working clip now lazy-loads on
+ * first open instead of taxing every host page; NEW: an action-specific
+ * live caption under the header avatar, fed by GET /api/chat/activity —
+ * it only ever names an action the engine is genuinely executing, and
+ * falls back to the plain typing caption otherwise). Prior: v2026-10-20.2
+ * (A-to-Z audit: CORS companion fix in the platform middleware + honest
+ * error states). This is the ONE embed build every project reuses for
+ * the company help center; do not fork per-site copies.
  * Embeddable chat widget for customer websites.
  *
  * Usage:
@@ -44,6 +49,9 @@
     position: script.getAttribute("data-position") || "right",
     greeting: script.getAttribute("data-greeting") || "Hi! How can we help you today?",
     title: script.getAttribute("data-title") || "Ride Bangla AI Agent",
+    // Caption language: explicit data-lang wins, then the host page's
+    // own lang, then English (the embed UI's long-standing default).
+    lang: ((script.getAttribute("data-lang") || document.documentElement.lang || "en").toLowerCase().indexOf("bn") === 0 ? "bn" : "en"),
   };
 
   var avatarUrl = config.server.replace(/\/$/, "") + "/agent-avatar.png";
@@ -55,6 +63,82 @@
   var conversationId = null;
   var isOpen = false;
   var isPaused = false;
+
+  // Live-activity caption channel: one random token per page session,
+  // bound server-side to this visitor's conversation (chat/vision/voice
+  // endpoints store it), so the embed can poll what the agent is really
+  // doing before the first response hands back a conversationId.
+  var activityToken = "at-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  var activityTimer = null;
+  var currentActivity = null;
+
+  // Action-specific captions, keyed by the engine's REAL activity kinds
+  // (src/lib/ai/activity.ts). A specific caption appears only while the
+  // matching action genuinely runs server-side; anything unobserved
+  // falls back to the plain typing caption — never a fabricated claim.
+  var ACTIVITY_CAPTIONS = {
+    en: {
+      composing: "Typing…",
+      consulting_knowledge: "Checking the knowledge base…",
+      perceiving_media: "Looking at your media…",
+      searching_catalog: "Searching the catalog…",
+      searching_website: "Searching the website…",
+      recommending_alternatives: "Looking for alternatives…",
+      finding_products: "Finding products for you…",
+      creating_ticket: "Creating a support ticket…",
+      assigning_ticket: "Assigning this to the team…",
+      sending_email: "Emailing the team…",
+      checking_history: "Checking your history…",
+      scheduling_followup: "Scheduling a follow-up…",
+      taking_order: "Placing your order…",
+      triggering_webhook: "Notifying the business system…",
+      sending_reply: "Sending the reply…",
+    },
+    bn: {
+      composing: "টাইপ করছে…",
+      consulting_knowledge: "জ্ঞানভাণ্ডারে খুঁজছে…",
+      perceiving_media: "আপনার মিডিয়া দেখছে…",
+      searching_catalog: "ক্যাটালগে খুঁজছে…",
+      searching_website: "ওয়েবসাইট সার্চ করছে…",
+      recommending_alternatives: "বিকল্প খুঁজছে…",
+      finding_products: "আপনার জন্য পণ্য খুঁজছে…",
+      creating_ticket: "সাপোর্ট টিকিট তৈরি করছে…",
+      assigning_ticket: "টিমের কাছে পাঠাচ্ছে…",
+      sending_email: "টিমকে ইমেইল পাঠাচ্ছে…",
+      checking_history: "আপনার আগের বার্তা দেখছে…",
+      scheduling_followup: "ফলো-আপ ঠিক করছে…",
+      taking_order: "আপনার অর্ডার নিচ্ছে…",
+      triggering_webhook: "ব্যবসার সিস্টেমে জানাচ্ছে…",
+      sending_reply: "উত্তর পাঠাচ্ছে…",
+    },
+  };
+  var SEND_CHANNEL_CAPTIONS = {
+    en: {
+      whatsapp: "Messaging on WhatsApp…",
+      facebook: "Messaging on Facebook…",
+      instagram: "Messaging on Instagram…",
+      messenger: "Messaging on Messenger…",
+      telegram: "Messaging on Telegram…",
+      email: "Sending an email…",
+    },
+    bn: {
+      whatsapp: "WhatsApp-এ মেসেজ করছে…",
+      facebook: "Facebook-এ মেসেজ করছে…",
+      instagram: "Instagram-এ মেসেজ করছে…",
+      messenger: "Messenger-এ মেসেজ করছে…",
+      telegram: "Telegram-এ মেসেজ করছে…",
+      email: "ইমেইল পাঠাচ্ছে…",
+    },
+  };
+  function captionForActivity(a) {
+    var lang = ACTIVITY_CAPTIONS[config.lang] ? config.lang : "en";
+    if (a && a.kind === "sending_reply" && a.channel) {
+      var perChannel = SEND_CHANNEL_CAPTIONS[lang][a.channel];
+      if (perChannel) return perChannel;
+    }
+    if (a && ACTIVITY_CAPTIONS[lang][a.kind]) return ACTIVITY_CAPTIONS[lang][a.kind];
+    return ACTIVITY_CAPTIONS[lang].composing;
+  }
 
   var MAX_IMAGE_BYTES = 4 * 1024 * 1024;
   var MAX_MEDIA_BYTES = 10 * 1024 * 1024;
@@ -70,6 +154,11 @@
       #rbai-widget-panel.open{display:flex}\n\
       #rbai-widget-header{background:" + config.color + ";color:#fff;padding:16px;display:flex;align-items:center;justify-content:space-between}\n\
       #rbai-widget-header h3{margin:0;font-size:15px;font-weight:600}\n\
+      #rbai-widget-status{display:flex;align-items:center;gap:7px;padding:7px 16px;background:#F0FDF6;border-bottom:1px solid #E2E8F0;font-size:12.5px;font-weight:600;color:#065F46}\n\
+      #rbai-widget-status[hidden]{display:none}\n\
+      #rbai-widget-status .rbai-status-dot{width:8px;height:8px;border-radius:50%;background:" + config.color + ";flex:none;animation:rbai-pulse 1.2s infinite}\n\
+      .rbai-vid-idle{object-position:50% 17%}\n\
+      .rbai-vid-working{object-position:50% 16%}\n\
       #rbai-widget-close{background:none;border:none;color:#fff;cursor:pointer;font-size:20px;padding:0;line-height:1}\n\
       #rbai-widget-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}\n\
       .rbai-msg{max-width:80%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.4;word-wrap:break-word}\n\
@@ -119,9 +208,10 @@
     container.innerHTML = '\
       <div id="rbai-widget-panel">\
         <div id="rbai-widget-header">\
-          <div id="rbai-widget-headwrap"><span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="auto" disablepictureinpicture src="' + workingVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span><h3>' + escapeHtml(config.title) + '</h3></div>\
+          <div id="rbai-widget-headwrap"><span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="none" disablepictureinpicture data-src="' + workingVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span><h3>' + escapeHtml(config.title) + '</h3></div>\
           <button id="rbai-widget-close">&times;</button>\
         </div>\
+        <div id="rbai-widget-status" hidden><span class="rbai-status-dot"></span><span id="rbai-widget-status-text"></span></div>\
         <div id="rbai-widget-messages"></div>\
         <div id="rbai-widget-input">\
           <button type="button" class="rbai-iconbtn" id="rbai-widget-photo" title="Send a photo" aria-label="Send a photo">' + SVG_PHOTO + '</button>\
@@ -134,12 +224,16 @@
         <input type="file" id="rbai-widget-videofile" accept="video/*" style="display:none" />\
       </div>\
       <button id="rbai-widget-btn" aria-label="Open chat">\
-        <span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="auto" disablepictureinpicture src="' + workingVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span>\
+        <span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="none" disablepictureinpicture data-src="' + workingVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span>\
       </button>\
     ';
     document.body.appendChild(container);
     wireVideoFallback();
-    // Ensure the visible idle video actually plays (autoplay policies).
+    // Static poster (the avatar image) until the idle clip's first frame
+    // paints, and ensure the visible idle video actually plays
+    // (autoplay policies).
+    var idleVids = container.querySelectorAll(".rbai-vid-idle");
+    for (var p = 0; p < idleVids.length; p++) idleVids[p].setAttribute("poster", avatarUrl);
     var iv = container.querySelector(".rbai-vid-idle");
     if (iv) iv.play().catch(function () {});
 
@@ -174,9 +268,40 @@
     });
   }
 
+  // The working clip is NOT loaded with the host page (it would tax
+  // every site's initial load ecosystem-wide). Its <video> elements
+  // carry data-src only; the real src is attached on first panel open
+  // or first send — whichever comes first — and kept afterwards.
+  function ensureWorkingVideo() {
+    var workings = document.querySelectorAll(".rbai-vid-working");
+    for (var i = 0; i < workings.length; i++) {
+      var v = workings[i];
+      if (!v.getAttribute("src") && v.getAttribute("data-src")) {
+        v.setAttribute("src", v.getAttribute("data-src"));
+        try { v.load(); } catch (e) {}
+      }
+    }
+  }
+
+  // The status strip under the header avatar: visible only while the
+  // agent is working, captioned with the current REAL activity (or the
+  // plain typing caption while nothing specific has been observed).
+  function renderStatus() {
+    var strip = document.getElementById("rbai-widget-status");
+    var text = document.getElementById("rbai-widget-status-text");
+    if (!strip || !text) return;
+    if (agentState === "working") {
+      text.textContent = captionForActivity(currentActivity);
+      strip.hidden = false;
+    } else {
+      strip.hidden = true;
+    }
+  }
+
   function setAgentState(s) {
     var showWorking = s === "working";
-    if (agentState === s && !showWorking) return;
+    if (showWorking) ensureWorkingVideo();
+    if (agentState === s && !showWorking) { renderStatus(); return; }
     agentState = s;
     var idles = document.querySelectorAll(".rbai-vid-idle");
     var workings = document.querySelectorAll(".rbai-vid-working");
@@ -190,6 +315,7 @@
       if (showWorking) { try { workings[j].currentTime = 0; } catch (e) {} workings[j].play().catch(function () {}); }
       else { workings[j].pause(); }
     }
+    renderStatus();
   }
 
   function wireVideoFallback() {
@@ -212,6 +338,8 @@
     isOpen = !isOpen;
     var panel = document.getElementById("rbai-widget-panel");
     panel.classList.toggle("open", isOpen);
+    // First open: lazily fetch the working clip (never on host-page load).
+    if (isOpen) ensureWorkingVideo();
     if (isOpen && !document.querySelector(".rbai-msg")) {
       addMessage(config.greeting, "bot");
     }
@@ -359,8 +487,44 @@
     sendText("I would like to order: " + productName);
   }
 
+  // ---- Live activity polling ----
+  // While any request is in flight, poll the activity endpoint so the
+  // caption tracks what the agent is really doing server-side. Polling
+  // stops the moment the last pending request settles — it never runs
+  // while the widget is idle.
+  function pollActivity() {
+    var q =
+      "siteKey=" + encodeURIComponent(config.siteKey) +
+      "&token=" + encodeURIComponent(activityToken) +
+      (conversationId ? "&conversationId=" + encodeURIComponent(conversationId) : "") +
+      (config.visitorId ? "&visitorId=" + encodeURIComponent(config.visitorId) : "");
+    fetch(config.server + "/api/chat/activity?" + q)
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        currentActivity = (data && data.activity) || null;
+        renderStatus();
+      })
+      .catch(function () { /* caption keeps its last honest state */ });
+  }
+
+  function startActivityPolling() {
+    if (activityTimer) return;
+    pollActivity();
+    activityTimer = setInterval(pollActivity, 1200);
+  }
+
+  function stopActivityPolling() {
+    if (activityTimer) {
+      clearInterval(activityTimer);
+      activityTimer = null;
+    }
+    currentActivity = null;
+    renderStatus();
+  }
+
   // ---- Shared API plumbing ----
   function postApi(path, payload, typing) {
+    startActivityPolling();
     fetch(config.server + path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -379,7 +543,10 @@
   function handleApiResponse(data, status, typing) {
     if (typing) typing.remove();
     pendingRequests = Math.max(0, pendingRequests - 1);
-    if (pendingRequests === 0) setAgentState("idle");
+    if (pendingRequests === 0) {
+      setAgentState("idle");
+      stopActivityPolling();
+    }
 
     if (!data) {
       // Genuine transport failure only (network down / unreadable
@@ -431,6 +598,7 @@
       conversationId: conversationId,
       siteKey: config.siteKey,
       visitorId: config.visitorId,
+      activityToken: activityToken,
     }, typing);
   }
 
@@ -464,6 +632,7 @@
         siteKey: config.siteKey,
         visitorId: config.visitorId,
         conversationId: conversationId,
+        activityToken: activityToken,
         image: { mimeType: file.type || "image/jpeg", base64: base64 },
       }, typing);
     };
@@ -496,6 +665,7 @@
         siteKey: config.siteKey,
         visitorId: config.visitorId,
         conversationId: conversationId,
+        activityToken: activityToken,
         video: { mimeType: file.type || "video/mp4", base64: base64 },
       }, typing);
     };
@@ -570,6 +740,7 @@
             siteKey: config.siteKey,
             visitorId: config.visitorId,
             conversationId: conversationId,
+            activityToken: activityToken,
             audio: { mimeType: mimeType, base64: base64 },
           }, typing);
         };

@@ -3,6 +3,7 @@ import * as qrcode from "qrcode";
 import { prisma, withBusinessId } from "@/lib/prisma";
 import { createNewConversation } from "@/lib/ai/engine";
 import { processChannelMessage } from "@/lib/channels/inbound";
+import { reportActivity, clearActivity } from "@/lib/ai/activity";
 import { logger } from "@/lib/logger";
 import { resolveCustomer } from "@/lib/customer-resolver";
 import { enterBusinessContext, resolveChannelBusiness } from "@/lib/tenant";
@@ -173,7 +174,13 @@ export async function initWhatsApp(): Promise<void> {
 
       // Send response back via WhatsApp
       if (!chatResult.silent) {
-        await message.reply(chatResult.response);
+        // Live activity: caption the real WhatsApp send while it runs.
+        await reportActivity(conversation.id, "sending_reply", { channel: "whatsapp" });
+        try {
+          await message.reply(chatResult.response);
+        } finally {
+          await clearActivity(conversation.id);
+        }
       } else {
         logger.info("[WhatsApp] human takeover: stored message silently, no reply sent");
       }

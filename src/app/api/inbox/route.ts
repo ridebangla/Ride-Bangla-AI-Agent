@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
             customerContact: true,
             status: true,
             aiEnabled: true,
+            liveActivity: true,
             createdAt: true,
             updatedAt: true,
             _count: { select: { messages: true } },

@@ -50,6 +50,7 @@ vi.mock("@/lib/realtime", () => ({
   emitNewMessage: vi.fn(),
   emitConversationUpdate: vi.fn(),
   emitTyping: vi.fn(),
+  emitAgentActivity: vi.fn(),
   publish: vi.fn(),
   subscribe: vi.fn(),
 }));

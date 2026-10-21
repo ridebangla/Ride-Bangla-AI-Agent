@@ -20,6 +20,7 @@ import crypto from "crypto";
 import { prisma, withBusinessId } from "@/lib/prisma";
 import { createNewConversation } from "@/lib/ai/engine";
 import { processChannelMessage } from "@/lib/channels/inbound";
+import { reportActivity, clearActivity } from "@/lib/ai/activity";
 import { resolveCustomer } from "@/lib/customer-resolver";
 import { encryptToken, getActiveAccounts, getDecryptedToken } from "@/lib/social/accounts";
 import { handleCommentEvent } from "@/lib/social/comments";
@@ -396,7 +397,17 @@ export async function handleMetaWebhook(
       const result = await processChannelMessage(conversation.id, businessId, text);
       counts.messages++;
       if (!result.silent && result.response) {
-        await sendMetaMessage(pageOrIgId, psid, result.response);
+        // Live activity: caption the real Meta send (Messenger /
+        // Facebook / Instagram per the conversation's channel) while
+        // it runs.
+        await reportActivity(conversation.id, "sending_reply", {
+          channel: conversation.channel || undefined,
+        });
+        try {
+          await sendMetaMessage(pageOrIgId, psid, result.response);
+        } finally {
+          await clearActivity(conversation.id);
+        }
       }
     }
 

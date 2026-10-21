@@ -9,6 +9,7 @@ import {
 } from "./providers";
 import { recordAiMessage } from "@/lib/billing-usage";
 import { agentTools, executeToolCall } from "./tools";
+import { reportActivity, clearActivity, activityKindForTool } from "./activity";
 import { emitNewMessage } from "@/lib/realtime";
 import { analyzeSentiment, detectIntent, estimateConfidence, requiresHumanApproval } from "./guardrails";
 import { classifyIntent, getIntentGuidance, RETENTION_DOCTRINE, UNAVAILABLE_PRODUCT_RULE } from "./intent";
@@ -248,6 +249,8 @@ export async function chat(
         `[brain] media received but no API key; skipping perception (${opts.media.kind})`
       );
     } else {
+      // Live activity: the agent is genuinely looking at the media now.
+      await reportActivity(conversationId, "perceiving_media");
       try {
         const perception = await perceiveMedia(keys, config.model, opts.media);
         effectiveMessage = `${perception.description}\n${userMessage}`.trim();
@@ -279,12 +282,13 @@ export async function chat(
     // catalog item — real catalog data, no AI involved. When nothing
     // matched but this looks like a product inquiry, the retain path
     // offers budget/category alternatives with the retain phrasing.
-    const attached = await attachMentionedProducts(effectiveMessage, []);
+    const attached = await attachMentionedProducts(effectiveMessage, [], conversationId);
     let fallbackResponse =
       "The AI brain isn't connected yet — the business owner still needs to add the AI API key in Settings. Your message has been saved and the team can see it.";
     if (attached.retain) {
       fallbackResponse += `\n\n${retainLineFor(effectiveMessage)}`;
     }
+    await clearActivity(conversationId);
     return {
       response: fallbackResponse,
       products: attached.products,
@@ -293,6 +297,9 @@ export async function chat(
     };
   }
 
+  // Live activity: the agent consults the business knowledge base for
+  // every brain-online turn before composing.
+  await reportActivity(conversationId, "consulting_knowledge");
   const knowledgeBase = await getKnowledgeBase();
 
   // ---- Intent understanding: shape the answer for THIS question ----
@@ -351,7 +358,8 @@ export async function chat(
   // intent matches, then the budget-aware retain path. Deduped, max 3.
   const attached = await attachMentionedProducts(
     `${effectiveMessage}\n${aiResult.response}`,
-    aiResult.products
+    aiResult.products,
+    conversationId
   );
   const products = attached.products;
 
@@ -390,6 +398,11 @@ export async function chat(
     void recordAiMessage(meteredBusinessId);
   }
 
+  // Live activity: the reply is composed and saved — the turn settles
+  // here. (Channel handlers report `sending_reply` around their actual
+  // provider send immediately after this returns.)
+  await clearActivity(conversationId);
+
   return { response: aiResult.response, products, silent: false };
 }
 
@@ -407,13 +420,17 @@ export async function chat(
  */
 async function attachMentionedProducts(
   text: string,
-  seed: ProductCard[]
+  seed: ProductCard[],
+  conversationId?: string
 ): Promise<{ products: ProductCard[]; retain: boolean }> {
   const merged: ProductCard[] = [...seed];
   let retain = false;
   const pushUnique = (p: ProductCard) => {
     if (merged.length < 3 && !merged.some((e) => e.id === p.id)) merged.push(p);
   };
+  // Live activity: this function's whole job is catalog searching
+  // (name/category/alternative matching against the product catalog).
+  if (conversationId) await reportActivity(conversationId, "searching_catalog");
   try {
     for (const p of (await matchProductsInMessage(text, 3)).map(toProductCard)) {
       pushUnique(p);
@@ -493,6 +510,10 @@ async function callAI(
     };
   }
 
+  // Live activity: an LLM completion is genuinely in flight from here
+  // (each recursion after tool results re-reports this).
+  await reportActivity(conversationId, "composing");
+
   // Multi-provider brain: the business's preferred provider
   // (settings.aiProvider) is tried first, then the AI_PROVIDER_PRIORITY
   // chain with failover. No keys at all → honest degradation (the caller
@@ -564,6 +585,10 @@ async function callAI(
 
     for (const toolCall of toolCalls) {
       const args = JSON.parse(toolCall.function.arguments);
+      // Live activity: caption only what the tool genuinely does —
+      // unmapped tools leave the composing caption in place.
+      const toolKind = activityKindForTool(toolCall.function.name);
+      if (toolKind) await reportActivity(conversationId, toolKind);
       const result = await executeToolCall(
         toolCall.function.name,
         args,

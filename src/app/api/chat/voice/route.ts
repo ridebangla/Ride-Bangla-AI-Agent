@@ -11,6 +11,7 @@ import {
 import { transcribeAudio } from "@/lib/ai/media";
 import { logger } from "@/lib/logger";
 import { checkMessageLimitExceeded } from "@/lib/billing-usage";
+import { parseActivityToken, bindActivityToken } from "@/lib/ai/activity";
 
 /**
  * Phase 3 — voice message endpoint (user decision 14).
@@ -41,6 +42,9 @@ export async function POST(request: NextRequest) {
       conversationId?: string;
       audio?: { mimeType?: string; base64?: string };
     };
+    const activityToken = parseActivityToken(
+      (body as { activityToken?: unknown }).activityToken
+    );
 
     if (!siteKey || typeof siteKey !== "string") {
       return NextResponse.json({ error: "siteKey is required" }, { status: 401 });
@@ -117,6 +121,9 @@ export async function POST(request: NextRequest) {
           convId = "";
         } else {
           takeover = existing.aiEnabled === false;
+          if (activityToken) {
+            await bindActivityToken(convId, activityToken, existing.activityToken);
+          }
         }
       }
       if (!convId) {
@@ -126,6 +133,7 @@ export async function POST(request: NextRequest) {
             customerName: "Website Visitor",
             customerContact: visitor,
             status: "open",
+            ...(activityToken ? { activityToken } : {}),
             aiEnabled: true,
           }),
         });

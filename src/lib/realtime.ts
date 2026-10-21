@@ -18,6 +18,7 @@ export type EventType =
   | "ticket:updated"
   | "typing:start"
   | "typing:stop"
+  | "agent:activity"
   | "agent:online"
   | "agent:offline"
   | "notification";
@@ -136,6 +137,27 @@ export function emitConversationUpdate(
     type: "conversation:updated",
     conversationId,
     data: changes,
+  });
+}
+
+/**
+ * Helper: Emit a live agent-activity change (what the AI agent is doing
+ * right now on this conversation — see lib/ai/activity.ts). `activity`
+ * is null when the turn settled and the agent is idle again.
+ */
+export function emitAgentActivity(
+  conversationId: string,
+  activity: { kind: string; channel?: string | null; at: string } | null
+): void {
+  publish(`conversation:${conversationId}`, {
+    type: "agent:activity",
+    conversationId,
+    data: { activity },
+  });
+  publish("global", {
+    type: "agent:activity",
+    conversationId,
+    data: { conversationId, activity },
   });
 }
 
