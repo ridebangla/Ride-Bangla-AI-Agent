@@ -35,6 +35,17 @@
  *   data-greeting="Hi! How can we help you today?"
  * ></script>
  *
+ * Inline mode (help-center pages; inline support added after
+ * v2026-10-21.3 — it rides the next embed version bump, this build does
+ * not change the version string): if the page renders an element with
+ * id "rbai-chat-inline", the widget mounts INTO that element as an
+ * always-open in-page chat box instead of the floating bubble (the
+ * launcher is suppressed on that page only). A script tag may instead
+ * pass data-mode="inline" with optional data-inline-target="<css
+ * selector>" (default "#rbai-chat-inline"). Same widget, same
+ * conversation API and session identity; if no mount element is
+ * found, the widget falls back to the floating bubble.
+ *
  * The backend resolves the business (tenant) from the `siteKey`.
  * `visitorId` lets the agent keep one conversation per visitor.
  *
@@ -61,6 +72,8 @@
     visitorId: script.getAttribute("data-visitor-id") || "",
     color: script.getAttribute("data-color") || "#0B7A55",
     position: script.getAttribute("data-position") || "right",
+    mode: script.getAttribute("data-mode") || "",
+    inlineTarget: script.getAttribute("data-inline-target") || "#rbai-chat-inline",
     greeting: script.getAttribute("data-greeting") || "Hi! How can we help you today?",
     title: script.getAttribute("data-title") || "Ride Bangla AI Agent",
     // Caption language: explicit data-lang wins, then the host page's
@@ -75,6 +88,8 @@
   var pendingRequests = 0;
 
   var isOpen = false;
+  var widgetContainer = null;
+  var inlineActive = false;
 
   // ---- Thread identity (session-scoped) ----
   // The visitor id and the platform conversation id persist in
@@ -199,6 +214,10 @@
       #rbai-widget-btn{overflow:hidden;padding:0}\n\.rbai-avatarwrap{position:relative;display:block;overflow:hidden;background:#fff}\n\#rbai-widget-btn .rbai-avatarwrap{width:56px;height:56px;border-radius:50%}\n\#rbai-widget-header .rbai-avatarwrap{width:36px;height:36px;border-radius:50%;margin-right:10px;flex:none}\n\.rbai-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;pointer-events:none}\n\.rbai-vid.active{display:block}\n\.rbai-avatar-fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}\n\.rbai-avatarwrap.novid .rbai-avatar-fallback{display:block}\n\.rbai-avatarwrap.novid .rbai-vid{display:none!important}\n\#rbai-widget-headwrap{display:flex;align-items:center}\n\
       #rbai-widget-panel{display:none;width:370px;max-width:calc(100vw - 40px);height:520px;max-height:calc(100vh - 100px);background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.12);margin-bottom:12px;overflow:hidden;flex-direction:column}\n\
       #rbai-widget-panel.open{display:flex}\n\
+      #rbai-widget-container.rbai-inline{position:relative;bottom:auto;left:auto;right:auto;z-index:1;width:100%}\n\
+      #rbai-widget-container.rbai-inline #rbai-widget-panel{width:100%;max-width:100%;height:560px;max-height:640px;margin-bottom:0}\n\
+      #rbai-widget-container.rbai-inline #rbai-widget-btn{display:none}\n\
+      #rbai-widget-container.rbai-inline #rbai-widget-close{display:none}\n\
       #rbai-widget-header{background:" + config.color + ";color:#fff;padding:16px;display:flex;align-items:center;justify-content:space-between}\n\
       #rbai-widget-header h3{margin:0;font-size:15px;font-weight:600}\n\
       #rbai-widget-status{display:flex;align-items:center;gap:7px;padding:7px 16px;background:#F0FDF6;border-bottom:1px solid #E2E8F0;font-size:12.5px;font-weight:600;color:#065F46}\n\
@@ -252,6 +271,7 @@
   function createWidget() {
     var container = document.createElement("div");
     container.id = "rbai-widget-container";
+    widgetContainer = container;
     container.innerHTML = '\
       <div id="rbai-widget-panel">\
         <div id="rbai-widget-header">\
@@ -276,6 +296,7 @@
     ';
     document.body.appendChild(container);
     wireVideoFallback();
+    syncInlineMount();
     // Static poster (the avatar image) until the idle clip's first frame
     // paints, and ensure the visible idle video actually plays
     // (autoplay policies).
@@ -284,7 +305,8 @@
     var iv = container.querySelector(".rbai-vid-idle");
     if (iv) iv.play().catch(function () {});
 
-    document.getElementById("rbai-widget-btn").onclick = toggleWidget;
+    var launcherBtn = document.getElementById("rbai-widget-btn");
+    if (launcherBtn) launcherBtn.onclick = toggleWidget;
     document.getElementById("rbai-widget-close").onclick = toggleWidget;
     document.getElementById("rbai-widget-send").onclick = sendMessage;
     document.getElementById("rbai-widget-text").onkeypress = function (e) {
@@ -989,14 +1011,80 @@
     });
   }
 
+  // ---- Inline mode (help-center pages) ----
+  // A page that renders the mount element (default "#rbai-chat-inline",
+  // or the selector in data-inline-target) gets the chat as an
+  // always-open box inside that element instead of the floating bubble;
+  // every other page keeps the floating widget. A MutationObserver
+  // follows SPA route changes: when the mount appears the container
+  // moves into it, and when it disappears the container is rescued back
+  // to <body>, so the widget is never lost with a routed-away page and
+  // two chat surfaces never coexist.
+  function findInlineMount() {
+    if (!config.inlineTarget) return null;
+    try { return document.querySelector(config.inlineTarget); } catch (e) { return null; }
+  }
+
+  function openPanelInPlace() {
+    // The floating widget's first-open behaviour (see toggleWidget):
+    // working clip lazy-load, greeting for a brand-new thread only,
+    // thread sync so human replies land in this box too.
+    var panel = document.getElementById("rbai-widget-panel");
+    isOpen = true;
+    if (panel) panel.classList.add("open");
+    ensureWorkingVideo();
+    if (!conversationId && !document.querySelector(".rbai-msg")) {
+      addMessage(config.greeting, "bot");
+    }
+    startThreadSync();
+  }
+
+  function enterInline(mount) {
+    if (!widgetContainer) return;
+    if (inlineActive && widgetContainer.parentElement === mount) return;
+    inlineActive = true;
+    widgetContainer.classList.add("rbai-inline");
+    mount.appendChild(widgetContainer);
+    openPanelInPlace();
+  }
+
+  function exitInline() {
+    if (!widgetContainer || !inlineActive) return;
+    inlineActive = false;
+    widgetContainer.classList.remove("rbai-inline");
+    if (document.body && !document.body.contains(widgetContainer)) {
+      document.body.appendChild(widgetContainer);
+    }
+    isOpen = false;
+    var panel = document.getElementById("rbai-widget-panel");
+    if (panel) panel.classList.remove("open");
+    stopThreadSync();
+  }
+
+  function syncInlineMount() {
+    var mount = findInlineMount();
+    if (mount) enterInline(mount);
+    else if (inlineActive) exitInline();
+    // data-mode="inline" with no mount found keeps the floating
+    // bubble: a help page must never end up with no chat at all.
+  }
+
+  function startInlineObserver() {
+    if (typeof MutationObserver === "undefined" || !document.body) return;
+    var observer = new MutationObserver(function () { syncInlineMount(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
   // Initialize
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
       createStyles();
       createWidget();
+      startInlineObserver();
     });
   } else {
     createStyles();
     createWidget();
+    startInlineObserver();
   }
 })();
