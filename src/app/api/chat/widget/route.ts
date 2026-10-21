@@ -111,6 +111,18 @@ export async function POST(request: NextRequest) {
       conversationId?: string;
       image?: { mimeType?: string; base64?: string };
     };
+    // Seam fix (agent-quality round, 2026-10-22): bind the failure text
+    // from the INCOMING message at request parse — BEFORE any Firestore
+    // data gate runs (getBusinessBySiteKey / getSubscription /
+    // checkMessageLimitExceeded below). Language detection needs no
+    // database, and a turn dying AT those gates (e.g. quota throw) used
+    // to reach the catch with an empty failure text, so the graceful
+    // reply fell back to English even for a Bengali message. Binding
+    // here makes every failure stage — gates, engine, deadline — answer
+    // in the customer's language, in both the JSON and streaming modes
+    // (a gate death settles through this same catch; the stream's own
+    // terminal `done` derives from the same message text).
+    failureText = typeof message === "string" ? message.trim() : "";
     // Live-activity caption channel (see lib/ai/activity.ts): the embed
     // polls /api/chat/activity with this token while a reply is pending.
     const activityToken = parseActivityToken(

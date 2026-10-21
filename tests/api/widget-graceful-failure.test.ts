@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { prisma } from "@/lib/prisma";
+import { getBusinessBySiteKey } from "@/lib/tenant";
+import { getSubscription } from "@/lib/subscription";
 import { createRequest, parseJsonResponse } from "../helpers/request";
+
+const BN_GRACEFUL =
+  "দুঃখিত, এই মুহূর্তে আপনার বার্তাটির উত্তর দিতে একটু সমস্যা হচ্ছে। অনুগ্রহ করে একটু পরে আবার চেষ্টা করুন, অথবা জরুরি হলে আমাদের টিমের সঙ্গে সরাসরি যোগাযোগ করুন।";
+const EN_GRACEFUL =
+  "I'm sorry, I'm having a little trouble answering your message right now. Please try again in a moment, or contact our team directly if it's urgent.";
 
 /**
  * Agent-quality Defect 8 (2026-10-22): a widget turn must NEVER surface
@@ -90,6 +97,77 @@ describe("POST /api/chat/widget turn-failure guarantee", () => {
     const data = await parseJsonResponse(res);
     expect(data.response).toContain("try again in a moment");
     expect(data.response).not.toMatch(/[\u0980-\u09FF]/);
+  });
+
+  // Seam fix (agent-quality round, 2026-10-22): a turn dying AT the
+  // Firestore data gates — getBusinessBySiteKey / getSubscription /
+  // checkMessageLimitExceeded, all awaited BEFORE the message text was
+  // bound to the failure path — used to fall back to the English graceful
+  // text even for a Bengali message, because the catch saw an empty
+  // failure text. The failure text is now derived from the incoming
+  // message at request parse, before any data gate runs.
+  it("answers in Bengali when the FIRST data gate throws for a Bengali message", async () => {
+    (getBusinessBySiteKey as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("8 RESOURCE_EXHAUSTED: Quota exceeded.")
+    );
+    const res = await post({
+      siteKey: "good-key",
+      message: "হাই, আপনাদের সেবা সম্পর্কে জানতে চাই",
+      visitorId: "v-seam-gate-bn",
+    });
+    expect(res.status).toBe(200);
+    const data = await parseJsonResponse(res);
+    expect(data.error).toBeUndefined();
+    expect(JSON.stringify(data)).not.toContain("Failed to process message");
+    expect(data.response).toBe(BN_GRACEFUL);
+    expect(data.products).toEqual([]);
+    expect(data.silent).toBe(false);
+  });
+
+  it("answers in English when a data gate throws for an English message", async () => {
+    (getBusinessBySiteKey as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("8 RESOURCE_EXHAUSTED: Quota exceeded.")
+    );
+    const res = await post({
+      siteKey: "good-key",
+      message: "Hi, I want to know about your services",
+      visitorId: "v-seam-gate-en",
+    });
+    expect(res.status).toBe(200);
+    const data = await parseJsonResponse(res);
+    expect(data.response).toBe(EN_GRACEFUL);
+  });
+
+  it("answers in Bengali when the SUBSCRIPTION gate throws for a Bengali message", async () => {
+    (getSubscription as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("8 RESOURCE_EXHAUSTED: Quota exceeded.")
+    );
+    const res = await post({
+      siteKey: "good-key",
+      message: "আমার অর্ডারটা কোথায় আছে জানতে চাই",
+      visitorId: "v-seam-sub-bn",
+    });
+    expect(res.status).toBe(200);
+    const data = await parseJsonResponse(res);
+    expect(data.response).toBe(BN_GRACEFUL);
+  });
+
+  it("answers a stream:true request in Bengali when a data gate throws before the stream opens", async () => {
+    (getBusinessBySiteKey as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("8 RESOURCE_EXHAUSTED: Quota exceeded.")
+    );
+    const res = await post({
+      siteKey: "good-key",
+      message: "হাই, সাহায্য চাই",
+      visitorId: "v-seam-gate-stream",
+      stream: true,
+    });
+    expect(res.status).toBe(200);
+    // The stream never opens when a gate dies — the turn settles through
+    // the JSON failure path, which must carry the same in-language text.
+    expect(res.headers.get("content-type")).toContain("application/json");
+    const data = await parseJsonResponse(res);
+    expect(data.response).toBe(BN_GRACEFUL);
   });
 
   it("settles a streaming turn with a graceful done event, never a raw error event", async () => {
