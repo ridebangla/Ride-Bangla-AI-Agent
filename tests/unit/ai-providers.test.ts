@@ -290,7 +290,67 @@ describe("completeWithFallback", () => {
       messages: [{ role: "user", content: "hi" }],
       model: "gpt-4o-mini", // not a groq model
     });
-    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ model: "llama-3.3-70b-versatile" }));
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ model: "openai/gpt-oss-120b" }));
+  });
+
+  it("remaps a stored retired groq model id to the current default", async () => {
+    openAiOk("ok");
+    await completeWithProvider("groq", { groq: FAKE.groq }, {
+      messages: [{ role: "user", content: "hi" }],
+      model: "llama-3.3-70b-versatile", // retired by Groq (live 404, 2026-10-21)
+    });
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ model: "openai/gpt-oss-120b" }));
+  });
+
+  it("groq falls over to the next catalogue model ONLY on model_not_found", async () => {
+    const notFound = Object.assign(
+      new Error("404 The model `openai/gpt-oss-120b` does not exist or you do not have access to it."),
+      { status: 404, code: "model_not_found" }
+    );
+    mockCreate
+      .mockRejectedValueOnce(notFound)
+      .mockResolvedValueOnce({ choices: [{ message: { content: "ok from scout" } }] });
+    const res = await completeWithProvider("groq", { groq: FAKE.groq }, {
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(res.provider).toBe("groq");
+    expect(res.model).toBe("meta-llama/llama-4-scout-17b-16e-instruct");
+    expect(res.text).toBe("ok from scout");
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockCreate).toHaveBeenNthCalledWith(1, expect.objectContaining({ model: "openai/gpt-oss-120b" }));
+    expect(mockCreate).toHaveBeenNthCalledWith(2, expect.objectContaining({ model: "meta-llama/llama-4-scout-17b-16e-instruct" }));
+  });
+
+  it("groq does NOT fall over on non-model errors (auth surfaces immediately)", async () => {
+    mockCreate.mockRejectedValue(Object.assign(new Error("401 invalid api key"), { status: 401 }));
+    await expect(
+      completeWithProvider("groq", { groq: FAKE.groq }, {
+        messages: [{ role: "user", content: "hi" }],
+      })
+    ).rejects.toThrow(/401/);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("remaps a stored retired gemini model id to the current default", async () => {
+    const seenUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        seenUrls.push(String(url));
+        return {
+          ok: true,
+          json: async () => ({ candidates: [{ content: { parts: [{ text: "hi" }] } }] }),
+        };
+      })
+    );
+    const res = await completeWithProvider("gemini", { gemini: FAKE.gemini }, {
+      messages: [{ role: "user", content: "hi" }],
+      model: "gemini-2.0-flash", // retired by Google (live 404, 2026-10-21)
+    });
+    expect(res.model).toBe("gemini-3.8-flash");
+    expect(seenUrls[0]).toContain("gemini-3.8-flash");
+    expect(seenUrls[0]).not.toContain("gemini-2.0-flash");
   });
 
   it("maps tool calls through gemini function calling", async () => {

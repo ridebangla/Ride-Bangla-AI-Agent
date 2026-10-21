@@ -20,8 +20,8 @@ const TONE_OPTIONS = [
 
 const PROVIDER_OPTIONS = [
   { value: "openai", label: "OpenAI", models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"] },
-  { value: "groq", label: "Groq", models: ["llama-3.3-70b-versatile", "meta-llama/llama-4-scout-17b-16e-instruct", "qwen-qwq-32b"] },
-  { value: "gemini", label: "Gemini (Google)", models: ["gemini-2.0-flash", "gemini-2.5-flash"] },
+  { value: "groq", label: "Groq", models: ["openai/gpt-oss-120b", "meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.1-8b-instant", "qwen-qwq-32b"] },
+  { value: "gemini", label: "Gemini (Google)", models: ["gemini-3.8-flash", "gemini-2.5-flash"] },
   { value: "claude", label: "Claude (Anthropic)", models: ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"] },
   { value: "ollama", label: "Ollama (Local)", models: ["llama3", "mistral", "codellama", "phi3"] },
 ];

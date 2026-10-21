@@ -28,7 +28,7 @@
  *
  * Success (200):
  *   { "ok": true, "aiConfigured": true, "provider": "groq",
- *     "model": "llama-3.3-70b-versatile", "text": "…" }
+ *     "model": "openai/gpt-oss-120b", "text": "…" }
  *
  * Honest degraded (200 — never faked output):
  *   { "ok": true, "aiConfigured": false, "provider": null, "model": null,

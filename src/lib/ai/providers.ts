@@ -274,9 +274,14 @@ export function publicProviderStatus(keys: ProviderKeys): {
 export function defaultModelFor(p: RealProvider): string {
   switch (p) {
     case "groq":
-      return "llama-3.3-70b-versatile";
+      // "llama-3.3-70b-versatile" was retired by Groq — live probes on
+      // 2026-10-21 returned HTTP 404 model_not_found for it, while
+      // "openai/gpt-oss-120b" answered HTTP 200 (Tools proxy evidence).
+      return "openai/gpt-oss-120b";
     case "gemini":
-      return "gemini-2.0-flash";
+      // "gemini-2.0-flash" was retired by Google — its own error message
+      // (live probe, 2026-10-21) names gemini-3.8-flash as the update.
+      return "gemini-3.8-flash";
     case "openai":
       return "gpt-4o-mini";
     case "openrouter":
@@ -286,13 +291,33 @@ export function defaultModelFor(p: RealProvider): string {
   }
 }
 
+/** Groq catalogue order for model_not_found fallover in
+ *  completeWithProvider — the same list the Tools proxy runs live
+ *  (HTTP 200s on 2026-10-21). Fallover happens ONLY when Groq answers
+ *  404 model_not_found; auth/quota/timeout errors surface immediately. */
+export const GROQ_MODEL_CHAIN: string[] = [
+  "openai/gpt-oss-120b",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "llama-3.1-8b-instant",
+];
+
+/** Model ids proven retired by live 404 model_not_found probes on
+ *  2026-10-21. A business may still have one stored as its configured
+ *  model (the old setup wizard offered both) — never send it raw;
+ *  remap to the provider's current default instead. */
+const RETIRED_MODEL_IDS: Record<string, RealProvider> = {
+  "llama-3.3-70b-versatile": "groq",
+  "gemini-2.0-flash": "gemini",
+};
+
 /** A configured non-native model id must not be sent to Groq/Gemini raw —
  *  remap to the provider default so failover keeps working when the
  *  business configured e.g. "gpt-4o-mini" but only a Groq key exists. */
 function modelFor(p: RealProvider, requested?: string): string {
   const r = (requested ?? "").trim();
+  if (r && RETIRED_MODEL_IDS[r] === p) return defaultModelFor(p);
   if (p === "groq") {
-    if (r && /^(llama|meta-llama|mixtral|gemma|qwen|whisper|deepseek|moonshot)/i.test(r)) return r;
+    if (r && /^(llama|meta-llama|mixtral|gemma|qwen|whisper|deepseek|moonshot|openai\/)/i.test(r)) return r;
     return defaultModelFor("groq");
   }
   if (p === "gemini") {
@@ -497,6 +522,18 @@ async function geminiComplete(
   return { provider: "gemini", model, text, ...(toolCalls.length ? { toolCalls } : {}) };
 }
 
+/** True only for a provider's "this model id does not exist" failure —
+ *  the one case where trying the next catalogue id can help. Matches the
+ *  OpenAI SDK error shape (status 404 + code "model_not_found") and the
+ *  raw message text as a belt-and-braces fallback. */
+function isModelNotFoundError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: string }).code;
+  if (code === "model_not_found") return true;
+  const status = (err as { status?: number }).status;
+  return status === 404 && /model_not_found|does not exist/i.test(err.message ?? "");
+}
+
 /**
  * One chat completion against ONE provider. Throws on any failure
  * (transport, auth, rate limit, timeout) — the caller decides failover.
@@ -516,27 +553,51 @@ export async function completeWithProvider(
   }
 
   const client = openAiClientFor(provider, apiKey);
-  const model = modelFor(provider, req.model);
+  const primaryModel = modelFor(provider, req.model);
+  // Groq retires model ids over time: on a 404 model_not_found, fall
+  // through GROQ_MODEL_CHAIN (mirrors the Tools proxy, proven live
+  // 2026-10-21). Any other failure — auth, quota, timeout — throws
+  // immediately, exactly as before. Other providers: a single attempt.
+  const candidates =
+    provider === "groq"
+      ? [primaryModel, ...GROQ_MODEL_CHAIN.filter((m) => m !== primaryModel)]
+      : [primaryModel];
   let response;
-  try {
-    response = await client.chat.completions.create({
-      model,
-      messages: req.messages.map((m) => {
-        const base: Record<string, unknown> = { role: m.role, content: m.content };
-        if (m.tool_calls) base.tool_calls = m.tool_calls;
-        if (m.tool_call_id) base.tool_call_id = m.tool_call_id;
-        if (m.name) base.name = m.name;
-        return base;
-      }) as unknown as OpenAI.ChatCompletionMessageParam[],
-      ...(req.tools && req.tools.length
-        ? { tools: req.tools as OpenAI.ChatCompletionTool[] }
-        : {}),
-      ...(typeof req.maxTokens === "number" ? { max_tokens: req.maxTokens } : {}),
-      ...(typeof req.temperature === "number" ? { temperature: req.temperature } : {}),
-      ...(req.jsonMode ? { response_format: { type: "json_object" } } : {}),
-    });
-  } catch (err) {
-    throw new Error(describeProviderError(provider, err));
+  let model = primaryModel;
+  let lastErr: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      response = await client.chat.completions.create({
+        model: candidate,
+        messages: req.messages.map((m) => {
+          const base: Record<string, unknown> = { role: m.role, content: m.content };
+          if (m.tool_calls) base.tool_calls = m.tool_calls;
+          if (m.tool_call_id) base.tool_call_id = m.tool_call_id;
+          if (m.name) base.name = m.name;
+          return base;
+        }) as unknown as OpenAI.ChatCompletionMessageParam[],
+        ...(req.tools && req.tools.length
+          ? { tools: req.tools as OpenAI.ChatCompletionTool[] }
+          : {}),
+        ...(typeof req.maxTokens === "number" ? { max_tokens: req.maxTokens } : {}),
+        ...(typeof req.temperature === "number" ? { temperature: req.temperature } : {}),
+        ...(req.jsonMode ? { response_format: { type: "json_object" } } : {}),
+      });
+      model = candidate;
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (!isModelNotFoundError(err)) break;
+    }
+  }
+  if (lastErr) {
+    throw new Error(describeProviderError(provider, lastErr));
+  }
+  if (!response) {
+    // Unreachable in practice — the loop either assigns a response or
+    // records an error — but keeps the invariant explicit.
+    throw new Error(`${provider}: no response`);
   }
 
   const choice = response.choices[0];
