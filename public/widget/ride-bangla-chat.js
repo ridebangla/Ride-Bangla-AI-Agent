@@ -1,20 +1,28 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-21.2 (NEW: same-thread human handoff —
- * the embed now persists its visitor/conversation ids in sessionStorage
- * and polls GET /api/chat/thread while open, so replies a human writes
- * from the dashboard Inbox render in this chat, and a returning visitor
- * re-enters the same conversation instead of orphaning it; the read
- * endpoint enforces the same visitor-ownership rule as the chat
- * endpoint). Prior: v2026-10-21.1 (dual-video avatar completed with the
- * owner's canonical full-scene clips; the working clip now lazy-loads on
- * first open instead of taxing every host page; NEW: an action-specific
- * live caption under the header avatar, fed by GET /api/chat/activity —
- * it only ever names an action the engine is genuinely executing, and
- * falls back to the plain typing caption otherwise). Prior: v2026-10-20.2
- * (A-to-Z audit: CORS companion fix in the platform middleware + honest
- * error states). This is the ONE embed build every project reuses for
- * the company help center; do not fork per-site copies.
+ * CANONICAL EMBED — v2026-10-21.3 (NEW: token streaming for text chat —
+ * sendText now asks the widget endpoint for an SSE stream, so the reply
+ * starts rendering as it is generated and the typing bubble only covers
+ * the wait for the first token; the terminal `done` event still carries
+ * the authoritative payload through the same handleApiResponse path, a
+ * `retract` event discards a partial bubble that preceded tool calls,
+ * and any non-SSE answer — gate errors, older servers — falls back to
+ * the plain JSON path unchanged). Prior: v2026-10-21.2 (same-thread
+ * human handoff — the embed now persists its visitor/conversation ids
+ * in sessionStorage and polls GET /api/chat/thread while open, so
+ * replies a human writes from the dashboard Inbox render in this chat,
+ * and a returning visitor re-enters the same conversation instead of
+ * orphaning it; the read endpoint enforces the same visitor-ownership
+ * rule as the chat endpoint). Prior: v2026-10-21.1 (dual-video avatar
+ * completed with the owner's canonical full-scene clips; the working
+ * clip now lazy-loads on first open instead of taxing every host page;
+ * NEW: an action-specific live caption under the header avatar, fed by
+ * GET /api/chat/activity — it only ever names an action the engine is
+ * genuinely executing, and falls back to the plain typing caption
+ * otherwise). Prior: v2026-10-20.2 (A-to-Z audit: CORS companion fix in
+ * the platform middleware + honest error states). This is the ONE embed
+ * build every project reuses for the company help center; do not fork
+ * per-site copies.
  * Embeddable chat widget for customer websites.
  *
  * Usage:
@@ -635,13 +643,20 @@
       .catch(function () { handleApiResponse(null, 0, typing); });
   }
 
-  function handleApiResponse(data, status, typing) {
+  // Settle one in-flight request: drop its typing bubble and, when the
+  // last pending request finishes, return the agent to idle and stop
+  // the activity polling. Shared by the JSON and streaming paths.
+  function settleRequest(typing) {
     if (typing) typing.remove();
     pendingRequests = Math.max(0, pendingRequests - 1);
     if (pendingRequests === 0) {
       setAgentState("idle");
       stopActivityPolling();
     }
+  }
+
+  function handleApiResponse(data, status, typing, streamBubble) {
+    settleRequest(typing);
 
     if (!data) {
       // Genuine transport failure only (network down / unreadable
@@ -671,7 +686,11 @@
     if (data.silent) return;
     if (data.response) {
       pendingEcho.push({ role: "assistant", content: data.response });
-      addMessage(data.response, "bot");
+      // A streamed reply reuses its live bubble: the done payload's
+      // response text is authoritative (it can carry suffixes the
+      // token stream never saw, e.g. a review ask).
+      if (streamBubble) streamBubble.textContent = data.response;
+      else addMessage(data.response, "bot");
     } else if (data.error) {
       addMessage(data.error, "bot");
     } else {
@@ -693,13 +712,130 @@
 
     var typing = addMessage("Typing...", "bot typing");
 
-    postApi("/api/chat/widget", {
+    var payload = {
       message: text,
       conversationId: conversationId,
       siteKey: config.siteKey,
       visitorId: config.visitorId,
       activityToken: activityToken,
-    }, typing);
+    };
+    // Streaming first (the reply renders as it is generated); browsers
+    // without fetch-stream support keep the plain JSON path.
+    if (typeof ReadableStream !== "undefined" && typeof TextDecoder !== "undefined") {
+      sendTextStreaming(payload, typing);
+    } else {
+      postApi("/api/chat/widget", payload, typing);
+    }
+  }
+
+  // ---- Streaming send (SSE) ----
+  // Asks the endpoint for a token stream. The typing bubble is removed
+  // the moment the FIRST token arrives and the reply grows in place;
+  // the working-state avatar + activity captions keep running until
+  // the terminal done event settles the request (tool rounds can still
+  // be working after a retracted preamble). If the answer is not SSE
+  // (a gate error, or an older server), it is handled as plain JSON —
+  // and there is deliberately NO retry: the message was already sent.
+  function sendTextStreaming(payload, typing) {
+    startActivityPolling();
+    var bubble = null;
+    var streamed = "";
+    var currentTyping = typing;
+    payload.stream = true;
+    fetch(config.server + "/api/chat/widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then(function (res) {
+        var contentType = res.headers.get("content-type") || "";
+        if (contentType.indexOf("text/event-stream") === -1 || !res.body) {
+          return res.json().then(
+            function (data) { handleApiResponse(data, res.status, currentTyping); },
+            function () { handleApiResponse(null, res.status, currentTyping); }
+          );
+        }
+        var reader = res.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer = "";
+        var doneData = null;
+        var errorData = null;
+
+        function scrollToBottom() {
+          var messages = document.getElementById("rbai-widget-messages");
+          if (messages) messages.scrollTop = messages.scrollHeight;
+        }
+
+        function handleEvent(raw) {
+          var event = "message";
+          var dataStr = "";
+          raw.split("\n").forEach(function (line) {
+            if (line.indexOf("event:") === 0) event = line.slice(6).trim();
+            else if (line.indexOf("data:") === 0) dataStr += line.slice(5).trim();
+          });
+          if (!dataStr) return;
+          var data = null;
+          try { data = JSON.parse(dataStr); } catch (e) { return; }
+          if (event === "token" && data.text) {
+            if (!bubble) {
+              if (currentTyping) { currentTyping.remove(); currentTyping = null; }
+              bubble = addMessage("", "bot");
+            }
+            streamed += data.text;
+            bubble.textContent = streamed;
+            scrollToBottom();
+          } else if (event === "retract") {
+            // The streamed text preceded tool calls — discard it and
+            // show the typing state again while the agent works.
+            if (bubble) { bubble.remove(); bubble = null; streamed = ""; }
+            if (!currentTyping) currentTyping = addMessage("Typing...", "bot typing");
+          } else if (event === "done") {
+            doneData = data;
+          } else if (event === "error") {
+            errorData = data;
+          }
+        }
+
+        function pump() {
+          return reader.read().then(function (r) {
+            if (r.done) return;
+            buffer += decoder.decode(r.value, { stream: true });
+            var idx = buffer.indexOf("\n\n");
+            while (idx >= 0) {
+              handleEvent(buffer.slice(0, idx));
+              buffer = buffer.slice(idx + 2);
+              idx = buffer.indexOf("\n\n");
+            }
+            return pump();
+          });
+        }
+
+        return pump().then(function () {
+          if (buffer.trim()) handleEvent(buffer);
+          if (doneData) {
+            handleApiResponse(doneData, 200, currentTyping, bubble);
+          } else if (errorData) {
+            handleApiResponse(errorData, 500, currentTyping);
+          } else if (bubble) {
+            // The stream ended abruptly after tokens: drop the partial
+            // bubble and settle silently — if the turn completed
+            // server-side, the thread sync renders the saved reply;
+            // a kept partial would duplicate it.
+            bubble.remove();
+            settleRequest(currentTyping);
+          } else {
+            handleApiResponse(null, 0, currentTyping);
+          }
+        });
+      })
+      .catch(function () {
+        if (bubble) {
+          bubble.remove();
+          settleRequest(currentTyping);
+        } else {
+          handleApiResponse(null, 0, currentTyping);
+        }
+      });
   }
 
   function sendMessage() {

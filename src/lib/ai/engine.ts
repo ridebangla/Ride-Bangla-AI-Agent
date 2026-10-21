@@ -1,11 +1,13 @@
 import { prisma, withBusinessId, getBusinessId, getUnscopedPrisma } from "@/lib/prisma";
 import {
   completeWithFallback,
+  streamWithFallback,
   hasAnyProviderKey,
   normalizePreferredProvider,
   resolveSiteKeys,
   type ChatMessage as ProviderChatMessage,
   type ProviderKeys,
+  type StreamCallbacks,
 } from "./providers";
 import { recordAiMessage } from "@/lib/billing-usage";
 import { agentTools, executeToolCall } from "./tools";
@@ -215,7 +217,18 @@ export async function getAIConfig(): Promise<
 export async function chat(
   conversationId: string,
   userMessage: string,
-  opts?: { media?: MediaInput }
+  opts?: {
+    media?: MediaInput;
+    /**
+     * Token streaming (widget chat path): when onToken is supplied, the
+     * completion streams through streamWithFallback and reply text is
+     * forwarded as it is generated. Purely a delivery mechanism — the
+     * final ChatResult is identical either way, and every non-widget
+     * caller simply omits the callbacks.
+     */
+    onToken?: (text: string) => void;
+    onRetract?: () => void;
+  }
 ): Promise<ChatResult> {
   const config = await getAIConfig();
 
@@ -432,8 +445,13 @@ export async function chat(
     });
   }
 
-  // Call AI (collects show_products tool cards along the way)
-  const aiResult = await callAI(config, messages, conversationId, keys);
+  // Call AI (collects show_products tool cards along the way). When the
+  // caller supplied token callbacks (the widget's streaming path), the
+  // completion streams; every other caller gets the blocking call.
+  const stream: StreamCallbacks | undefined = opts?.onToken
+    ? { onToken: opts.onToken, onRetract: opts.onRetract }
+    : undefined;
+  const aiResult = await callAI(config, messages, conversationId, keys, 0, [], { taken: false, ref: "" }, stream);
 
   // Phase 3: deterministic product cards. Merge the AI's tool-chosen cards
   // with name-matched cards from the conversation text (the customer may
@@ -655,7 +673,8 @@ async function callAI(
   keys: ProviderKeys,
   depth = 0,
   collectedProducts: ProductCard[] = [],
-  orderSignal: { taken: boolean; ref: string } = { taken: false, ref: "" }
+  orderSignal: { taken: boolean; ref: string } = { taken: false, ref: "" },
+  stream?: StreamCallbacks
 ): Promise<{ response: string; products: ProductCard[]; orderTaken: boolean; orderRef: string }> {
   if (depth > 5) {
     return {
@@ -674,23 +693,26 @@ async function callAI(
   // Multi-provider brain: the business's preferred provider
   // (settings.aiProvider) is tried first, then the AI_PROVIDER_PRIORITY
   // chain with failover. No keys at all → honest degradation (the caller
-  // guarantees this path never runs without a key).
+  // guarantees this path never runs without a key). With stream
+  // callbacks the same chain runs through streamWithFallback, so the
+  // reply renders as it generates; the result shape is identical.
   let completion;
   try {
-    completion = await completeWithFallback(
-      {
-        messages: messages as ProviderChatMessage[],
-        model: config.model,
-        tools: agentTools,
-        maxTokens: config.maxTokens,
-        temperature: config.temperature,
-      },
-      {
-        keys,
-        preferredProvider: normalizePreferredProvider(config.provider),
-        label: "chat",
-      }
-    );
+    const completionReq = {
+      messages: messages as ProviderChatMessage[],
+      model: config.model,
+      tools: agentTools,
+      maxTokens: config.maxTokens,
+      temperature: config.temperature,
+    };
+    const completionOpts = {
+      keys,
+      preferredProvider: normalizePreferredProvider(config.provider),
+      label: "chat",
+    };
+    completion = stream?.onToken
+      ? await streamWithFallback(completionReq, { ...completionOpts, stream })
+      : await completeWithFallback(completionReq, completionOpts);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     logger.warn("[brain] all AI providers failed", { reason });
@@ -769,7 +791,7 @@ async function callAI(
     }
 
     // Continue the conversation with tool results
-    return callAI(config, messages, conversationId, keys, depth + 1, collectedProducts, orderSignal);
+    return callAI(config, messages, conversationId, keys, depth + 1, collectedProducts, orderSignal, stream);
   }
 
   return {
@@ -799,4 +821,3 @@ export async function createNewConversation(
     }),
   });
 }
-

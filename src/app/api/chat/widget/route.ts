@@ -18,6 +18,15 @@ import type { MediaInput } from "@/lib/ai/media";
  *
  * Strict rate limit: 20 requests/minute per (siteKey + visitor). Body size
  * is capped by Next.js defaults; base64 images are limited to ~4 MB.
+ *
+ * Streaming (2026-10-22): a request with `stream: true` in the body gets
+ * an SSE response — `meta` (conversation id), `token` deltas as the
+ * reply is generated, `retract` (discard a partial bubble that turned
+ * out to precede tool calls), then a terminal `done` carrying the exact
+ * payload the JSON response would have carried, or `error`. Streaming
+ * is strictly opt-in: every gate below still answers plain JSON, and
+ * non-streaming callers (the Help-Center server adapters read
+ * `response` verbatim) are byte-identical to before.
  */
 const WIDGET_RATE_LIMIT = { maxRequests: 20, windowMs: 60 * 1000 };
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -37,6 +46,7 @@ export async function POST(request: NextRequest) {
     const activityToken = parseActivityToken(
       (body as { activityToken?: unknown }).activityToken
     );
+    const wantsStream = (body as { stream?: unknown }).stream === true;
 
     if (!siteKey || typeof siteKey !== "string") {
       return NextResponse.json({ error: "siteKey is required" }, { status: 401 });
@@ -167,6 +177,57 @@ export async function POST(request: NextRequest) {
       convId = conv.id;
     }
 
+    if (wantsStream) {
+      const encoder = new TextEncoder();
+      const sseStream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const send = (event: string, data: Record<string, unknown>) => {
+            try {
+              controller.enqueue(
+                encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+              );
+            } catch {
+              /* client disconnected — the turn still completes server-side */
+            }
+          };
+          try {
+            send("meta", { conversationId: convId });
+            const result = await chat(convId, text || "(sent a photo)", {
+              media,
+              onToken: (tokenText) => send("token", { text: tokenText }),
+              onRetract: () => send("retract", {}),
+            });
+            // Terminal payload: the exact shape the JSON response carries.
+            send("done", {
+              conversationId: convId,
+              visitorId: visitor,
+              response: result.response,
+              products: result.products,
+              silent: result.silent,
+              aiConfigured: result.aiConfigured !== false,
+            });
+          } catch (error) {
+            logger.error("Widget chat (stream) failed:", error);
+            send("error", { error: "Failed to process message" });
+          } finally {
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          }
+        },
+      });
+      return new Response(sseStream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+
     const result = await chat(convId, text || "(sent a photo)", { media });
 
     return NextResponse.json({
@@ -186,5 +247,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to process message" }, { status: 500 });
   }
 }
-
-

@@ -23,9 +23,17 @@
  * client-readable) win per provider; anything missing falls back to the
  * shared env keys. Keys live server-side only — never logged, never
  * returned to clients.
+ *
+ * Latency structure (2026-10-22): a per-instance circuit breaker stops
+ * every message from re-paying a dead provider's failed attempt (see
+ * the breaker section below), chat completions run under a chat-sized
+ * time budget instead of the 30s media budget, and streamWithFallback()
+ * streams tokens to the widget so a reply starts rendering as it is
+ * generated. Reply texts and prompts are untouched by all of this.
  */
 
 import OpenAI, { toFile } from "openai";
+import { createHash } from "node:crypto";
 import { prisma, getUnscopedPrisma } from "@/lib/prisma";
 import { logger } from "../logger";
 
@@ -268,6 +276,116 @@ export function publicProviderStatus(keys: ProviderKeys): {
 }
 
 /* ------------------------------------------------------------------ */
+/* Circuit breaker — stop paying the dead-provider tax                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * When a provider fails with an auth/credit-class error it stays broken
+ * for minutes-to-forever, yet the fallback chain used to pay that failed
+ * attempt on EVERY message — the production case was a credit-exhausted
+ * platform OpenAI key sitting first in the chain (settings.aiProvider
+ * default), so every reply waited on its rejection before failover, and
+ * the all-down fallback took the full chain every time too.
+ *
+ * This breaker remembers recent failures per (provider, key
+ * fingerprint) inside the server instance: once a class-specific count
+ * of CONSECUTIVE failures is reached, the provider is skipped instantly
+ * until its cooldown passes (doubling per re-trip, capped), so working
+ * providers lead the chain meanwhile. A success clears the record.
+ * In-memory per instance on purpose: a fresh instance re-probes, and a
+ * provider that recovers is picked back up after one cooldown.
+ *
+ * Thresholds are deliberately conservative for the non-credential
+ * classes: a single transient blip must never sideline a provider.
+ *   credential (401/403, credit/quota-exhausted, invalid key): 1
+ *   rate       (plain 429 / rate-limit text):                  2
+ *   transient  (5xx, timeout, network, anything else):         3
+ */
+export type ProviderErrorClass = "credential" | "rate" | "transient";
+
+const CREDENTIAL_MARKERS =
+  /credit_balance|insufficient_quota|insufficient[ _-]?funds|billing|payment required|invalid api key|invalid_api_key|api key not valid/i;
+
+export function classifyProviderError(err: unknown): ProviderErrorClass {
+  const status = (err as { status?: number } | null)?.status;
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  if (status === 401 || status === 403) return "credential";
+  if (CREDENTIAL_MARKERS.test(message)) return "credential";
+  if (status === 429 || /rate limit|too many requests/i.test(message)) return "rate";
+  return "transient";
+}
+
+const BREAKER_THRESHOLDS: Record<ProviderErrorClass, number> = {
+  credential: 1,
+  rate: 2,
+  transient: 3,
+};
+
+function envMs(name: string, fallback: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+
+function breakerBaseCooldownMs(cls: ProviderErrorClass): number {
+  switch (cls) {
+    case "credential":
+      return envMs("AI_CB_CREDENTIAL_COOLDOWN_MS", 60_000);
+    case "rate":
+      return envMs("AI_CB_RATE_COOLDOWN_MS", 20_000);
+    default:
+      return envMs("AI_CB_TRANSIENT_COOLDOWN_MS", 30_000);
+  }
+}
+
+interface BreakerEntry {
+  cls: ProviderErrorClass;
+  failures: number;
+  trips: number;
+  openUntil: number;
+}
+
+const providerBreakers = new Map<string, BreakerEntry>();
+
+function breakerId(provider: RealProvider, apiKey: string): string {
+  // Fingerprint, never the key itself — state ids must stay log-safe and
+  // a key rotation (or a per-business key) gets its own fresh record.
+  return `${provider}:${createHash("sha256").update(apiKey).digest("hex").slice(0, 12)}`;
+}
+
+function providerCircuitOpen(provider: RealProvider, apiKey: string): boolean {
+  const entry = providerBreakers.get(breakerId(provider, apiKey));
+  return !!entry && entry.openUntil > Date.now();
+}
+
+function recordProviderSuccess(provider: RealProvider, apiKey: string): void {
+  providerBreakers.delete(breakerId(provider, apiKey));
+}
+
+function recordProviderFailure(provider: RealProvider, apiKey: string, err: unknown): void {
+  const cls = classifyProviderError(err);
+  const id = breakerId(provider, apiKey);
+  const now = Date.now();
+  const prev = providerBreakers.get(id);
+  const entry: BreakerEntry =
+    prev && prev.cls === cls && prev.openUntil <= now
+      ? prev
+      : { cls, failures: 0, trips: prev?.trips ?? 0, openUntil: 0 };
+  entry.failures += 1;
+  if (entry.failures >= BREAKER_THRESHOLDS[cls]) {
+    entry.trips += 1;
+    const backoff = breakerBaseCooldownMs(cls) * 2 ** Math.min(entry.trips - 1, 4);
+    entry.openUntil = now + Math.min(backoff, envMs("AI_CB_MAX_COOLDOWN_MS", 600_000));
+    entry.failures = 0;
+  }
+  providerBreakers.set(id, entry);
+}
+
+/** Test-only: clear all circuit-breaker state between cases. */
+export function __resetProviderBreakers(): void {
+  providerBreakers.clear();
+}
+
+/* ------------------------------------------------------------------ */
 /* Model selection                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -354,9 +472,20 @@ function visionModelFor(p: RealProvider, requested?: string): string {
 
 const PROVIDER_TIMEOUT_MS = 30000;
 
+/** Chat completions get a chat-sized budget, not the 30s media budget:
+ *  a wedged provider must fail over in seconds, not half a minute.
+ *  Vision/transcription keep PROVIDER_TIMEOUT_MS (media is slower). */
+function chatTimeoutMs(): number {
+  return envMs("AI_CHAT_TIMEOUT_MS", 15_000);
+}
+
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
-function openAiClientFor(p: "openai" | "groq" | "openrouter", apiKey: string): OpenAI {
+function openAiClientFor(
+  p: "openai" | "groq" | "openrouter",
+  apiKey: string,
+  timeoutMs: number = PROVIDER_TIMEOUT_MS
+): OpenAI {
   return new OpenAI({
     apiKey,
     ...(p === "groq" ? { baseURL: "https://api.groq.com/openai/v1" } : {}),
@@ -369,7 +498,7 @@ function openAiClientFor(p: "openai" | "groq" | "openrouter", apiKey: string): O
           },
         }
       : {}),
-    timeout: PROVIDER_TIMEOUT_MS,
+    timeout: timeoutMs,
     maxRetries: 0, // failover across providers is handled here, not in-SDK
   });
 }
@@ -394,6 +523,28 @@ function describeProviderError(provider: string, err: unknown): string {
     return `${provider}: ${status ? `HTTP ${status} ` : ""}${code ? `[${code}] ` : ""}${base}`;
   }
   return `${provider}: ${String(err).slice(0, 300)}`;
+}
+
+/** The OpenAI-family create() params for one completion — shared by the
+ *  blocking and streaming paths so the two can never drift apart. */
+function openAiCreateParams(
+  req: ChatCompletionRequest,
+  model: string
+): Record<string, unknown> {
+  return {
+    model,
+    messages: req.messages.map((m) => {
+      const base: Record<string, unknown> = { role: m.role, content: m.content };
+      if (m.tool_calls) base.tool_calls = m.tool_calls;
+      if (m.tool_call_id) base.tool_call_id = m.tool_call_id;
+      if (m.name) base.name = m.name;
+      return base;
+    }),
+    ...(req.tools && req.tools.length ? { tools: req.tools } : {}),
+    ...(typeof req.maxTokens === "number" ? { max_tokens: req.maxTokens } : {}),
+    ...(typeof req.temperature === "number" ? { temperature: req.temperature } : {}),
+    ...(req.jsonMode ? { response_format: { type: "json_object" } } : {}),
+  };
 }
 
 /* ---------------- Gemini REST adapter ---------------- */
@@ -474,13 +625,9 @@ function toGeminiTools(tools: unknown[] | undefined): Array<{ functionDeclaratio
   return decls.length ? [{ functionDeclarations: decls }] : undefined;
 }
 
-async function geminiComplete(
-  apiKey: string,
-  req: ChatCompletionRequest
-): Promise<ChatCompletionResult> {
-  const model = modelFor("gemini", req.model);
+function geminiRequestBody(req: ChatCompletionRequest): Record<string, unknown> {
   const { systemInstruction, contents } = toGeminiContents(req.messages);
-  const body: Record<string, unknown> = {
+  return {
     ...(systemInstruction ? { systemInstruction } : {}),
     contents,
     generationConfig: {
@@ -490,6 +637,15 @@ async function geminiComplete(
     },
     ...(toGeminiTools(req.tools) ? { tools: toGeminiTools(req.tools) } : {}),
   };
+}
+
+async function geminiComplete(
+  apiKey: string,
+  req: ChatCompletionRequest,
+  timeoutMs: number = PROVIDER_TIMEOUT_MS
+): Promise<ChatCompletionResult> {
+  const model = modelFor("gemini", req.model);
+  const body = geminiRequestBody(req);
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   let res: Response;
@@ -498,7 +654,7 @@ async function geminiComplete(
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
     throw new Error(
@@ -553,20 +709,25 @@ function isModelNotFoundError(err: unknown): boolean {
  * (transport, auth, rate limit, timeout) — the caller decides failover.
  * Empty text is returned as-is (legacy "could not generate a response"
  * behavior). Never logs or returns key material.
+ *
+ * Deliberately breaker-free: circuit-breaker recording/skipping lives in
+ * the fallback wrappers, so a caller that explicitly names a provider
+ * here always gets a real attempt.
  */
 export async function completeWithProvider(
   provider: RealProvider,
   keys: ProviderKeys,
-  req: ChatCompletionRequest
+  req: ChatCompletionRequest,
+  opts: { timeoutMs?: number } = {}
 ): Promise<ChatCompletionResult> {
   const apiKey = keys[provider];
   if (!apiKey) throw new Error(`${provider}: no API key configured`);
 
   if (provider === "gemini") {
-    return geminiComplete(apiKey, req);
+    return geminiComplete(apiKey, req, opts.timeoutMs);
   }
 
-  const client = openAiClientFor(provider, apiKey);
+  const client = openAiClientFor(provider, apiKey, opts.timeoutMs);
   const primaryModel = modelFor(provider, req.model);
   // Groq retires model ids over time: on a 404 model_not_found, fall
   // through GROQ_MODEL_CHAIN (mirrors the Tools proxy, proven live
@@ -581,22 +742,9 @@ export async function completeWithProvider(
   let lastErr: unknown = null;
   for (const candidate of candidates) {
     try {
-      response = await client.chat.completions.create({
-        model: candidate,
-        messages: req.messages.map((m) => {
-          const base: Record<string, unknown> = { role: m.role, content: m.content };
-          if (m.tool_calls) base.tool_calls = m.tool_calls;
-          if (m.tool_call_id) base.tool_call_id = m.tool_call_id;
-          if (m.name) base.name = m.name;
-          return base;
-        }) as unknown as OpenAI.ChatCompletionMessageParam[],
-        ...(req.tools && req.tools.length
-          ? { tools: req.tools as OpenAI.ChatCompletionTool[] }
-          : {}),
-        ...(typeof req.maxTokens === "number" ? { max_tokens: req.maxTokens } : {}),
-        ...(typeof req.temperature === "number" ? { temperature: req.temperature } : {}),
-        ...(req.jsonMode ? { response_format: { type: "json_object" } } : {}),
-      });
+      response = await client.chat.completions.create(
+        openAiCreateParams(req, candidate) as unknown as OpenAI.ChatCompletionCreateParamsNonStreaming
+      );
       model = candidate;
       lastErr = null;
       break;
@@ -645,15 +793,29 @@ export interface FallbackOptions {
   label?: string;
 }
 
+/** Attempt order for the auto chain: priority order, with the business's
+ *  preferred provider (settings.aiProvider) moved to the front. Shared by
+ *  the blocking and streaming wrappers. */
+function autoAttemptOrder(keys: ProviderKeys, preferredProvider?: RealProvider | null): RealProvider[] {
+  let order = keyedProviders(keys);
+  if (preferredProvider && keys[preferredProvider]) {
+    order = [preferredProvider, ...order.filter((p) => p !== preferredProvider)];
+  }
+  return order;
+}
+
 /**
  * Run one chat completion with provider failover.
  *
  * - `providerHint: "auto"` (default): try the keyed providers in priority
  *   order (preferredProvider first); skip providers without keys; fail over
- *   on error / rate limit / timeout to the next.
+ *   on error / rate limit / timeout to the next. A provider whose circuit
+ *   breaker is open (recent credential/rate/transient failures — see the
+ *   breaker section) is skipped instantly instead of re-taxing the call.
  * - `providerHint: "groq"|"gemini"|"openai"`: attempt ONLY that provider.
  *   Failure throws AllProvidersFailedError — no silent switch, because the
- *   caller explicitly pinned the provider.
+ *   caller explicitly pinned the provider. (A pinned attempt is always
+ *   made, breaker or not: the caller asked for that provider by name.)
  *
  * Returns null when NO provider key resolves at all — every caller must
  * degrade honestly (never fake output) in that case.
@@ -675,8 +837,11 @@ export async function completeWithFallback(
       );
     }
     try {
-      return await completeWithProvider(hint, keys, req);
+      const result = await completeWithProvider(hint, keys, req, { timeoutMs: chatTimeoutMs() });
+      recordProviderSuccess(hint, keys[hint]!);
+      return result;
     } catch (err) {
+      recordProviderFailure(hint, keys[hint]!, err);
       const reason = err instanceof Error ? err.message : String(err);
       logger.warn(`[providers:${label}] pinned provider failed`, { provider: hint, reason });
       throw new AllProvidersFailedError(
@@ -687,21 +852,26 @@ export async function completeWithFallback(
     }
   }
 
-  let order = keyedProviders(keys);
-  if (opts.preferredProvider && keys[opts.preferredProvider]) {
-    order = [opts.preferredProvider, ...order.filter((p) => p !== opts.preferredProvider)];
-  }
+  const order = autoAttemptOrder(keys, opts.preferredProvider);
   if (order.length === 0) return null; // honest-degraded path
 
   const failures: Array<{ provider: string; reason: string }> = [];
   for (const provider of order) {
+    const apiKey = keys[provider]!;
+    if (providerCircuitOpen(provider, apiKey)) {
+      logger.warn(`[providers:${label}] provider circuit open, skipping`, { provider });
+      failures.push({ provider, reason: "circuit-open" });
+      continue;
+    }
     try {
-      const result = await completeWithProvider(provider, keys, req);
+      const result = await completeWithProvider(provider, keys, req, { timeoutMs: chatTimeoutMs() });
+      recordProviderSuccess(provider, apiKey);
       if (provider !== order[0]) {
         logger.info(`[providers:${label}] failover succeeded`, { provider });
       }
       return result;
     } catch (err) {
+      recordProviderFailure(provider, apiKey, err);
       const reason = err instanceof Error ? err.message : String(err);
       logger.warn(`[providers:${label}] provider failed, failing over`, { provider, reason });
       failures.push({ provider, reason });
@@ -727,6 +897,383 @@ export async function completeTextWithFallback(
       model: opts.model,
     },
     { keys, label: opts.label ?? "text" }
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Streaming completions (widget chat)                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Token-streaming twins of the wrappers above, with identical failover,
+ * pinning and breaker semantics. The widget chat path uses these so a
+ * reply starts rendering as it is generated — the typing indicator only
+ * has to cover the wait for the FIRST token, not the whole completion.
+ *
+ * Forwarding rule: onToken fires only while the completion is producing
+ * plain text. The moment a tool-call delta appears, forwarding stops
+ * (the text was preamble to a tool round, not the reply); if tokens had
+ * already escaped when tool calls materialize, onRetract fires once at
+ * the end of that completion so the client discards the partial bubble.
+ * Provider failover is only possible while ZERO tokens were forwarded —
+ * after that, a stream failure throws (the caller's final `done`
+ * payload carries the authoritative text either way).
+ */
+export interface StreamCallbacks {
+  onToken?: (text: string) => void;
+  onRetract?: () => void;
+}
+
+function firstTokenTimeoutMs(): number {
+  return envMs("AI_FIRST_TOKEN_TIMEOUT_MS", 12_000);
+}
+
+function streamIdleTimeoutMs(): number {
+  return envMs("AI_STREAM_IDLE_TIMEOUT_MS", 20_000);
+}
+
+/** Marker the stream consumers set when a failure happened AFTER tokens
+ *  were forwarded — failover must not restart the answer elsewhere. */
+function markForwarded(err: unknown, forwarded: boolean): void {
+  if (err && typeof err === "object") {
+    (err as { forwardedTokens?: boolean }).forwardedTokens = forwarded;
+  }
+}
+
+function errForwardedTokens(err: unknown): boolean {
+  return !!(err as { forwardedTokens?: boolean } | null)?.forwardedTokens;
+}
+
+async function consumeOpenAiStream(
+  client: OpenAI,
+  provider: "openai" | "groq" | "openrouter",
+  model: string,
+  req: ChatCompletionRequest,
+  cb: StreamCallbacks
+): Promise<ChatCompletionResult> {
+  const controller = new AbortController();
+  let forwarded = false;
+  let sawToolDelta = false;
+  let text = "";
+  const toolAcc = new Map<number, { id: string; name: string; args: string }>();
+  let firstTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(
+    () => controller.abort(),
+    firstTokenTimeoutMs()
+  );
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const armIdle = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => controller.abort(), streamIdleTimeoutMs());
+  };
+  try {
+    const stream = await client.chat.completions.create(
+      { ...openAiCreateParams(req, model), stream: true } as unknown as OpenAI.ChatCompletionCreateParamsStreaming,
+      { signal: controller.signal }
+    );
+    for await (const chunk of stream) {
+      const delta = chunk.choices?.[0]?.delta as
+        | {
+            content?: string | null;
+            tool_calls?: Array<{
+              index?: number;
+              id?: string;
+              function?: { name?: string; arguments?: string };
+            }>;
+          }
+        | undefined;
+      if (!delta) continue;
+      if (firstTimer) {
+        clearTimeout(firstTimer);
+        firstTimer = undefined;
+      }
+      armIdle();
+      const toolDeltas = delta.tool_calls ?? [];
+      if (toolDeltas.length > 0) sawToolDelta = true;
+      for (const td of toolDeltas) {
+        const idx = typeof td.index === "number" ? td.index : 0;
+        const acc = toolAcc.get(idx) ?? { id: "", name: "", args: "" };
+        if (td.id) acc.id = td.id;
+        if (td.function?.name) acc.name = td.function.name;
+        if (td.function?.arguments) acc.args += td.function.arguments;
+        toolAcc.set(idx, acc);
+      }
+      const piece = typeof delta.content === "string" ? delta.content : "";
+      if (piece) {
+        text += piece;
+        if (!sawToolDelta && cb.onToken) {
+          cb.onToken(piece);
+          forwarded = true;
+        }
+      }
+    }
+  } catch (err) {
+    markForwarded(err, forwarded);
+    throw err;
+  } finally {
+    if (firstTimer) clearTimeout(firstTimer);
+    if (idleTimer) clearTimeout(idleTimer);
+  }
+  const toolCalls: ProviderToolCall[] = [...toolAcc.values()]
+    .filter((t) => t.name)
+    .map((t, i) => ({
+      id: t.id || `${provider}-call-${i}-${Date.now()}`,
+      type: "function" as const,
+      function: { name: t.name, arguments: t.args || "{}" },
+    }));
+  if (forwarded && toolCalls.length > 0) cb.onRetract?.();
+  return {
+    provider,
+    model,
+    text: text.trim(),
+    ...(toolCalls.length ? { toolCalls } : {}),
+  };
+}
+
+async function streamOpenAiFamily(
+  provider: "openai" | "groq" | "openrouter",
+  apiKey: string,
+  req: ChatCompletionRequest,
+  cb: StreamCallbacks
+): Promise<ChatCompletionResult> {
+  const client = openAiClientFor(provider, apiKey, chatTimeoutMs());
+  const primaryModel = modelFor(provider, req.model);
+  const candidates =
+    provider === "groq"
+      ? [primaryModel, ...GROQ_MODEL_CHAIN.filter((m) => m !== primaryModel)]
+      : [primaryModel];
+  let lastErr: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      return await consumeOpenAiStream(client, provider, candidate, req, cb);
+    } catch (err) {
+      lastErr = err;
+      // Model fallover only before anything reached the user, and only
+      // for the retired-model case — the same rule as the blocking path.
+      if (!isModelNotFoundError(err) || errForwardedTokens(err)) break;
+    }
+  }
+  throw new Error(scrubKeyMaterial(describeProviderError(provider, lastErr), apiKey));
+}
+
+async function streamGemini(
+  apiKey: string,
+  req: ChatCompletionRequest,
+  cb: StreamCallbacks
+): Promise<ChatCompletionResult> {
+  const model = modelFor("gemini", req.model);
+  const body = geminiRequestBody(req);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
+  const controller = new AbortController();
+  // The client-level chat budget bounds the whole stream; the per-read
+  // watchdogs below bound time-to-first-token and mid-stream stalls.
+  const totalTimer = setTimeout(() => controller.abort(), chatTimeoutMs());
+  let forwarded = false;
+  try {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      throw new Error(
+        scrubKeyMaterial(`gemini: request failed (${err instanceof Error ? err.message : String(err)})`, apiKey)
+      );
+    }
+    if (!res.ok || !res.body) {
+      const snippet = scrubKeyMaterial((await res.text().catch(() => "")).slice(0, 300), apiKey);
+      const err = new Error(`gemini: HTTP ${res.status} ${snippet}`);
+      (err as { status?: number }).status = res.status;
+      throw err;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let text = "";
+    let sawToolPart = false;
+    const toolCalls: ProviderToolCall[] = [];
+    let firstChunk = true;
+
+    const readWithWatchdog = async (): Promise<{ done: boolean; value?: Uint8Array }> => {
+      const budget = firstChunk ? firstTokenTimeoutMs() : streamIdleTimeoutMs();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          reader.read(),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+              controller.abort();
+              reject(new Error("gemini: stream stalled"));
+            }, budget);
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    const handleData = (jsonText: string) => {
+      let data: { candidates?: Array<{ content?: { parts?: GeminiPart[] } }> };
+      try {
+        data = JSON.parse(jsonText) as typeof data;
+      } catch {
+        return;
+      }
+      const parts = data.candidates?.[0]?.content?.parts ?? [];
+      for (const p of parts) {
+        if (p.functionCall) {
+          sawToolPart = true;
+          toolCalls.push({
+            id: `gemini-call-${toolCalls.length}-${Date.now()}`,
+            type: "function",
+            function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args ?? {}) },
+          });
+        }
+        if (typeof p.text === "string" && p.text) {
+          text += p.text;
+          if (!sawToolPart && cb.onToken) {
+            cb.onToken(p.text);
+            forwarded = true;
+          }
+        }
+      }
+    };
+
+    for (;;) {
+      const { done, value } = await readWithWatchdog();
+      if (done) break;
+      firstChunk = false;
+      buffer += decoder.decode(value, { stream: true });
+      let nl = buffer.indexOf("\n");
+      while (nl >= 0) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (line.startsWith("data:")) handleData(line.slice(5).trim());
+        nl = buffer.indexOf("\n");
+      }
+    }
+    const tail = buffer.trim();
+    if (tail.startsWith("data:")) handleData(tail.slice(5).trim());
+    if (forwarded && toolCalls.length > 0) cb.onRetract?.();
+    return {
+      provider: "gemini",
+      model,
+      text: text.trim(),
+      ...(toolCalls.length ? { toolCalls } : {}),
+    };
+  } catch (err) {
+    markForwarded(err, forwarded);
+    throw err;
+  } finally {
+    clearTimeout(totalTimer);
+  }
+}
+
+/**
+ * One STREAMING chat completion against ONE provider. Same contract as
+ * completeWithProvider (throws on failure, empty text returned as-is),
+ * plus token callbacks. Breaker-free for the same reason.
+ */
+export async function streamWithProvider(
+  provider: RealProvider,
+  keys: ProviderKeys,
+  req: ChatCompletionRequest,
+  cb: StreamCallbacks
+): Promise<ChatCompletionResult> {
+  const apiKey = keys[provider];
+  if (!apiKey) throw new Error(`${provider}: no API key configured`);
+  if (provider === "gemini") {
+    return streamGemini(apiKey, req, cb);
+  }
+  return streamOpenAiFamily(provider, apiKey, req, cb);
+}
+
+/**
+ * Streaming twin of completeWithFallback — same ordering, pinning and
+ * honest-degradation semantics, with the circuit breaker applied and one
+ * extra rule: failover stops once any token has been forwarded (a reply
+ * already on the user's screen is never restarted on another provider;
+ * the failure throws and the caller settles with its fallback).
+ */
+export async function streamWithFallback(
+  req: ChatCompletionRequest,
+  opts: FallbackOptions & { stream: StreamCallbacks }
+): Promise<ChatCompletionResult | null> {
+  const label = opts.label ?? "ai";
+  const keys = opts.keys ?? (await resolveSiteKeys());
+  const hint = normalizeProviderHint(opts.providerHint ?? "auto");
+  const stream = opts.stream;
+
+  if (hint !== "auto") {
+    if (!keys[hint]) {
+      throw new AllProvidersFailedError(
+        `Provider "${hint}" was requested but no API key is configured for it (env ${providerEnvName(hint)} or the site's own key).`,
+        [{ provider: hint, reason: "no-key" }],
+        hint
+      );
+    }
+    try {
+      const result = await streamWithProvider(hint, keys, req, stream);
+      recordProviderSuccess(hint, keys[hint]!);
+      return result;
+    } catch (err) {
+      recordProviderFailure(hint, keys[hint]!, err);
+      const reason = err instanceof Error ? err.message : String(err);
+      logger.warn(`[providers:${label}] pinned provider failed (stream)`, { provider: hint, reason });
+      throw new AllProvidersFailedError(
+        `Provider "${hint}" failed: ${reason}`,
+        [{ provider: hint, reason }],
+        hint
+      );
+    }
+  }
+
+  const order = autoAttemptOrder(keys, opts.preferredProvider);
+  if (order.length === 0) return null;
+
+  const failures: Array<{ provider: string; reason: string }> = [];
+  for (const provider of order) {
+    const apiKey = keys[provider]!;
+    if (providerCircuitOpen(provider, apiKey)) {
+      logger.warn(`[providers:${label}] provider circuit open, skipping (stream)`, { provider });
+      failures.push({ provider, reason: "circuit-open" });
+      continue;
+    }
+    let forwarded = false;
+    const tracking: StreamCallbacks = {
+      onToken: (t) => {
+        forwarded = true;
+        stream.onToken?.(t);
+      },
+      onRetract: () => stream.onRetract?.(),
+    };
+    try {
+      const result = await streamWithProvider(provider, keys, req, tracking);
+      recordProviderSuccess(provider, apiKey);
+      if (provider !== order[0]) {
+        logger.info(`[providers:${label}] failover succeeded (stream)`, { provider });
+      }
+      return result;
+    } catch (err) {
+      recordProviderFailure(provider, apiKey, err);
+      const reason = err instanceof Error ? err.message : String(err);
+      logger.warn(`[providers:${label}] provider failed (stream)`, { provider, reason });
+      failures.push({ provider, reason });
+      if (forwarded || errForwardedTokens(err)) {
+        // Tokens already reached the user — never restart the reply on
+        // another provider. Surface the failure; the caller settles.
+        throw new AllProvidersFailedError(
+          `Provider "${provider}" failed mid-stream after tokens were sent.`,
+          failures
+        );
+      }
+    }
+  }
+  throw new AllProvidersFailedError(
+    `All configured AI providers failed (${failures.map((f) => f.provider).join(", ")}).`,
+    failures
   );
 }
 
