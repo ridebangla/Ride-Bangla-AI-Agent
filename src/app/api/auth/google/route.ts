@@ -9,6 +9,23 @@
  *   - otherwise -> creates the account + a 30-day trial business immediately
  *     and signs the customer straight into their dashboard.
  *
+ * WHICH existing admin (owner rule 2026-10-21): resolution is delegated
+ * to pickSignInAdmin (src/lib/admin-resolution.ts) — firebaseUid match,
+ * then the INTERNAL owner business, then earliest-created. The holder
+ * account therefore always lands on the SAME business record: never a
+ * duplicate business, never a fresh trial, never onboarding. An email
+ * that any admin already carries can never reach the create path below.
+ *
+ * EMAIL VERIFICATION: a new account is only ever created on a VERIFIED
+ * Google email, and an existing CUSTOMER account still requires one.
+ * The single narrow exception is the holder account itself: a
+ * Google-issued token (sign_in_provider "google.com") whose email
+ * resolves to the INTERNAL business signs in even when the token's
+ * email_verified claim is not true — the owner must never be walled out
+ * of his own platform by a verification interstitial. The exception is
+ * bound to the internal flag on the business doc, never to the email
+ * string alone, and it is logged on every use.
+ *
  * Fail-closed: the SaaS path can NEVER mint a platform super_admin.
  * (First-platform bootstrap stays on /api/auth/firebase + /setup.)
  * The business name comes from the Google profile or the email address and
@@ -23,6 +40,11 @@ import {
   generateToken,
   setSessionCookies,
 } from "@/lib/auth";
+import {
+  findAdminsByEmail,
+  isInternalAdmin,
+  pickSignInAdmin,
+} from "@/lib/admin-resolution";
 import { TRIAL_MS, TRIAL_DAYS } from "@/lib/subscription";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
@@ -106,24 +128,44 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       );
     }
-    // Google sign-in should present a verified email. Treat an unverified
-    // email as unusable rather than minting an account on it.
-    if (decoded.email_verified === false) {
-      return NextResponse.json(
-        { error: "Please verify your Google email first, then try again." },
-        { status: 403 }
-      );
-    }
+    const emailVerified = decoded.email_verified === true;
+    const signInProvider =
+      (decoded.firebase?.sign_in_provider as string | undefined) || "";
 
     const db = getUnscopedPrisma();
 
-    const existing = await db.admin.findMany({
-      where: { email } as Record<string, unknown>,
-    });
+    const existing = await findAdminsByEmail(db, email);
 
     if (existing.length > 0) {
-      // Returning customer — sign them straight in.
-      const agentAdmin = existing[0];
+      // Returning account — resolve WHICH record this sign-in belongs to
+      // (uid binding → internal owner business → earliest), never just
+      // the first row the datastore happens to return.
+      const agentAdmin = await pickSignInAdmin(db, existing, decoded.uid);
+      if (!agentAdmin) {
+        return NextResponse.json(
+          { error: "Google sign-in failed. Please try again." },
+          { status: 500 }
+        );
+      }
+      if (!emailVerified) {
+        // Google sign-in should present a verified email. The ONLY
+        // exception is the holder account (owner rule 2026-10-21): a
+        // Google-issued token resolving to the INTERNAL business signs
+        // straight in — no verification wall for the owner. Every other
+        // account keeps the verified-email requirement exactly as before.
+        const isOwnerEntry =
+          signInProvider === "google.com" &&
+          (await isInternalAdmin(db, agentAdmin));
+        if (!isOwnerEntry) {
+          return NextResponse.json(
+            { error: "Please verify your Google email first, then try again." },
+            { status: 403 }
+          );
+        }
+        logger.warn(
+          `[Auth] Owner direct entry: Google sign-in for ${email} resolved to internal business ${agentAdmin.businessId} without an email_verified claim`
+        );
+      }
       const token = generateToken(agentAdmin.id, agentAdmin.role);
       const refreshToken = generateRefreshToken(agentAdmin.id, agentAdmin.role);
       const response = NextResponse.json({
@@ -134,6 +176,15 @@ export async function POST(request: NextRequest) {
       });
       setSessionCookies(response, token, refreshToken);
       return response;
+    }
+
+    // No admin carries this email. A NEW account is created only on a
+    // verified Google email — an unverified claim mints nothing.
+    if (!emailVerified) {
+      return NextResponse.json(
+        { error: "Please verify your Google email first, then try again." },
+        { status: 403 }
+      );
     }
 
     // New customer — create account + trial business immediately, sign in.

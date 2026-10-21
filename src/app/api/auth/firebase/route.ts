@@ -6,6 +6,10 @@ import {
   generateToken,
   setSessionCookies,
 } from "@/lib/auth";
+import {
+  findAdminsByEmail,
+  pickSignInAdmin,
+} from "@/lib/admin-resolution";
 import { logger } from "@/lib/logger";
 
 function getFirebaseAdminAuth(): admin.auth.Auth {
@@ -29,7 +33,13 @@ function getFirebaseAdminAuth(): admin.auth.Auth {
 //
 // The AI Agent shares the Admin Console's Firebase project: the same
 // email + password signs into both, and passwords are managed entirely in
-// the Firebase console (this app never sees them).
+// the Firebase console (this app never sees them). The login page's
+// Google button exchanges here too. There is deliberately NO
+// email-verification wall on this route: the password path proves
+// control of the account's own credential, and account resolution
+// (pickSignInAdmin — uid binding → INTERNAL owner business → earliest)
+// lands a verified token on the ONE right record even when several
+// admin records share the email, as the holder account's do.
 //
 // Bootstrap: the first-ever Firebase sign-in becomes Super Admin.
 // Afterwards the email must match an existing agent admin (fail-closed).
@@ -63,10 +73,11 @@ export async function POST(request: NextRequest) {
     }
 
     const db = getUnscopedPrisma();
-    const emailAdmins = await db.admin.findMany({
-      where: { email } as Record<string, unknown>,
-    });
-    let agentAdmin = emailAdmins[0];
+    const emailAdmins = await findAdminsByEmail(db, email);
+    let agentAdmin =
+      emailAdmins.length > 0
+        ? await pickSignInAdmin(db, emailAdmins, decoded.uid)
+        : null;
 
     if (!agentAdmin) {
       // Bootstrap: no agent admin carries an email yet (e.g. fresh install
