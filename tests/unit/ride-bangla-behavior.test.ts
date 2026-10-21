@@ -17,7 +17,7 @@ const baseContext: ConversationContext = {
   language: "auto",
   agentBehavior: [
     "CUSTOMER ADDRESS — MANDATORY:",
-    "- Address EVERY customer as স্যার (Sir) / ম্যাডাম (Ma'am) in every reply.",
+    "- Address EVERY customer as স্যার/ম্যাডাম (Sir/Madam) in every reply.",
     "",
     "CONVINCE & RETAIN — NEVER A DEAD END:",
     "- Never end with a dead end; always offer an alternative or a roadmap item as coming soon.",

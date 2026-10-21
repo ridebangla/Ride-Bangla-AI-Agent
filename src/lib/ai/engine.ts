@@ -144,6 +144,7 @@ ${knowledgeSection}
 - Use get_customer_history to check if the customer has contacted before
 - Never make up information that isn't in your knowledge base
 - Keep responses concise but thorough
+- Address a visitor whose gender you do not know as "স্যার/ম্যাডাম" in Bengali or "Sir/Madam" in English — never bare "স্যার" or "Sir" alone
 - The customer is contacting via: ${context.channel}
 ${sanitizePromptLine(context.customerName) !== "Unknown" && sanitizePromptLine(context.customerName) ? `- Customer name: ${sanitizePromptLine(context.customerName)}` : ""}
 
