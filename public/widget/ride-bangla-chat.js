@@ -618,6 +618,23 @@
         threadSyncedOnce = true;
         data.messages.forEach(function (m) {
           if (!m || !m.id || seenRemoteIds[m.id]) return;
+          // Duplicate-reply guard (agent-quality D1): while any local
+          // request is in flight, never render an assistant message
+          // from the thread here. The engine saves the turn's reply
+          // BEFORE the response reaches this tab, so a poll processed
+          // in that window rendered the reply once — and the response
+          // handler then rendered it a second time, because the
+          // pendingEcho for the reply is only registered when the
+          // response itself is handled (too late for a poll that
+          // lands first). Deferring WITHOUT marking the id seen is
+          // safe in every ordering: a poll processed before the
+          // response handler still sees pendingRequests > 0 and
+          // skips, and a poll processed after it finds the
+          // registered echo below and consumes the message instead.
+          // Assistant replies from a human (Inbox) that arrive
+          // mid-turn are deferred the same way and render on the
+          // first poll after the turn settles.
+          if (m.role !== "customer" && pendingRequests > 0) return;
           // Consume a local echo instead of rendering a duplicate.
           for (var i = 0; i < pendingEcho.length; i++) {
             if (pendingEcho[i].role === m.role && pendingEcho[i].content === m.content) {
