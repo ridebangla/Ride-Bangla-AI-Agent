@@ -1,6 +1,12 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-22.5 (NEW: full-scene mascot framing
+ * CANONICAL EMBED — v2026-10-22.6 (owner correction 2026-10-22:
+ * the v.5 whole-figure IDLE framing read TOO BIG in the front
+ * slots — the idle/front clip is a SMALL CHEST-UP bust again,
+ * the pre-v.5 presentation the owner liked (band y 64-544);
+ * the WORKING clip's full-scene framing (robot + laptop) and
+ * the always-alive playback are exactly as v.5). Prior:
+ * v2026-10-22.5 (NEW: full-scene mascot framing
  * (owner directive 2026-10-22: the scene must READ — the working
  * clip is now framed so the robot AND its laptop are both inside
  * the circular slots, and the idle clip shows the full standing
@@ -519,7 +525,7 @@
   // 512x512 — measured figure bounds x 4.5-94% / y 4-100% of the
   // frame). The fallback <img> stays plain cover-fit: it is only
   // the poster / failure fallback. The VIDEO clips are 480x854
-  // FULL SCENES and are framed as scenes (owner directive
+  // FULL SCENES; the working clip is framed as a scene (owner directive
   // 2026-10-22, superseding the v.2 bust-centred video crop, which
   // centred the face and cut the laptop — the point of the working
   // scene — out of the circular slots entirely). Measured on the
@@ -528,12 +534,17 @@
   //   working — head y 105-375, torso to y ~600, laptop screen
   //             x 0-125 / y 445-640, hands + keyboard y 530-650.
   // In a square slot, cover-fit on a full-width <video> can only
-  // ever show a 480x480 band of the 854-tall frame. The per-clip
-  // classes below therefore NARROW the element (kept centred):
+  // ever show a 480x480 band of the 854-tall frame. The WORKING
+  // class below therefore NARROWs the element (kept centred):
   // cover maps the full 480 width into the narrower box, which
-  // stretches the visible window vertically —
-  //   idle:    width 59% -> window 480x814, object-position 74%
-  //            -> band y 30-843: the WHOLE standing figure.
+  // stretches the visible window vertically. The IDLE class does
+  // NOT narrow (owner correction 2026-10-22, v2026-10-22.6): the
+  // v.5 whole-figure idle window read TOO BIG in the front
+  // slots, so the idle clip is back to the smaller chest-up bust
+  // of the pre-v.5 presentation —
+  //   idle:    full width, object-position 17% -> window 480x480
+  //            -> band y 64-544: head + chest (a bust), at the
+  //            smaller scale the owner preferred.
   //   working: width 84% -> window 480x571, object-position 32%
   //            -> band y 90-662: head, torso, typing hands AND
   //            the full laptop (screen 445-640) inside the frame.
@@ -556,7 +567,7 @@
       #rbai-widget-status{display:flex;align-items:center;gap:7px;padding:7px 16px;background:#F0FDF6;border-bottom:1px solid #E2E8F0;font-size:12.5px;font-weight:600;color:#065F46}\n\
       #rbai-widget-status[hidden]{display:none}\n\
       #rbai-widget-status .rbai-status-dot{width:8px;height:8px;border-radius:50%;background:" + config.color + ";flex:none;animation:rbai-pulse 1.2s infinite}\n\
-      .rbai-vid-idle{left:50%;transform:translateX(-50%);width:59%;object-position:50% 74%}\n\
+      .rbai-vid-idle{object-position:50% 17%}\n\
       .rbai-vid-working{left:50%;transform:translateX(-50%);width:84%;object-position:50% 32%}\n\
       #rbai-widget-close{background:none;border:none;color:#fff;cursor:pointer;font-size:20px;padding:0;line-height:1}\n\
       #rbai-widget-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}\n\
