@@ -85,6 +85,45 @@ export interface Business {
   internalGrantedBy?: string;
   internalGrantedAt?: Date | null;
   internalGrantReason?: string;
+  /** Feature scope for an internal grant (B6): { features: [...] } —
+   *  absent = unscoped (all features). See scopeAllows in ./comp. */
+  grantScope?: { features?: string[] } | Record<string, boolean> | null;
+  /** Complimentary grant (comp) — canonical contract, identical across
+      the AI platform, Studio and the Admin Console (see ./comp):
+      { active, planId, startsAt, endsAt, reason, grantedBy, grantedAt,
+        source: "panel" | "referral" | "review" | "offer", referredBy?,
+        requestId?, scope?: { features?: string[] },
+        snapshot: { exists, plan, subscriptionStatus, billingInterval,
+                    subscriptionEndsAt, trialEndsAt, isActive },
+        revokedAt?, revokedBy?, revokeReason? }.
+      Written ONLY by the Admin Console Super Admin, which also writes
+      the real activation fields; resolvers here read comp directly
+      as a belt-and-braces. Auto-expires by endsAt comparison. */
+  comp?: {
+    active: boolean;
+    planId: string;
+    startsAt?: Date | null;
+    endsAt?: Date | null;
+    reason?: string;
+    grantedBy?: string;
+    grantedAt?: Date | null;
+    source?: string;
+    referredBy?: string;
+    requestId?: string;
+    scope?: { features?: string[] };
+    snapshot?: {
+      exists: boolean;
+      plan?: string;
+      subscriptionStatus?: string;
+      billingInterval?: string;
+      subscriptionEndsAt?: Date | null;
+      trialEndsAt?: Date | null;
+      isActive?: boolean;
+    };
+    revokedAt?: Date | null;
+    revokedBy?: string;
+    revokeReason?: string;
+  } | null;
   /** Billing Phase 2: AI-message metering — count of finalized AI replies
       in the current 30-day usage period (see usagePeriodStart). */
   aiMessagesUsed?: number;

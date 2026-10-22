@@ -17,6 +17,8 @@
  *          isInternalAccount == true (the company's OWN account — owner
  *          rule 2026-10-21: free forever, no plan, no trial expiry) OR
  *          manualActiveOverride == true (admin kept tenant active w/o payment) OR
+ *          an ACTIVE comp grant (see ./comp — plan + endsAt on the comp
+ *          map; a suspended status hard-stops before comp) OR
  *          subscriptionStatus == 'active' OR
  *          (subscriptionStatus == 'trialing' AND trialEndsAt > now) OR
  *          isFreeTierBusiness (a lapsed trial on the free tier).
@@ -69,6 +71,12 @@ import type { Business } from "@/lib/models";
 // Trial length lives in ./plans (client-safe) so marketing pages can
 // render it too; re-exported here so existing server importers keep working.
 import { TRIAL_DAYS, isFreeTierBusiness, isInActiveTrial } from "./plans";
+import {
+  isCompActive,
+  activeCompPlanId,
+  activeCompEndsAt,
+  scopeAllows,
+} from "./comp";
 export { TRIAL_DAYS, isFreeTierBusiness, isInActiveTrial };
 export const TRIAL_MS = TRIAL_DAYS * 24 * 60 * 60 * 1000;
 
@@ -107,6 +115,21 @@ export interface SubscriptionInfo {
    * capped by billing-usage at FREE_MESSAGES_PER_MONTH).
    */
   isFreeTier: boolean;
+  /**
+   * Complimentary grant (comp): true when an active comp (see
+   * src/lib/comp.ts) is what makes this business active. The comp plan
+   * is reported in `plan` and its period end in `compEndsAt`
+   * (= comp.endsAt). Internal still wins over comp.
+   */
+  isComp: boolean;
+  /** Period end of the active comp (comp.endsAt); null when not comped. */
+  compEndsAt: Date | null;
+  /**
+   * Feature scope for chat (B6): false only when the active grant
+   * (comp scope, or an internal grantScope) exists and excludes
+   * "chat". True for every unscoped account.
+   */
+  scopeAllowsChat: boolean;
 }
 
 function toDate(value: unknown): Date | null {
@@ -137,6 +160,17 @@ export function isSubscriptionActive(biz: Business | null): boolean {
 
   const status =
     typeof biz.subscriptionStatus === "string" ? biz.subscriptionStatus : "";
+
+  // Suspended hard-stops BEFORE comp: a comp must never resurrect a
+  // suspended account. The isActive kill-switch above already blocks
+  // a fully deactivated business; this covers a doc whose status
+  // alone records the suspension.
+  if (status === "suspended") return false;
+
+  // Complimentary grant (comp): an active comp makes the business
+  // active on the comp plan until comp.endsAt (auto-expire by
+  // comparison in isCompActive — no cron). Internal above still wins.
+  if (isCompActive(biz as unknown as Record<string, unknown>)) return true;
 
   if (status === "active") {
     // Security/billing fix (2026-10-20 attack-test): a locally recorded
@@ -185,6 +219,9 @@ export async function getSubscription(
       billingInterval: null,
       isInternal: false,
       isFreeTier: false,
+      isComp: false,
+      compEndsAt: null,
+      scopeAllowsChat: true,
     };
   }
 
@@ -204,6 +241,9 @@ export async function getSubscription(
       billingInterval: null,
       isInternal: false,
       isFreeTier: false,
+      isComp: false,
+      compEndsAt: null,
+      scopeAllowsChat: true,
     };
   }
 
@@ -221,10 +261,46 @@ export async function getSubscription(
       billingInterval: null,
       isInternal: true,
       isFreeTier: false,
+      isComp: false,
+      compEndsAt: null,
+      scopeAllowsChat: scopeAllows(
+        biz as unknown as Record<string, unknown>,
+        "chat"
+      ),
     };
   }
 
   const trialEndsAt = toDate(biz.trialEndsAt);
+
+  // Complimentary grant (comp): an active comp reports the COMP plan
+  // and a period end of comp.endsAt. Internal above still wins; a
+  // suspended business reports isActive=false here (isSubscriptionActive
+  // hard-stops suspended before comp) — the comp never resurrects it.
+  const compPlanId = activeCompPlanId(
+    biz as unknown as Record<string, unknown>
+  );
+  if (compPlanId) {
+    return {
+      businessId,
+      plan: compPlanId,
+      subscriptionStatus: "active",
+      trialEndsAt: null,
+      trialDaysRemaining: 0,
+      isActive: isSubscriptionActive(biz),
+      billingInterval:
+        biz.billingInterval === "yearly" ? "yearly" : "monthly",
+      isInternal: false,
+      isFreeTier: false,
+      isComp: true,
+      compEndsAt: activeCompEndsAt(
+        biz as unknown as Record<string, unknown>
+      ),
+      scopeAllowsChat: scopeAllows(
+        biz as unknown as Record<string, unknown>,
+        "chat"
+      ),
+    };
+  }
 
   // Free tier (owner rule 2026-10-22): a lapsed trial reports plan
   // 'free' truthfully — never "Trial" (it is over) and never a paid
@@ -240,6 +316,9 @@ export async function getSubscription(
       billingInterval: null,
       isInternal: false,
       isFreeTier: true,
+      isComp: false,
+      compEndsAt: null,
+      scopeAllowsChat: true,
     };
   }
   const status =
@@ -267,6 +346,12 @@ export async function getSubscription(
     billingInterval,
     isInternal: false,
     isFreeTier: false,
+    isComp: false,
+    compEndsAt: null,
+    scopeAllowsChat: scopeAllows(
+      biz as unknown as Record<string, unknown>,
+      "chat"
+    ),
   };
 }
 

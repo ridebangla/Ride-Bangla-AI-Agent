@@ -23,6 +23,7 @@ import {
   type PaidPlanId,
 } from "./plans";
 import { getPlanCatalog, type EffectivePlan } from "./plan-catalog";
+import { isCompActive, activeCompPlanId, activeCompEndsAt } from "./comp";
 import { logger } from "./logger";
 
 export const USAGE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
@@ -36,6 +37,10 @@ export interface BusinessUsageFields {
   usagePeriodStart?: unknown;
   /** Internal owner comp flag (owner rule 2026-10-21) — see models.ts. */
   isInternalAccount?: unknown;
+  /** Manual override (Admin Console): keep active without payment. */
+  manualActiveOverride?: unknown;
+  /** Complimentary grant map — canonical contract, see ./comp. */
+  comp?: unknown;
   adminNotice?: {
     message?: string;
     createdAt?: unknown;
@@ -157,6 +162,31 @@ export function isMessageLimitExceeded(
   // Internal owner account (owner rule 2026-10-21): usage is recorded
   // by recordAiMessage but NEVER blocks — no plan limit applies.
   if (biz.isInternalAccount === true) return false;
+  // Manual override (B1): the admin kept this tenant active without
+  // payment — like the internal check in subscription.ts, the override
+  // lifts the message cap entirely. Previously isSubscriptionActive
+  // honoured the override while this gate still hard-stopped the
+  // tenant at its underlying plan allowance.
+  if (biz.manualActiveOverride === true) return false;
+  // Complimentary grant (B2): under an active comp the allowance is
+  // the COMP plan's allowance — resolved the same way paid plans
+  // resolve (catalog limitOverride from the async caller, else the
+  // code catalog). Checked before trial/free so a comped lapsed
+  // trial is capped at the comp plan, not the free tier.
+  if (isCompActive(biz as unknown as Record<string, unknown>, nowMs)) {
+    const compPlan = activeCompPlanId(
+      biz as unknown as Record<string, unknown>,
+      nowMs
+    );
+    const limit =
+      limitOverride !== undefined
+        ? limitOverride
+        : compPlan
+          ? messagesLimitForPlan(compPlan)
+          : null;
+    if (limit === null) return false;
+    return effectiveAiMessagesUsed(biz, nowMs) >= limit;
+  }
   // Active trial (owner rule 2026-10-22): while the trial runs, NO
   // usage quota bites — the starter allowance no longer applies
   // mid-trial; only the trial's own time-box ends the free run.
@@ -199,16 +229,24 @@ export async function checkMessageLimitExceeded(
         aiMessagesUsed: true,
         usagePeriodStart: true,
         isInternalAccount: true,
+        manualActiveOverride: true,
+        comp: true,
       },
     })) as unknown as (BusinessUsageFields & { usagePeriodStart?: unknown }) | null;
     if (!biz) return false;
     // Catalog-aware gate: the limit is resolved from the effective
     // (panel-merged) catalog; unknown plans fall back to PLAN_META.
+    // Under an active comp the effective plan is the COMP plan (B2).
+    const now = Date.now();
+    const compPlan = activeCompPlanId(
+      biz as unknown as Record<string, unknown>,
+      now
+    );
     const plan = typeof biz.plan === "string" && biz.plan ? biz.plan : "unknown";
     const limitOverride = await catalogLimitForPlan(
-      plan === "trial" ? "trial" : plan
+      compPlan ?? (plan === "trial" ? "trial" : plan)
     );
-    return isMessageLimitExceeded(biz, Date.now(), limitOverride);
+    return isMessageLimitExceeded(biz, now, limitOverride);
   } catch (err) {
     logger.warn("[metering] message-limit check failed (allowing request)", {
       businessId,
@@ -288,27 +326,45 @@ export function buildCountdown(
   const status = typeof biz.subscriptionStatus === "string" ? biz.subscriptionStatus : "";
   const plan = typeof biz.plan === "string" && biz.plan ? biz.plan : "unknown";
 
+  // Complimentary grant (B2): under an active comp the countdown
+  // reports the COMP plan, its catalog allowance, and a period end
+  // of comp.endsAt. Callers resolving a catalog limit must resolve
+  // it for the comp plan (getBillingCountdown does).
+  const compPlanId = activeCompPlanId(
+    biz as unknown as Record<string, unknown>,
+    nowMs
+  );
+  const compEndsAt =
+    compPlanId !== null
+      ? activeCompEndsAt(biz as unknown as Record<string, unknown>, nowMs)
+      : null;
+
   // Three-state model (owner rule 2026-10-22): an ACTIVE trial has no
   // usage limit to count down (only its end date); the FREE tier has a
   // hard FREE_MESSAGES_PER_MONTH cap and no end date at all.
-  const inTrial = isInActiveTrial(biz, nowMs);
-  const freeTier = !inTrial && isFreeTierBusiness(biz, nowMs);
+  const inTrial = compPlanId ? false : isInActiveTrial(biz, nowMs);
+  const freeTier = !compPlanId && !inTrial && isFreeTierBusiness(biz, nowMs);
 
   let endDate: Date | null = null;
-  if (freeTier) endDate = null;
+  if (compPlanId) endDate = compEndsAt;
+  else if (freeTier) endDate = null;
   else if (status === "active") endDate = toDate(biz.subscriptionEndsAt);
   else if (status === "trialing") endDate = toDate(biz.trialEndsAt);
   const daysRemaining = endDate
     ? Math.ceil((endDate.getTime() - nowMs) / (24 * 60 * 60 * 1000))
     : null;
 
-  const limit = freeTier
-    ? FREE_MESSAGES_PER_MONTH
-    : inTrial
-      ? null
-      : limitOverride !== undefined
-        ? limitOverride
-        : messagesLimitForPlan(plan === "trial" ? "trial" : plan);
+  const limit = compPlanId
+    ? limitOverride !== undefined
+      ? limitOverride
+      : messagesLimitForPlan(compPlanId)
+    : freeTier
+      ? FREE_MESSAGES_PER_MONTH
+      : inTrial
+        ? null
+        : limitOverride !== undefined
+          ? limitOverride
+          : messagesLimitForPlan(plan === "trial" ? "trial" : plan);
   const used =
     typeof biz.aiMessagesUsed === "number" && biz.aiMessagesUsed >= 0
       ? Math.trunc(biz.aiMessagesUsed)
@@ -339,14 +395,18 @@ export function buildCountdown(
   }
 
   return {
-    plan: freeTier ? "free" : plan,
+    plan: compPlanId ?? (freeTier ? "free" : plan),
     daysRemaining,
     messagesRemaining,
     messagesLimit: limit,
     percentUsed,
     notices,
     adminNotice,
-    subscriptionEndsAt: freeTier ? null : toDate(biz.subscriptionEndsAt),
+    subscriptionEndsAt: compPlanId
+      ? compEndsAt
+      : freeTier
+        ? null
+        : toDate(biz.subscriptionEndsAt),
   };
 }
 
@@ -366,17 +426,25 @@ export async function getBillingCountdown(
         aiMessagesUsed: true,
         usagePeriodStart: true,
         isInternalAccount: true,
+        manualActiveOverride: true,
+        comp: true,
         adminNotice: true,
       },
     })) as unknown as BusinessUsageFields | null;
     if (!biz) return null;
     // Catalog-aware: limits shown in the countdown come from the
     // effective (panel-merged) catalog, same as the spend gate.
+    // Under an active comp, resolve for the COMP plan (B2).
+    const now = Date.now();
+    const compPlan = activeCompPlanId(
+      biz as unknown as Record<string, unknown>,
+      now
+    );
     const plan = typeof biz.plan === "string" && biz.plan ? biz.plan : "unknown";
     const limitOverride = await catalogLimitForPlan(
-      plan === "trial" ? "trial" : plan
+      compPlan ?? (plan === "trial" ? "trial" : plan)
     );
-    return buildCountdown(biz, Date.now(), limitOverride);
+    return buildCountdown(biz, now, limitOverride);
   } catch (err) {
     logger.warn("[billing] getBillingCountdown failed", {
       businessId,
