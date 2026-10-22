@@ -3,6 +3,7 @@ import { getUnscopedPrisma } from "@/lib/prisma";
 import {
   clearAuthCookie,
   clearRefreshCookie,
+  decodeRefreshPayload,
   generateRefreshToken,
   generateToken,
   getRefreshCookieName,
@@ -10,6 +11,7 @@ import {
   setSessionCookies,
   verifyRefreshToken,
   verifySessionToken,
+  wasRevokedWithinGrace,
 } from "@/lib/auth";
 import { logger } from "@/lib/logger";
 
@@ -72,7 +74,20 @@ export async function GET(request: NextRequest) {
     if (!refreshTokenValue) return toLogin();
 
     const payload = await verifyRefreshToken(refreshTokenValue);
-    if (!payload) return toLogin();
+    if (!payload) {
+      // Rotation race (session-persistence fix, 2026-10-22): another
+      // tab rotated this exact token moments ago and its fresh cookie
+      // pair is already in the browser. Do NOT clear those cookies and
+      // do NOT bounce to /login — just continue to the destination;
+      // the browser's current pair authenticates the load, and if it
+      // somehow does not, the next load fails closed to /login as
+      // before. The old token itself is never honoured here.
+      const raced = decodeRefreshPayload(refreshTokenValue);
+      if (raced?.jti && (await wasRevokedWithinGrace(raced.jti))) {
+        return noStore(NextResponse.redirect(new URL(next, request.url)));
+      }
+      return toLogin();
+    }
 
     const admin = await getUnscopedPrisma().admin.findUnique({
       where: { id: payload.userId },

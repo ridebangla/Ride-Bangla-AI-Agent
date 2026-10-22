@@ -5,6 +5,7 @@ import {
   MAX_LOGIN_ATTEMPTS,
   clearAuthCookie,
   clearRefreshCookie,
+  decodeRefreshPayload,
   generateRefreshToken,
   generateToken,
   getCurrentUser,
@@ -17,6 +18,7 @@ import {
   verifyPassword,
   verifyRefreshToken,
   verifyToken,
+  wasRevokedWithinGrace,
   hashPassword,
 } from "@/lib/auth";
 import { logger } from "@/lib/logger";
@@ -165,6 +167,19 @@ export async function POST(request: NextRequest) {
 
     const payload = await verifyRefreshToken(refreshTokenValue);
     if (!payload) {
+      // Rotation race (session-persistence fix, 2026-10-22): another
+      // tab rotated this exact token moments ago. Answer 409, NOT
+      // 401 — the SessionKeeper treats only a definitive 401 as
+      // "session over" (→ /login); a 409 is retried next cycle, by
+      // which time this tab sends the fresh cookie pair. The old
+      // token is never honoured.
+      const raced = decodeRefreshPayload(refreshTokenValue);
+      if (raced?.jti && (await wasRevokedWithinGrace(raced.jti))) {
+        return NextResponse.json(
+          { error: "session_rotated" },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
         { error: "Invalid or expired refresh token" },
         { status: 401 }

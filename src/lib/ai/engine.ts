@@ -472,6 +472,117 @@ async function tryGreetingFastPath(
   }
 }
 
+/**
+ * Identity fast path (owner acceptance case, re-audit #2 2026-10-22):
+ * "তুমি কে" (who are you) on the full pipeline produced the brochure
+ * wall — correct identity buried in the full plan catalogue + hotline
+ * + WhatsApp push, and slow. A pure identity question gets the same
+ * small tool-less treatment as a greeting: one short professional
+ * self-introduction, near-instant. Exact-phrase matching only — any
+ * extra content belongs to the full pipeline.
+ */
+const IDENTITY_PHRASES = new Set([
+  "তুমি কে",
+  "কে তুমি",
+  "আপনি কে",
+  "তোমার নাম কি",
+  "তোমার নাম কী",
+  "আপনার নাম কি",
+  "আপনার নাম কী",
+  "তুমি কি রোবট",
+  "তুমি কি মানুষ",
+  "তুমি কি এআই",
+  "who are you",
+  "what are you",
+  "what is your name",
+  "what's your name",
+  "your name",
+  "are you a robot",
+  "are you a bot",
+  "are you an ai",
+  "are you human",
+  "are you real",
+]);
+
+export function isIdentityQuestion(message: string): boolean {
+  const raw = (message || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[!।.,~…?？]+$/u, "")
+    .trim();
+  if (!raw || raw.length > 40) return false;
+  return IDENTITY_PHRASES.has(raw);
+}
+
+/**
+ * Identity fast-path prompt. The tone / language / honorific lines are
+ * the same sentences the greeting fast path uses; the task lines are
+ * NEW agent speech and are printed verbatim in the re-audit #2 log
+ * for the owner's review.
+ */
+function buildIdentitySystemPrompt(
+  config: AIConfig & ConversationContext
+): string {
+  const toneGuide: Record<string, string> = {
+    friendly:
+      "Be warm, approachable, and conversational. Use a casual but professional tone.",
+    professional:
+      "Be polished and business-like. Maintain a confident, competent tone while remaining personable.",
+    formal:
+      "Be professional, polished, and courteous. Use formal language and proper grammar.",
+    technical:
+      "Be precise and detailed. Use technical terminology when appropriate and provide thorough explanations.",
+  };
+  return `You are the Ride Bangla AI Agent, the AI customer support assistant for ${config.businessName}.
+${config.businessDesc ? `About the business: ${config.businessDesc}` : ""}
+${toneGuide[config.tone] || toneGuide.friendly}
+${config.language !== "auto" ? `Always respond in: ${config.language}` : "Respond in the same language the customer uses. If the customer writes in Bengali (বাংলা), reply in Bengali. If they write in English, reply in English. Never mix languages in one reply unless the customer does."}
+Address a visitor whose gender you do not know as "স্যার/ম্যাডাম" in Bengali or "Sir/Madam" in English — never bare "স্যার" or "Sir" alone.
+The customer is asking who you are. Introduce yourself briefly and professionally: say that you are the AI support assistant for ${config.businessName}, in one short line say you can help with questions about the business and its services, and offer to help. Keep it to two or three short sentences. Do NOT mention plan names, prices, phone numbers, WhatsApp, websites or feature lists — the customer only asked who you are.`;
+}
+
+async function tryIdentityFastPath(
+  config: AIConfig & ConversationContext,
+  userMessage: string,
+  conversationId: string,
+  keys: ProviderKeys,
+  stream?: StreamCallbacks
+): Promise<string | null> {
+  const startedAt = Date.now();
+  try {
+    await reportActivity(conversationId, "composing");
+    const req = {
+      messages: [
+        { role: "system" as const, content: buildIdentitySystemPrompt(config) },
+        { role: "user" as const, content: userMessage },
+      ],
+      model: config.model,
+      maxTokens: GREETING_MAX_TOKENS,
+      temperature: config.temperature,
+    };
+    const completionOpts = {
+      keys,
+      preferredProvider: normalizePreferredProvider(config.provider),
+      label: "chat-identity",
+    };
+    const completion = stream?.onToken
+      ? await streamWithFallback(req, { ...completionOpts, stream })
+      : await completeWithFallback(req, completionOpts);
+    const text = completion?.text ?? "";
+    logLatencySpan("identity", startedAt, {
+      conversationId,
+      ok: text.trim().length > 0,
+    });
+    return text.trim().length > 0 ? text : null;
+  } catch (err) {
+    logger.warn("[brain] identity fast path failed; using the full pipeline", {
+      conversationId,
+      reason: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
 export async function chat(
   conversationId: string,
   userMessage: string,
@@ -726,6 +837,55 @@ export async function chat(
       }
       await clearActivity(conversationId);
       return { response: greeting, products: [], silent: false };
+    }
+  }
+
+  // ---- Identity fast path (owner acceptance case, 2026-10-22) ----
+  // A message that ONLY asks who the agent is gets the same small
+  // tool-less completion as a greeting — a short professional
+  // self-introduction instead of the full pipeline's brochure wall.
+  // Any failure falls through to the normal flow below.
+  if (!opts?.media && isIdentityQuestion(effectiveMessage)) {
+    const identityStream: StreamCallbacks | undefined = opts?.onToken
+      ? { onToken: opts.onToken, onRetract: opts.onRetract }
+      : undefined;
+    const identity = await tryIdentityFastPath(
+      config,
+      effectiveMessage,
+      conversationId,
+      keys,
+      identityStream
+    );
+    if (identity) {
+      try {
+        const savedMessage = await prisma.message.create({
+          data: withBusinessId({
+            conversationId,
+            role: "assistant",
+            content: identity,
+          }),
+        });
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { updatedAt: new Date() },
+        });
+        emitNewMessage(conversationId, {
+          id: savedMessage.id,
+          role: "assistant",
+          content: identity,
+        });
+      } catch (err) {
+        logger.warn("[brain] could not persist identity reply; returning it anyway", {
+          conversationId,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+      const identityBusinessId = getBusinessId();
+      if (identityBusinessId) {
+        void recordAiMessage(identityBusinessId);
+      }
+      await clearActivity(conversationId);
+      return { response: identity, products: [], silent: false };
     }
   }
 

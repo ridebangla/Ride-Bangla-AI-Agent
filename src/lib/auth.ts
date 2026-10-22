@@ -131,6 +131,49 @@ export async function isTokenRevoked(jti: string): Promise<boolean> {
   return row !== null;
 }
 
+/**
+ * Rotation grace (session-persistence fix, re-audit #2 2026-10-22).
+ *
+ * Refresh tokens are single-use (rotation): the first tab/request to
+ * refresh revokes the presented jti and issues a new pair. A second
+ * tab whose request was already in flight with the SAME jti then
+ * presents a just-revoked token — indistinguishable from theft by the
+ * revocation row alone. Without a grace, that second tab was treated
+ * as a dead session: /api/auth/restore CLEARED the fresh cookies the
+ * winning tab had just set (killing the real session), and the
+ * SessionKeeper navigated to /login on the refresh action's 401.
+ * That is exactly the "keep asking me to log in on this device"
+ * defect the owner banned.
+ *
+ * The grace NEVER honours the old token and never issues anything —
+ * it only lets the caller distinguish "revoked a moment ago by a
+ * rotation" (benign race: do not destroy state, do not declare the
+ * session dead; the browser's current cookie pair decides the next
+ * step, fail-closed as always) from a genuinely dead session.
+ */
+export const ROTATION_GRACE_MS = 90 * 1000;
+
+export async function wasRevokedWithinGrace(jti: string): Promise<boolean> {
+  if (!jti) return false;
+  const row = await getUnscopedPrisma().revokedToken.findUnique({
+    where: { jti },
+  });
+  if (!row?.createdAt) return false;
+  const age = Date.now() - new Date(row.createdAt).getTime();
+  return age >= 0 && age < ROTATION_GRACE_MS;
+}
+
+/**
+ * Decode a refresh token WITHOUT the revocation check (signature +
+ * type only). Used solely to identify a rotation race for
+ * wasRevokedWithinGrace — the result must never authenticate anyone.
+ */
+export function decodeRefreshPayload(token: string): JwtPayload | null {
+  const payload = verifyToken(token);
+  if (!payload || payload.type !== "refresh") return null;
+  return payload;
+}
+
 /** Revoke a token by its `jti` (logout / refresh rotation). Idempotent. */
 export async function revokeToken(jti: string, expiresAt: Date): Promise<void> {
   if (!jti) return;

@@ -1,6 +1,12 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-22.7 (re-audit #2, owner reports
+ * CANONICAL EMBED — v2026-10-22.8 (re-audit #2, owner directive
+ * 2026-10-22: COMPOSE AUTO-GROW — the message box is now a
+ * textarea that grows with its content up to ~45% of the panel
+ * height (then scrolls internally) and resets to one line the
+ * moment a message is sent; Enter still sends, Shift+Enter
+ * inserts a newline; the message list is untouched). Prior:
+ * v2026-10-22.7 (owner reports
  * 2026-10-22: (1) TYPING LAW — the typing bubble now exists ONLY
  * before the first token of a turn: the stream 'retract' handler
  * no longer re-adds it after tokens were shown (the post-reply
@@ -604,16 +610,16 @@
       .rbai-speak svg{width:14px;height:14px;flex:none}\n\
       .rbai-msg.rbai-img-msg{padding:6px}\n\
       .rbai-msg.rbai-img-msg img{display:block;max-width:180px;border-radius:8px}\n\
-      #rbai-widget-input{display:flex;align-items:center;border-top:1px solid #E2E8F0;padding:12px;gap:6px}\n\
-      #rbai-widget-input input{flex:1;min-width:0;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;font-size:14px;outline:none}\n\
-      #rbai-widget-input input:focus{border-color:" + config.color + "}\n\
+      #rbai-widget-input{display:flex;align-items:flex-end;border-top:1px solid #E2E8F0;padding:12px;gap:6px}\n\
+      #rbai-widget-input textarea{flex:1;min-width:0;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;font-size:14px;outline:none;resize:none;line-height:1.45;font-family:inherit;overflow-y:hidden;box-sizing:border-box}\n\
+      #rbai-widget-input textarea:focus{border-color:" + config.color + "}\n\
       #rbai-widget-input button#rbai-widget-send{background:" + config.color + ";color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:14px;flex:none}\n\
       .rbai-iconbtn{background:none;border:none;cursor:pointer;color:#64748B;padding:6px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:none}\n\
       .rbai-iconbtn:hover{background:#F1F5F9;color:" + config.color + "}\n\
       .rbai-iconbtn svg{width:20px;height:20px;display:block}\n\
       .rbai-iconbtn.recording{color:#DC2626;animation:rbai-pulse 1.2s infinite}\n\
       @keyframes rbai-pulse{0%{opacity:1}50%{opacity:.4}100%{opacity:1}}\n\
-      #rbai-widget-input input:disabled,.rbai-iconbtn:disabled,#rbai-widget-send:disabled{opacity:.45;cursor:not-allowed}\n\
+      #rbai-widget-input textarea:disabled,.rbai-iconbtn:disabled,#rbai-widget-send:disabled{opacity:.45;cursor:not-allowed}\n\
       .rbai-cards{align-self:flex-start;width:94%;display:flex;flex-direction:column;gap:10px;margin:2px 0 6px}\n\
       .rbai-card{background:#fff;border:1px solid #E8EEF3;border-radius:14px;overflow:hidden;box-shadow:0 2px 10px rgba(15,23,42,.07)}\n\
       .rbai-card-img{width:100%;height:140px;object-fit:cover;display:block;background:#F1F5F9}\n\
@@ -655,7 +661,7 @@
           <button type="button" class="rbai-iconbtn" id="rbai-widget-photo" title="' + t("sendPhoto") + '" aria-label="' + t("sendPhoto") + '">' + SVG_PHOTO + '</button>\
           <button type="button" class="rbai-iconbtn" id="rbai-widget-video" title="' + t("sendVideo") + '" aria-label="' + t("sendVideo") + '">' + SVG_VIDEO + '</button>\
           <button type="button" class="rbai-iconbtn" id="rbai-widget-mic" title="' + t("sendVoice") + '" aria-label="' + t("sendVoice") + '">' + SVG_MIC + '</button>\
-          <input type="text" placeholder="' + t("typeMessage") + '" id="rbai-widget-text" />\
+          <textarea id="rbai-widget-text" rows="1" placeholder="' + t("typeMessage") + '"></textarea>\
           <button id="rbai-widget-send">' + t("send") + '</button>\
         </div>\
         <input type="file" id="rbai-widget-file" accept="image/*" style="display:none" />\
@@ -694,9 +700,18 @@
     if (launcherBtn) launcherBtn.onclick = toggleWidget;
     document.getElementById("rbai-widget-close").onclick = toggleWidget;
     document.getElementById("rbai-widget-send").onclick = sendMessage;
-    document.getElementById("rbai-widget-text").onkeypress = function (e) {
-      if (e.key === "Enter") sendMessage();
+    var composeBox = document.getElementById("rbai-widget-text");
+    // Send mapping (unchanged from the single-line era): Enter sends.
+    // In a textarea Shift+Enter inserts a newline instead of sending.
+    composeBox.onkeydown = function (e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
     };
+    // Auto-grow: the box follows its content on every input event
+    // (typing AND paste both fire it) and resets on send.
+    composeBox.addEventListener("input", autoGrowInput);
     document.getElementById("rbai-widget-photo").onclick = function () {
       if (!isPaused) document.getElementById("rbai-widget-file").click();
     };
@@ -1536,10 +1551,29 @@
       });
   }
 
+  // Compose auto-grow (owner directive 2026-10-22): the message box
+  // was a fixed single-line input — editing a long message in it was
+  // painful. The textarea now grows with its content up to ~45% of
+  // the panel height, then scrolls internally; sendMessage resets it
+  // to one line. The message list above is untouched.
+  function autoGrowInput() {
+    var input = document.getElementById("rbai-widget-text");
+    if (!input) return;
+    input.style.height = "auto";
+    var panel = document.getElementById("rbai-widget-panel");
+    var cap = panel && panel.clientHeight
+      ? Math.floor(panel.clientHeight * 0.45)
+      : 160;
+    var full = input.scrollHeight;
+    input.style.height = Math.min(full, cap) + "px";
+    input.style.overflowY = full > cap ? "auto" : "hidden";
+  }
+
   function sendMessage() {
     var input = document.getElementById("rbai-widget-text");
     var text = input.value;
     input.value = "";
+    autoGrowInput();
     // The visitor's own typed language sets the conversation language
     // for all chrome from this turn on.
     var typedLang = detectTextLang(text);
