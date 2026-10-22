@@ -71,7 +71,7 @@ entirely (always free, no caps).
 ### 🧩 The canonical widget
 
 - One embed (`public/widget/ride-bangla-chat.js`, currently
-  **v2026-10-22.7**) powers the chat on **every** Ride Bangla website and on
+  **v2026-10-22.8**) powers the chat on **every** Ride Bangla website and on
   tenant websites — install is a single `<script>` tag with the business's
   site key.
 - Animated mascot brand (idle / working video states follow the same
@@ -160,6 +160,15 @@ entirely (always free, no caps).
 >   breaker corrections (rate limits no longer trip the breaker).
 > - Widget embed v2026-10-22.7: typing-lifecycle fix, voice-input
 >   permission flow + system notices, voice playback on every reply.
+> - Widget embed v2026-10-22.8: compose box is now an auto-growing
+>   textarea (Enter sends, Shift+Enter inserts a new line); identity
+>   fast path — "তুমি কে" gets a short professional self-introduction
+>   instead of the full pipeline; session refresh rotation grace (a
+>   second tab restoring with the just-rotated token no longer ends
+>   the session; sign-out and revocation behaviour unchanged).
+> - Login loading: the dashboard layout's serial session/config reads
+>   were parallelised (the last two now resolve together); the
+>   revocation read is deliberately never cached.
 > - Reply style v2 (short moderator style) + empty-knowledge grounding fix
 >   (the agent no longer asserts facts it has no source for).
 > - Tenant journey fix: the Channels page install snippet now resolves the
@@ -173,8 +182,11 @@ entirely (always free, no caps).
 >
 > ### Remaining / owner decisions
 >
-> - Several pushed re-audit commits are awaiting production deployment
->   (Vercel daily deployment cap) — live re-verification follows the deploy.
+> - Production currently serves the Phase B/C build (embed
+>   v2026-10-22.7). Pushed but not yet deployed (Vercel daily
+>   deployment cap): project cleanup, the login-loading fix, and
+>   Phase H (embed v2026-10-22.8, identity fast path, session
+>   rotation grace) — live re-verification follows the deploy.
 > - Gemini provider leg is coded; it activates when a Gemini API key is set
 >   on this Vercel project (owner-side).
 > - Daily/hourly product limits do not exist yet (only the 30-day plan

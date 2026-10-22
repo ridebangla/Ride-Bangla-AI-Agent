@@ -1256,8 +1256,42 @@ async function attemptSalvageCompletion(
   }
 }
 
+/**
+ * CF-4 (check #2): the empty-completion fallback at the tail of callAI
+ * was an English-only string — a Bengali conversation whose completion
+ * came back tokenless received an English apology, breaking the
+ * language-match rule every other engine seam honours. The fallback is
+ * now selected with the engine's own resolveBehaviourLang (a forced
+ * settings language wins; otherwise the customer's latest message
+ * decides), mirroring the widget route's GRACEFUL_TURN_TEXT pattern.
+ * The English string is byte-identical to the legacy fallback.
+ */
+const EMPTY_COMPLETION_FALLBACK = {
+  bn: "দুঃখিত, এই মুহূর্তে উত্তরটি তৈরি করা যায়নি। অনুগ্রহ করে আবার চেষ্টা করুন।",
+  en: "I apologize, I could not generate a response.",
+} as const;
+
+export function emptyCompletionFallbackText(
+  settingsLanguage: string | undefined,
+  messages: AIMessage[]
+): string {
+  let lastCustomerText = "";
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      lastCustomerText = messages[i].content;
+      break;
+    }
+  }
+  return EMPTY_COMPLETION_FALLBACK[
+    resolveBehaviourLang(settingsLanguage, lastCustomerText)
+  ];
+}
+
 async function callAI(
-  config: AIConfig,
+  // CF-4: widened from AIConfig — every caller already passes the
+  // getAIConfig() intersection, and the empty-completion fallback now
+  // reads config.language (declared on ConversationContext).
+  config: AIConfig & ConversationContext,
   messages: AIMessage[],
   conversationId: string,
   keys: ProviderKeys,
@@ -1461,7 +1495,8 @@ async function callAI(
 
   return {
     response:
-      choice.message.content || "I apologize, I could not generate a response.",
+      choice.message.content ||
+      emptyCompletionFallbackText(config.language, messages),
     products: collectedProducts,
     orderTaken: orderSignal.taken,
     orderRef: orderSignal.ref,
