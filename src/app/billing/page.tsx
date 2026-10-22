@@ -13,6 +13,7 @@ import { isBillingConfigured, PLAN_META, isPaidPlanId } from "@/lib/stripe";
 import BillingActions from "./BillingActions";
 import ManualPay from "./ManualPay";
 import WalletBilling from "./WalletBilling";
+import CompRequestCard from "./CompRequestCard";
 import { getPublicManualPaymentMethods } from "@/lib/manual-payments";
 import { getWallet } from "@/lib/wallet";
 import {
@@ -345,6 +346,12 @@ export default async function BillingPage() {
                     canPay={canPay}
                     catalog={activeCatalog}
                   />
+                </div>
+
+                {/* Complimentary access — request entry point (B4);
+                    the request lands in the comp_requests review queue. */}
+                <div className="mt-6">
+                  <CompRequestCard catalog={activeCatalog} />
                 </div>
               </>
             )}
