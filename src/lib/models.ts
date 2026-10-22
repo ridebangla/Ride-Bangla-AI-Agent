@@ -79,8 +79,10 @@ export interface Business {
       trial expiry, never billed. Set ONLY server-side or by the Admin
       Console Super Admin (audit-logged there); no client request path
       can write these fields, and enforcement reads them from THIS doc
-      (keyed by business id) — never from an email string. Usage is
-      still metered (aiMessagesUsed) but never blocked or billed. */
+      (keyed by business id) — never from an email string. B7
+      (2026-10-22): the account sits OUTSIDE the machinery — usage is
+      not metered (recordAiMessage skips it), platform keys serve it,
+      and the public-route rate limiters exempt it. */
   isInternalAccount?: boolean;
   internalGrantedBy?: string;
   internalGrantedAt?: Date | null;

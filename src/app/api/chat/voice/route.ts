@@ -117,8 +117,16 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
       request.headers.get("x-real-ip") ||
       "unknown";
-    const rl = checkRateLimit(`voice:${siteKey}:${visitor}`, VOICE_RATE_LIMIT);
-    const rlIp = checkRateLimit(`voice-ip:${siteKey}:${clientIp}`, { maxRequests: 30, windowMs: 60 * 1000 });
+    // B7: verified internal (company) traffic is exempt — identity is
+    // the server-resolved subscription record behind the siteKey.
+    const rl: { allowed: boolean } =
+      sub.isInternal === true
+        ? { allowed: true }
+        : checkRateLimit(`voice:${siteKey}:${visitor}`, VOICE_RATE_LIMIT);
+    const rlIp: { allowed: boolean } =
+      sub.isInternal === true
+        ? { allowed: true }
+        : checkRateLimit(`voice-ip:${siteKey}:${clientIp}`, { maxRequests: 30, windowMs: 60 * 1000 });
     if (!rl.allowed || !rlIp.allowed) {
       return NextResponse.json(
         { error: "Too many voice messages. Please wait a moment and try again." },

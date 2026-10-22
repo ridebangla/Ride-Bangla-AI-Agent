@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, runWithBusiness } from "@/lib/prisma";
-import OpenAI from "openai";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
+import {
+  resolveSiteKeys,
+  hasAnyProviderKey,
+  completeWithFallback,
+  normalizePreferredProvider,
+} from "@/lib/ai/providers";
 
 export async function POST(request: NextRequest) {
   const auth = await requireAuth(request, "knowledge:read");
@@ -24,12 +29,19 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Load settings for AI configuration
+      // Load settings for the model's generation parameters only.
       const settings = await prisma.settings.findUnique({
         where: { businessId: auth.businessId },
       });
 
-      if (!settings?.aiApiKey) {
+      // B7: keys resolve through the SAME funnel the chat engine uses
+      // (resolveSiteKeys — per-business keys with platform env fallback;
+      // internal businesses resolve the platform keys only). The old
+      // code hard-required the legacy settings.aiApiKey, so the test
+      // was dead for any business — the company included — whose keys
+      // live anywhere else, even when the engine itself was online.
+      const keys = await resolveSiteKeys(auth.businessId);
+      if (!hasAnyProviderKey(keys)) {
         return NextResponse.json(
           { error: "AI API key is not configured. Please configure it in Settings." },
           { status: 400 }
@@ -76,21 +88,28 @@ export async function POST(request: NextRequest) {
   ---SOURCES---
   [1, 3, 5]`;
 
-      const openai = new OpenAI({
-        apiKey: settings.aiApiKey,
-      });
+      // Same completion funnel as the engine (provider priority,
+      // failover, circuit breaker) with the keys resolved above — the
+      // test now answers with the provider that would actually serve
+      // this business's customers.
+      const completion = await completeWithFallback(
+        {
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: question.trim() },
+          ],
+          model: settings?.aiModel || "gpt-4o-mini",
+          maxTokens: settings?.maxTokens || 2048,
+          temperature: settings?.temperature ?? 0.7,
+        },
+        {
+          keys,
+          preferredProvider: normalizePreferredProvider(settings?.aiProvider),
+          label: "knowledge-test",
+        }
+      );
 
-      const completion = await openai.chat.completions.create({
-        model: settings.aiModel || "gpt-4o-mini",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: question.trim() },
-        ],
-        max_tokens: settings.maxTokens || 2048,
-        temperature: settings.temperature ?? 0.7,
-      });
-
-      const responseText = completion.choices[0]?.message?.content || "";
+      const responseText = completion?.text || "";
 
       // Parse sources from response
       let answer = responseText;
@@ -126,7 +145,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         answer,
         sources,
-        model: settings.aiModel || "gpt-4o-mini",
+        model: completion?.model || settings?.aiModel || "gpt-4o-mini",
         totalEntries: entries.length,
       });
     } catch (error) {

@@ -49,10 +49,16 @@ export async function GET(request: NextRequest) {
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
       request.headers.get("x-real-ip") ||
       "unknown";
-    const rl = checkRateLimit(
-      `widget-activity:${siteKey}:${token || visitorId || clientIp}`,
-      ACTIVITY_RATE_LIMIT
-    );
+    // B7: verified internal (company) traffic is exempt — identity is
+    // the server-resolved business record behind the siteKey (the flag
+    // rides along on getBusinessBySiteKey), never a client value.
+    const rl: { allowed: boolean } =
+      business.isInternalAccount === true
+        ? { allowed: true }
+        : checkRateLimit(
+            `widget-activity:${siteKey}:${token || visitorId || clientIp}`,
+            ACTIVITY_RATE_LIMIT
+          );
     if (!rl.allowed) {
       return NextResponse.json(
         { error: "Too many requests. Please wait a moment." },

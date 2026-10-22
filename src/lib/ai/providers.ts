@@ -34,7 +34,7 @@
 
 import OpenAI, { toFile } from "openai";
 import { createHash } from "node:crypto";
-import { prisma, getUnscopedPrisma } from "@/lib/prisma";
+import { prisma, getUnscopedPrisma, getBusinessId } from "@/lib/prisma";
 import { logger } from "../logger";
 
 /* ------------------------------------------------------------------ */
@@ -190,6 +190,8 @@ function readSiteKeys(doc: SettingsLike | null | undefined): ProviderKeys {
 /**
  * Resolve the AI keys for one site.
  *
+ * 0. Internal (company) businesses resolve the platform env keys ONLY
+ *    (B7 — see the early return in the function body).
  * 1. The site's own dedicated keys from Firestore `settings.aiKeys`
  *    ({ groq?, gemini?, openai? }) — read with the Admin SDK, server-only.
  *    `businessId` given → that business; omitted → the current tenant's
@@ -202,6 +204,35 @@ function readSiteKeys(doc: SettingsLike | null | undefined): ProviderKeys {
  * Never throws on Firestore errors (falls back to env keys) and never
  * logs key material.
  */
+/**
+ * B7 (owner standard 2026-10-22): is this resolve for an internal
+ * (company) business? Identity is the SERVER-side business record
+ * behind the explicit businessId argument — or, for the tenant-context
+ * callers (the chat engine), the ambient tenant business id. Never a
+ * client-supplied value. Strict boolean true only; any read error
+ * degrades to "not internal" (the ordinary resolution below), never
+ * to internal.
+ */
+async function isInternalBusinessForKeys(
+  businessId?: string | null
+): Promise<boolean> {
+  try {
+    let id: string | null = businessId ?? null;
+    if (!id) {
+      const ambient = getBusinessId();
+      id = typeof ambient === "string" && ambient ? ambient : null;
+    }
+    if (!id) return false;
+    const biz = (await getUnscopedPrisma().business.findUnique({
+      where: { id },
+      select: { isInternalAccount: true },
+    })) as unknown as { isInternalAccount?: unknown } | null;
+    return biz?.isInternalAccount === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function resolveSiteKeys(businessId?: string | null): Promise<ProviderKeys> {
   const keys: ProviderKeys = {
     groq: envKey("groq"),
@@ -209,6 +240,17 @@ export async function resolveSiteKeys(businessId?: string | null): Promise<Provi
     openai: envKey("openai"),
     openrouter: envKey("openrouter"),
   };
+
+  // B7: an internal (company) business is OUTSIDE the key machinery —
+  // it resolves the PLATFORM (env) keys only. A per-business key is
+  // never REQUIRED for it (a missing tenant key can no longer produce
+  // aiConfigured:false while platform keys exist), and a per-business
+  // key present on its settings doc does not override the platform
+  // keys: the company runs on the platform's own keys, full stop
+  // (audit B7 wording: "platform-key-only path").
+  if (await isInternalBusinessForKeys(businessId)) {
+    return keys;
+  }
 
   let doc: SettingsLike | null = null;
   try {

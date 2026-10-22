@@ -44,14 +44,18 @@ export async function resolveChannelBusiness(
   );
 }
 
-/** Look up a business by its public widget site key (unscoped on purpose). */
+/** Look up a business by its public widget site key (unscoped on purpose).
+ *  `isInternalAccount` rides along (same single read) so the public
+ *  routes can apply the B7 internal exemptions from the SERVER-resolved
+ *  business record behind the siteKey — never from a client-supplied
+ *  value. */
 export async function getBusinessBySiteKey(
   siteKey: string
-): Promise<{ id: string; name: string } | null> {
+): Promise<{ id: string; name: string; isInternalAccount?: unknown } | null> {
   if (!siteKey) return null;
   const raw = getUnscopedPrisma();
   return raw.business.findUnique({
     where: { siteKey },
-    select: { id: true, name: true },
+    select: { id: true, name: true, isInternalAccount: true },
   });
 }

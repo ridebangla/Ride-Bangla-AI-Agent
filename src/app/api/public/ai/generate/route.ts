@@ -137,8 +137,16 @@ export async function POST(request: NextRequest) {
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     request.headers.get("x-real-ip") ||
     "unknown";
-  const rl = checkRateLimit(`public-ai:${siteKey}:${callerId}`, PUBLIC_AI_RATE_LIMIT);
-  const rlIp = checkRateLimit(`public-ai-ip:${siteKey}:${clientIp}`, PUBLIC_AI_RATE_LIMIT);
+  // B7: verified internal (company) traffic is exempt — identity is
+  // the server-resolved subscription record behind the siteKey.
+  const rl: { allowed: boolean } =
+    sub.isInternal === true
+      ? { allowed: true }
+      : checkRateLimit(`public-ai:${siteKey}:${callerId}`, PUBLIC_AI_RATE_LIMIT);
+  const rlIp: { allowed: boolean } =
+    sub.isInternal === true
+      ? { allowed: true }
+      : checkRateLimit(`public-ai-ip:${siteKey}:${clientIp}`, PUBLIC_AI_RATE_LIMIT);
   if (!rl.allowed || !rlIp.allowed) {
     return NextResponse.json(
       { ok: false, error: "Too many requests. Please wait a moment and try again." },

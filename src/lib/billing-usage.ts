@@ -92,6 +92,13 @@ async function catalogLimitForPlan(
 /**
  * Record one finalized AI reply. Fire-and-forget from the chat pipeline —
  * never throws.
+ *
+ * B7 (owner standard 2026-10-22): an internal (company) business is
+ * OUTSIDE the metering machinery — no usage counter is read for a
+ * write and nothing is incremented; the function simply returns,
+ * preserving its Promise<void> shape for the fire-and-forget callers.
+ * Only the strict boolean flag counts (same spoof discipline as the
+ * subscription gate).
  */
 export async function recordAiMessage(businessId: string | null): Promise<void> {
   if (!businessId) return;
@@ -99,12 +106,19 @@ export async function recordAiMessage(businessId: string | null): Promise<void> 
     const db = getUnscopedPrisma();
     const biz = (await db.business.findUnique({
       where: { id: businessId },
-      select: { id: true, aiMessagesUsed: true, usagePeriodStart: true },
+      select: {
+        id: true,
+        aiMessagesUsed: true,
+        usagePeriodStart: true,
+        isInternalAccount: true,
+      },
     })) as unknown as {
       aiMessagesUsed?: unknown;
       usagePeriodStart?: unknown;
+      isInternalAccount?: unknown;
     } | null;
     if (!biz) return;
+    if (biz.isInternalAccount === true) return;
 
     const now = Date.now();
     const startMs = toDate(biz.usagePeriodStart)?.getTime() ?? 0;
@@ -159,8 +173,9 @@ export function isMessageLimitExceeded(
   nowMs: number = Date.now(),
   limitOverride?: number | null
 ): boolean {
-  // Internal owner account (owner rule 2026-10-21): usage is recorded
-  // by recordAiMessage but NEVER blocks — no plan limit applies.
+  // Internal owner account (owner rule 2026-10-21, B7 2026-10-22):
+  // outside the machinery — recordAiMessage does not meter it and no
+  // plan limit ever blocks it.
   if (biz.isInternalAccount === true) return false;
   // Manual override (B1): the admin kept this tenant active without
   // payment — like the internal check in subscription.ts, the override

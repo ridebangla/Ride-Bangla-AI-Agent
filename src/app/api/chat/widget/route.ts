@@ -236,8 +236,18 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
       request.headers.get("x-real-ip") ||
       "unknown";
-    const rl = checkRateLimit(`widget:${siteKey}:${visitor}`, WIDGET_RATE_LIMIT);
-    const rlIp = checkRateLimit(`widget-ip:${siteKey}:${clientIp}`, { maxRequests: 60, windowMs: 60 * 1000 });
+    // B7: verified internal (company) traffic is exempt from the
+    // public rate limiters — identity is the server-resolved
+    // subscription record for the business behind the siteKey, never
+    // a client-supplied value. Non-internal traffic is unchanged.
+    const rl: { allowed: boolean } =
+      sub.isInternal === true
+        ? { allowed: true }
+        : checkRateLimit(`widget:${siteKey}:${visitor}`, WIDGET_RATE_LIMIT);
+    const rlIp: { allowed: boolean } =
+      sub.isInternal === true
+        ? { allowed: true }
+        : checkRateLimit(`widget-ip:${siteKey}:${clientIp}`, { maxRequests: 60, windowMs: 60 * 1000 });
     if (!rl.allowed || !rlIp.allowed) {
       return NextResponse.json(
         { error: "Too many messages. Please wait a moment and try again." },
