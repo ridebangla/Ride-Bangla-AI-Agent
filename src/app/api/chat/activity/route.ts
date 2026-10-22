@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getBusinessBySiteKey, enterBusinessContext } from "@/lib/tenant";
+import { isCompanyBusiness } from "@/lib/company-identity";
 import { prisma } from "@/lib/prisma";
 import { parseActivityToken } from "@/lib/ai/activity";
 import { isFreshActivity } from "@/lib/ai/activity-labels";
@@ -49,16 +50,16 @@ export async function GET(request: NextRequest) {
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
       request.headers.get("x-real-ip") ||
       "unknown";
-    // B7: verified internal (company) traffic is exempt — identity is
-    // the server-resolved business record behind the siteKey (the flag
-    // rides along on getBusinessBySiteKey), never a client value.
-    const rl: { allowed: boolean } =
-      business.isInternalAccount === true
-        ? { allowed: true }
-        : checkRateLimit(
-            `widget-activity:${siteKey}:${token || visitorId || clientIp}`,
-            ACTIVITY_RATE_LIMIT
-          );
+    // B7+B9: verified company traffic is exempt — identity is the
+    // server-resolved business record behind the siteKey, checked
+    // through the estate-scoped company identity (projection flag OR
+    // shared company_identity list), never a client value.
+    const rl: { allowed: boolean } = (await isCompanyBusiness(business))
+      ? { allowed: true }
+      : checkRateLimit(
+          `widget-activity:${siteKey}:${token || visitorId || clientIp}`,
+          ACTIVITY_RATE_LIMIT
+        );
     if (!rl.allowed) {
       return NextResponse.json(
         { error: "Too many requests. Please wait a moment." },

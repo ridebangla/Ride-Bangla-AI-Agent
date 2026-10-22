@@ -77,6 +77,7 @@ import {
   activeCompEndsAt,
   scopeAllows,
 } from "./comp";
+import { isCompanyBusiness } from "./company-identity";
 export { TRIAL_DAYS, isFreeTierBusiness, isInActiveTrial };
 export const TRIAL_MS = TRIAL_DAYS * 24 * 60 * 60 * 1000;
 
@@ -104,9 +105,11 @@ export interface SubscriptionInfo {
   billingInterval: "monthly" | "yearly" | null;
   /**
    * Internal owner comp (owner rule 2026-10-21): the company's own
-   * account — free forever, unlimited, never billed. True only when the
-   * business doc itself carries `isInternalAccount === true` (set
-   * server-side / by the Admin Console Super Admin, audit-logged).
+   * account — free forever, unlimited, never billed. True when the
+   * business is COMPANY under the estate-scoped identity (B9): its doc
+   * carries `isInternalAccount === true` (set server-side / by the
+   * Admin Console Super Admin, audit-logged) OR its id is listed in
+   * the shared `company_identity/current` record.
    */
   isInternal: boolean;
   /**
@@ -250,21 +253,32 @@ export async function getSubscription(
   // Internal owner account: display truthfully as "Internal" — never
   // "Trial" (its trial date is meaningless once comped) and never a
   // paid plan it did not buy.
-  if (biz.isInternalAccount === true) {
+  //
+  // B9: company identity is estate-scoped — the business is company
+  // when its own doc carries the projection flag OR its id is listed
+  // in the shared company_identity/current record (isCompanyBusiness;
+  // a read error degrades to the flag only). The pure sync
+  // isSubscriptionActive() above keeps the flag-only semantics (it has
+  // no async seam); every route gate reaches this async resolver.
+  // A listed business is presented to the flag-based helpers as
+  // flagged, so activation (kill-switch included) and grantScope
+  // semantics are EXACTLY the internal ones.
+  if (await isCompanyBusiness(biz as unknown as Record<string, unknown>)) {
+    const asInternal = { ...biz, isInternalAccount: true } as Business;
     return {
       businessId,
       plan: "internal",
       subscriptionStatus: "active",
       trialEndsAt: null,
       trialDaysRemaining: 0,
-      isActive: isSubscriptionActive(biz),
+      isActive: isSubscriptionActive(asInternal),
       billingInterval: null,
       isInternal: true,
       isFreeTier: false,
       isComp: false,
       compEndsAt: null,
       scopeAllowsChat: scopeAllows(
-        biz as unknown as Record<string, unknown>,
+        asInternal as unknown as Record<string, unknown>,
         "chat"
       ),
     };

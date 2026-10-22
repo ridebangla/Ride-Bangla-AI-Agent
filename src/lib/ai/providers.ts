@@ -35,6 +35,7 @@
 import OpenAI, { toFile } from "openai";
 import { createHash } from "node:crypto";
 import { prisma, getUnscopedPrisma, getBusinessId } from "@/lib/prisma";
+import { isCompanyBusiness } from "../company-identity";
 import { logger } from "../logger";
 
 /* ------------------------------------------------------------------ */
@@ -223,11 +224,11 @@ async function isInternalBusinessForKeys(
       id = typeof ambient === "string" && ambient ? ambient : null;
     }
     if (!id) return false;
-    const biz = (await getUnscopedPrisma().business.findUnique({
-      where: { id },
-      select: { isInternalAccount: true },
-    })) as unknown as { isInternalAccount?: unknown } | null;
-    return biz?.isInternalAccount === true;
+    // B9: the estate-scoped company check (shared company_identity
+    // list membership OR the business doc's projection flag) — the
+    // resolver itself never throws and never treats an error as
+    // "company".
+    return await isCompanyBusiness(id);
   } catch {
     return false;
   }

@@ -24,6 +24,7 @@ import {
 } from "./plans";
 import { getPlanCatalog, type EffectivePlan } from "./plan-catalog";
 import { isCompActive, activeCompPlanId, activeCompEndsAt } from "./comp";
+import { isCompanyBusiness } from "./company-identity";
 import { logger } from "./logger";
 
 export const USAGE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
@@ -118,7 +119,17 @@ export async function recordAiMessage(businessId: string | null): Promise<void> 
       isInternalAccount?: unknown;
     } | null;
     if (!biz) return;
-    if (biz.isInternalAccount === true) return;
+    // B9: the estate-scoped company check (projection flag OR the
+    // shared company_identity list) decides the skip — a listed
+    // business is not metered even before its flag projection lands.
+    if (
+      await isCompanyBusiness({
+        id: businessId,
+        isInternalAccount: biz.isInternalAccount,
+      })
+    ) {
+      return;
+    }
 
     const now = Date.now();
     const startMs = toDate(biz.usagePeriodStart)?.getTime() ?? 0;
@@ -261,7 +272,19 @@ export async function checkMessageLimitExceeded(
     const limitOverride = await catalogLimitForPlan(
       compPlan ?? (plan === "trial" ? "trial" : plan)
     );
-    return isMessageLimitExceeded(biz, now, limitOverride);
+    // B9: a company business (estate-scoped check) is presented to the
+    // pure gate as internal, so the shared-list membership lifts the
+    // cap exactly like the projection flag. The pure
+    // isMessageLimitExceeded itself stays flag-only (no async seam).
+    const company = await isCompanyBusiness({
+      ...(biz as unknown as Record<string, unknown>),
+      id: businessId,
+    });
+    return isMessageLimitExceeded(
+      company ? { ...biz, isInternalAccount: true } : biz,
+      now,
+      limitOverride
+    );
   } catch (err) {
     logger.warn("[metering] message-limit check failed (allowing request)", {
       businessId,
@@ -459,7 +482,18 @@ export async function getBillingCountdown(
     const limitOverride = await catalogLimitForPlan(
       compPlan ?? (plan === "trial" ? "trial" : plan)
     );
-    return buildCountdown(biz, now, limitOverride);
+    // B9: a company business (estate-scoped check) gets the internal
+    // countdown (no limits, no end date) via the same presentation
+    // trick as the spend gate above.
+    const company = await isCompanyBusiness({
+      ...(biz as unknown as Record<string, unknown>),
+      id: businessId,
+    });
+    return buildCountdown(
+      company ? { ...biz, isInternalAccount: true } : biz,
+      now,
+      limitOverride
+    );
   } catch (err) {
     logger.warn("[billing] getBillingCountdown failed", {
       businessId,
