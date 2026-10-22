@@ -8,7 +8,7 @@
  *
  * GET  — { admin: { name, email, role },
  *          business: { name, slug, profilePhoto, contactName,
- *                      contactPhone, contactAddress } | null }
+ *                      contactPhone, contactAddress, siteKey } | null }
  *        business is null for the Super Admin (businessId null — they
  *        belong to no workspace), in which case only admin info is
  *        editable info.
@@ -58,6 +58,11 @@ export async function GET(request: NextRequest) {
         contactName: true,
         contactPhone: true,
         contactAddress: true,
+        // Re-audit #2: the tenant's widget install snippet (dashboard >
+        // Channels) needs the business's own siteKey. It is public by
+        // design (it ships inside the public website embed snippet), so
+        // exposing it on the caller's own profile is safe.
+        siteKey: true,
       },
     });
   }
@@ -76,6 +81,7 @@ export async function GET(request: NextRequest) {
           contactName: business.contactName ?? "",
           contactPhone: business.contactPhone ?? "",
           contactAddress: business.contactAddress ?? "",
+          siteKey: business.siteKey ?? "",
         }
       : null,
   });

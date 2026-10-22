@@ -1529,11 +1529,26 @@ export default function ChannelsPage() {
       .catch(() => {});
   }, []);
   useEffect(() => {
-    fetch("/api/businesses")
+    // Re-audit #2 (tenant journey): the install snippet needs the
+    // TENANT's own siteKey, but /api/businesses is Super-Admin-only
+    // (403 for tenants) — every tenant's snippet shipped with an
+    // empty data-site-key and the widget could not be installed.
+    // Resolve the caller's own key from the tenant-scoped
+    // /api/profile (which carries it); the Super Admin keeps the
+    // businesses-list fallback (their profile has no business).
+    fetch("/api/profile")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        const first = data?.businesses?.[0];
-        if (first?.siteKey) setSiteKey(first.siteKey);
+        if (data?.business?.siteKey) {
+          setSiteKey(data.business.siteKey);
+          return undefined;
+        }
+        return fetch("/api/businesses")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((list) => {
+            const first = list?.businesses?.[0];
+            if (first?.siteKey) setSiteKey(first.siteKey);
+          });
       })
       .catch(() => {});
   }, []);
