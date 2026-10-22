@@ -82,7 +82,7 @@ const FAQS = [
   },
   {
     q: "How do payments work?",
-    a: "We accept manual payments only: US bank transfer, Binance Pay, Bybit, OKX and WeChat Pay. Send the amount to the payment details shown on your Billing page, then submit the transaction ID (or hash) together with a screenshot of the payment. Our team verifies every payment before your subscription is activated, usually within 24 hours. You can change plans or cancel anytime from Billing in your dashboard.",
+    a: "We accept manual payments only: US bank transfer, Binance Pay, Bybit and OKX. Send the amount to the payment details shown on your Billing page, then submit the transaction ID (or hash) together with a screenshot of the payment. Our team verifies every payment before your subscription is activated, usually within 24 hours. You can change plans or cancel anytime from Billing in your dashboard.",
   },
   {
     q: "Can I change plans later?",

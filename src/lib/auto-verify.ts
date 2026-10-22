@@ -18,7 +18,7 @@
  *                                   decision + audit recorded
  *       - no match                → left 'pending' (NEVER auto-rejected —
  *                                   the deposit may land later)
- *   - bank / WeChat (us_bank, wechat_pay) → the AI receipt decision
+ *   - bank (us_bank) → the AI receipt decision
  *     engine (payment-decision.ts): the screenshot is read with a
  *     receipt-specific prompt and EVERY check must pass (exact amount,
  *     USD-or-unread currency, txn id or refCode visible, sane date,
@@ -63,7 +63,7 @@ import {
 import { logger } from "./logger";
 
 const AUTO_VERIFY_METHODS = ["binance", "bybit", "okx"] as const;
-const RECEIPT_METHODS = ["us_bank", "wechat_pay"] as const;
+const RECEIPT_METHODS = ["us_bank"] as const;
 
 export type AutoVerifyAction =
   | "matched_approved"
@@ -477,8 +477,7 @@ async function configuredRecipient(
   method: string
 ): Promise<string | null> {
   // Design contract: the recipient check applies when a recipient is
-  // configured for the method (us_bank accountName). WeChat Pay carries
-  // no recipient name (QR only) — the check is skipped there.
+  // configured for the method (us_bank accountName).
   if (method !== "us_bank") return null;
   try {
     const snap = await db
@@ -494,7 +493,7 @@ async function configuredRecipient(
 }
 
 /**
- * Decide one pending bank/WeChat subscription claim from its payment
+ * Decide one pending bank subscription claim from its payment
  * screenshot. EVERY check must pass to auto-activate; any failure
  * leaves the claim pending with the check list as evidence.
  */

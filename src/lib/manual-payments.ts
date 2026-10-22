@@ -4,13 +4,13 @@
  * The business owner (Super Admin) enters his own receiving details in the
  * Admin Console ("AI SaaS" → Payment Methods). Customers on /billing see
  * ONLY enabled methods and pay manually (US bank transfer, Binance Pay,
- * Bybit, OKX, WeChat Pay), then submit a claim with their transaction ID +
+ * Bybit, OKX), then submit a claim with their transaction ID +
  * payment screenshot. The team verifies the claim in the Admin Console and
  * activates the subscription.
  *
  * Firestore layout:
  *   payment_methods_config/{methodId} — one doc per method
- *     (us_bank, binance, bybit, okx, wechat_pay). Field shapes differ per
+ *     (us_bank, binance, bybit, okx). Field shapes differ per
  *     method; every doc has {enabled: boolean}.
  *   payment_claims/{claimId} — {businessId, plan, interval, method, amount,
  *     reference, txnId, screenshotDataUrl, status:'pending'|'approved'|
@@ -35,20 +35,23 @@ import {
 } from "./claim-dedupe";
 export { DuplicateTxnError };
 
-/** Manual payment method ids — one Firestore doc each. */
+/** Manual payment method ids — one Firestore doc each.
+ *  WeChat Pay was removed entirely (owner directive 2026-10-22,
+ *  re-audit #2): no longer offered, rendered or auto-verified. A
+ *  historical payment_methods_config/wechat_pay doc, if one exists,
+ *  is simply never read again; historical claims keep their stored
+ *  method string and stay manually reviewable in the Admin Console. */
 export type ManualMethodId =
   | "us_bank"
   | "binance"
   | "bybit"
-  | "okx"
-  | "wechat_pay";
+  | "okx";
 
 export const MANUAL_METHOD_IDS: readonly ManualMethodId[] = [
   "us_bank",
   "binance",
   "bybit",
   "okx",
-  "wechat_pay",
 ];
 
 export function isManualMethodId(value: unknown): value is ManualMethodId {
@@ -63,7 +66,6 @@ export const MANUAL_METHOD_LABELS: Record<ManualMethodId, string> = {
   binance: "Binance Pay",
   bybit: "Bybit",
   okx: "OKX",
-  wechat_pay: "WeChat Pay",
 };
 
 /** Display fields for one enabled method (serialized to the client). */
@@ -79,8 +81,6 @@ export interface ManualPaymentMethod {
   // binance / bybit / okx
   payId?: string;
   uid?: string;
-  // wechat_pay
-  qrImage?: string;
   note?: string;
 }
 
@@ -211,7 +211,6 @@ export async function getPublicManualPaymentMethods(): Promise<
       accountNumber: strField(d, "accountNumber"),
       payId: strField(d, "payId"),
       uid: strField(d, "uid"),
-      qrImage: strField(d, "qrImage"),
       note: strField(d, "note"),
     });
   }

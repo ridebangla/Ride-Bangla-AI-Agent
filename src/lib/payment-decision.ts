@@ -4,7 +4,7 @@
  * and activates clean subscriptions with NO human touch; uncertain
  * claims wait for a human — never auto-rejected).
  *
- * This module holds the PURE parts of the bank/WeChat decision:
+ * This module holds the PURE parts of the bank decision:
  * the receipt-extraction prompt, the parser for the vision answer,
  * and the check evaluation. The orchestration (vision call, Firestore
  * writes, activation, audit) lives in auto-verify.ts.
@@ -160,7 +160,7 @@ export interface ReceiptDecision {
 }
 
 /**
- * Evaluate every check for a bank/WeChat claim. Auto-approve requires
+ * Evaluate every check for a bank claim. Auto-approve requires
  * EVERY check to pass — one failure routes the claim to a human with
  * the evidence attached (the claim itself is never rejected here).
  */

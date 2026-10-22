@@ -320,8 +320,8 @@ export default async function BillingPage() {
                   />
                 </div>
 
-                {/* Manual payments — bank transfer / crypto / WeChat Pay
-                    (Phase 4b). Rendered from the user-configured methods; when
+                {/* Manual payments — bank transfer / crypto (Phase 4b).
+                    Rendered from the user-configured methods; when
                     none are enabled it says so honestly. */}
                 <div className="mt-6">
                   <ManualPay

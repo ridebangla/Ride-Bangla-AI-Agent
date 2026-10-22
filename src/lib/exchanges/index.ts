@@ -2,7 +2,7 @@
  * exchanges/index.ts — adapter lookup for auto-verify.
  *
  * Maps a manual payment method id to its exchange adapter (crypto methods
- * only). Non-crypto methods (us_bank, wechat_pay) have no exchange
+ * only). Non-crypto methods (us_bank) have no exchange
  * adapter — those claims are verified by the AI receipt decision engine
  * in auto-verify.ts (payment-decision.ts), with humans as the fallback.
  */

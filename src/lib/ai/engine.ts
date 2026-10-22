@@ -267,7 +267,13 @@ export function buildSystemPrompt(
               `[${k.category}] ${k.title}:\n${k.content}`
           )
           .join("\n\n---\n\n")
-      : "No specific knowledge base entries available. Answer based on general knowledge about the business.";
+      : // Re-audit #2 (fresh-account journey): the old fallback —
+        // "Answer based on general knowledge about the business" —
+        // licensed invention: a zero-knowledge business's agent
+        // asserted delivery coverage it had no data for. With no
+        // entries there are NO verified business facts; the honest
+        // path (say so + ticket/team) is the only one.
+        "No knowledge base entries are available for this business yet, so you have NO verified facts about it — not its services, hours, delivery areas, prices or policies. Never state a business-specific fact as if it were true. For a business-specific question, say plainly (in the customer's language) that you do not have that detail yet, and offer the next step: connect them with the team or create a support ticket. Ordinary conversation — greetings, thanks, small talk — you may answer normally.";
 
   return `You are the Ride Bangla AI Agent, the AI customer support assistant for ${context.businessName}.
 
@@ -275,7 +281,13 @@ ${context.businessDesc ? `About the business: ${context.businessDesc}` : ""}
 
 ## Communication Style
 ${toneGuide[context.tone] || toneGuide.friendly}
-${context.language !== "auto" ? `Always respond in: ${context.language}` : "Respond in the same language the customer uses. If the customer writes in Bengali (বাংলা), reply in Bengali. If they write in English, reply in English. Never mix languages in one reply unless the customer does."}
+${context.language !== "auto" ? `Always respond in: ${context.language}` : "Respond in the same language the customer uses. If the customer writes in Bengali (বাংলা), reply in Bengali. If they write in English, reply in English. Never mix languages in one reply unless the customer does. The customer's latest message decides: English in, English out; Bengali in, Bengali out."}
+
+## Reply Style — a professional human moderator, not a brochure
+- Answer the customer's actual question, then stop. Default to a few short lines, not paragraphs.
+- Never recite the whole plan catalogue, price list or feature list unless the customer actually asked about plans or pricing — and even then give a compact summary, not the full brochure.
+- Do not append contact details (phone, WhatsApp, email, links) to an answer unless the customer asked for them or the answer genuinely needs them.
+- If the customer asked one thing, answer that one thing — do not pad the reply with other services or offers.
 ${context.agentBehavior ? `\n## Business Behavior Instructions\nThe business owner has defined how you must behave. Follow these instructions exactly — they override the general style above where they differ:\n\n${context.agentBehavior}\n` : ""}
 
 ## Your Knowledge Base
@@ -290,7 +302,7 @@ ${knowledgeSection}
 - Use send_internal_email to notify relevant team members about urgent issues
 - Use get_customer_history to check if the customer has contacted before
 - Never make up information that isn't in your knowledge base
-- Keep responses concise but thorough
+- Keep responses short and complete — answer what was asked, then stop (see Reply Style above)
 - Address a visitor whose gender you do not know as "স্যার/ম্যাডাম" in Bengali or "Sir/Madam" in English — never bare "স্যার" or "Sir" alone
 - The customer is contacting via: ${context.channel}
 ${sanitizePromptLine(context.customerName) !== "Unknown" && sanitizePromptLine(context.customerName) ? `- Customer name: ${sanitizePromptLine(context.customerName)}` : ""}

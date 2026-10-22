@@ -62,7 +62,7 @@ const SECTIONS: { heading: string; body: string[] }[] = [
   {
     heading: "5. Manual payments",
     body: [
-      "We currently accept manual payments: US bank transfer, Binance Pay, Bybit, OKX, and WeChat Pay. To pay, send the amount to the payment details shown on your Billing page, then submit the transaction ID (or hash) together with a screenshot of the payment.",
+      "We currently accept manual payments: US bank transfer, Binance Pay, Bybit, and OKX. To pay, send the amount to the payment details shown on your Billing page, then submit the transaction ID (or hash) together with a screenshot of the payment.",
       "Payments are verify-then-activate: our team checks every payment before your subscription is activated. Most verifications complete within 24 hours. If a payment cannot be verified (wrong amount, unreadable screenshot, or no matching transaction), we will ask you for correction — your subscription starts only after successful verification.",
       "You are responsible for sending the exact amount and for keeping your own proof of payment until activation is confirmed. Payments sent to wrong addresses or with missing references may be delayed or unrecoverable.",
     ],

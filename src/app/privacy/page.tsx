@@ -45,7 +45,7 @@ const SECTIONS: { heading: string; body: string[] }[] = [
       "Account data: when you sign up we collect your name, business name, email address, and password (passwords are stored securely by Firebase Authentication and never in our database in readable form).",
       "Business data: the information you give us about your business — website URL, business description, products and prices, business hours, location, contact details, and any text or files you upload so the AI can learn your business.",
       "Conversation data: messages between your AI agent and your customers, including text, images, voice notes, and videos shared in those conversations, plus order details customers place through the agent.",
-      "Payment data: when you pay manually (bank transfer, Binance Pay, Bybit, OKX, or WeChat Pay) we collect the transaction ID or hash and the payment screenshot you submit so our team can verify the payment. We never see or store your bank login credentials or exchange passwords.",
+      "Payment data: when you pay manually (bank transfer, Binance Pay, Bybit, or OKX) we collect the transaction ID or hash and the payment screenshot you submit so our team can verify the payment. We never see or store your bank login credentials or exchange passwords.",
       "Usage data: basic technical information such as pages visited, actions taken in the dashboard, device and browser type, and approximate location derived from IP address, used to operate and improve the Service.",
     ],
   },

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import Image from "next/image";
+import { Check, Copy } from "lucide-react";
 import {
   PLAN_META,
   PAID_PLANS,
@@ -17,7 +18,7 @@ import type { CatalogPlanView } from "@/lib/plan-catalog";
  * ManualPay — the "Pay manually" section on /billing (Phase 4b).
  *
  * Shows each ENABLED user-configured method (bank transfer details, crypto
- * pay IDs/UIDs, WeChat Pay QR) plus the plan amount and a reference code.
+ * pay IDs/UIDs) plus the plan amount and a reference code.
  * The customer pays on their own, then submits a claim with BOTH required
  * proofs: transaction ID and a payment screenshot.
  *
@@ -120,12 +121,70 @@ async function compressScreenshot(file: File): Promise<string> {
   );
 }
 
+/**
+ * Copy control (owner directive 2026-10-22, re-audit #2): every payment
+ * detail a payer must transcribe carries one — a payer who cannot copy
+ * the number cannot pay. Writes the EXACT displayed value to the
+ * clipboard (Clipboard API, with the legacy selection fallback for
+ * non-secure contexts) and flips to a visible "Copied" confirmation.
+ */
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<number | null>(null);
+
+  async function onCopy() {
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(value);
+      ok = true;
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = value;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch {
+        ok = false;
+      }
+    }
+    if (ok) {
+      setCopied(true);
+      if (timer.current) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onCopy}
+      aria-label={`Copy ${label}`}
+      title={`Copy ${label}`}
+      className="inline-flex flex-none items-center gap-1 rounded-md border border-rbai-border bg-rbai-surface px-2 py-1 text-[11px] font-medium text-rbai-text-light hover:text-rbai-text transition-colors"
+    >
+      {copied ? (
+        <Check className="h-3.5 w-3.5 text-emerald-600" />
+      ) : (
+        <Copy className="h-3.5 w-3.5" />
+      )}
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-start justify-between gap-3 py-1.5">
+    <div className="flex items-center justify-between gap-3 py-1.5">
       <span className="text-xs text-rbai-text-light font-medium">{label}</span>
-      <span className="text-sm text-rbai-text font-mono font-medium text-right break-all">
-        {value}
+      <span className="flex items-center gap-2 min-w-0">
+        <span className="text-sm text-rbai-text font-mono font-medium text-right break-all">
+          {value}
+        </span>
+        <CopyButton value={value} label={label} />
       </span>
     </div>
   );
@@ -157,20 +216,6 @@ function MethodCard({ method }: { method: ManualPaymentMethod }) {
         )}
         {(method.id === "bybit" || method.id === "okx") && method.uid && (
           <DetailRow label="UID" value={method.uid} />
-        )}
-        {method.id === "wechat_pay" && method.qrImage && (
-          <div className="py-2 flex flex-col items-center">
-            <Image
-              src={method.qrImage}
-              alt={`${method.label} QR code`}
-              width={320}
-              height={320}
-              className="w-44 sm:w-56 h-auto rounded-lg border border-rbai-border bg-white"
-            />
-            <span className="text-xs text-rbai-text-light mt-2">
-              Scan with WeChat to pay
-            </span>
-          </div>
         )}
         {method.note && (
           <p className="text-xs text-rbai-text-light pt-2">{method.note}</p>
@@ -288,7 +333,7 @@ export default function ManualPay({
     <div className="bg-rbai-surface border border-rbai-border rounded-2xl p-6 sm:p-8">
       <h2 className="text-lg font-semibold text-rbai-text">Pay manually</h2>
       <p className="text-sm text-rbai-text-light mt-1">
-        Bank transfer, crypto, or WeChat Pay — pay on your own, then submit
+        Bank transfer or crypto — pay on your own, then submit
         your claim below and we&apos;ll activate your plan after verification.
       </p>
 
@@ -308,12 +353,14 @@ export default function ManualPay({
                 Include this reference in your payment note:{" "}
                 <span className="font-mono font-bold text-emerald-900">
                   {refCode}
-                </span>
+                </span>{" "}
+                <CopyButton value={refCode} label="reference code" />
               </>
             ) : (
               <>
                 Reference:{" "}
-                <span className="font-mono font-medium">{reference}</span>
+                <span className="font-mono font-medium">{reference}</span>{" "}
+                <CopyButton value={reference} label="payment reference" />
               </>
             )}
           </p>
@@ -394,6 +441,9 @@ export default function ManualPay({
                     USD / {interval === "yearly" ? "year" : "month"}
                   </span>
                 </p>
+                <div className="mt-1.5">
+                  <CopyButton value={fmtPrice(amount)} label="amount" />
+                </div>
                 {offer && (
                   <p className="text-xs font-medium text-emerald-700 mt-1">
                     {offer.name} · ends {fmtEnds(offer.endsAt)}
@@ -404,8 +454,9 @@ export default function ManualPay({
                 <p className="text-xs text-rbai-text-light font-medium">
                   Your payment reference
                 </p>
-                <p className="text-sm font-mono font-semibold text-rbai-text">
+                <p className="flex items-center justify-end gap-2 text-sm font-mono font-semibold text-rbai-text">
                   {reference}
+                  <CopyButton value={reference} label="payment reference" />
                 </p>
                 <p className="text-xs text-rbai-text-light">
                   Include this in your transfer note

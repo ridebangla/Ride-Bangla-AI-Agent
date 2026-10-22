@@ -33,7 +33,7 @@ export const runtime = "nodejs";
  * Two kinds (body.kind, default 'subscription'):
  *
  *  kind='subscription' — the customer paid for a PLAN via a user-configured
- *  manual method (bank transfer / crypto / WeChat Pay) and submits BOTH
+ *  manual method (bank transfer / crypto) and submits BOTH
  *  required proofs:
  *    1. txnId — transaction ID / hash ID (required text)
  *    2. screenshotDataUrl — payment screenshot, client-compressed to <=400KB
