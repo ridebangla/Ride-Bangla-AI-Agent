@@ -83,6 +83,36 @@ function withTurnDeadline<T>(work: Promise<T>): Promise<T> {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Gate deadline (Defect 10 live follow-up, 2026-10-22)
+// ---------------------------------------------------------------------------
+// The turn deadline above only races chat(). The data gates BEFORE it
+// (business lookup, subscription, message-limit, conversation
+// find/create) had no deadline at all: with the data layer wedged
+// (Firestore RESOURCE_EXHAUSTED, 2026-10-22), the reads burned ~11-14s
+// of SDK retry/backoff before the graceful failure reply could be
+// composed, so the widget's "Typing..." hung the whole time (owner's
+// phone recording, 10:18 Dhaka) — a reply-standard violation. The
+// gates are now raced against ONE shared short deadline. Healthy
+// gates answer in milliseconds, so the healthy path is untouched; a
+// wedged gate throws GateDeadlineError into the same outer catch,
+// which answers with the same graceful, in-language completed turn —
+// in ~2-3s instead of ~12s. The underlying reads may still settle
+// server-side afterwards; nothing depends on their late result here.
+/** Short deadline for the pre-engine data gates, read per request so
+ *  ops can tune it via WIDGET_GATE_DEADLINE_MS without a code change. */
+function gateDeadlineMs(): number {
+  const n = Number(process.env.WIDGET_GATE_DEADLINE_MS);
+  return Number.isFinite(n) && n >= 500 && n <= 10_000 ? n : 2_500;
+}
+
+class GateDeadlineError extends Error {
+  constructor(ms: number) {
+    super(`widget data gates exceeded ${ms}ms deadline`);
+    this.name = "GateDeadlineError";
+  }
+}
+
 const GRACEFUL_TURN_TEXT = {
   bn: "দুঃখিত, এই মুহূর্তে আপনার বার্তাটির উত্তর দিতে একটু সমস্যা হচ্ছে। অনুগ্রহ করে একটু পরে আবার চেষ্টা করুন, অথবা জরুরি হলে আমাদের টিমের সঙ্গে সরাসরি যোগাযোগ করুন।",
   en: "I'm sorry, I'm having a little trouble answering your message right now. Please try again in a moment, or contact our team directly if it's urgent.",
@@ -134,7 +164,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "siteKey is required" }, { status: 401 });
     }
 
-    const business = await getBusinessBySiteKey(siteKey);
+    // One shared deadline for every pre-engine data gate below (see
+    // the Gate deadline note above): each gate races the same clock,
+    // so a wedged data layer fails the turn fast — into the graceful
+    // catch — instead of stacking per-read retry delays.
+    const gateDeadlineAt = Date.now() + gateDeadlineMs();
+    function gated<T>(work: Promise<T>): Promise<T> {
+      const remaining = gateDeadlineAt - Date.now();
+      if (remaining <= 0) {
+        return Promise.reject(new GateDeadlineError(gateDeadlineMs()));
+      }
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new GateDeadlineError(gateDeadlineMs())),
+          remaining
+        );
+      });
+      return Promise.race([work, deadline]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
+    }
+
+    const business = await gated(getBusinessBySiteKey(siteKey));
     if (!business) {
       return NextResponse.json({ error: "Invalid site key" }, { status: 401 });
     }
@@ -143,14 +195,14 @@ export async function POST(request: NextRequest) {
     // processed. Inactive trial/subscription => HTTP 402 +
     // { error: "subscription_paused" }; the widget renders a beautiful
     // "Subscription paused" state and sends nothing further.
-    const sub = await getSubscription(business.id);
+    const sub = await gated(getSubscription(business.id));
     if (!sub.isActive) {
       logger.warn(
         `[billing] blocked widget chat for business ${business.id}: subscription inactive`
       );
       return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
     }
-    if (await checkMessageLimitExceeded(business.id)) {
+    if (await gated(checkMessageLimitExceeded(business.id))) {
       return NextResponse.json({ error: "message_limit_reached" }, { status: 402 });
     }
     enterBusinessContext(business.id);
@@ -216,13 +268,13 @@ export async function POST(request: NextRequest) {
     // Find or create the visitor's conversation.
     let convId = typeof conversationId === "string" ? conversationId : "";
     if (convId) {
-      const existing = await prisma.conversation.findUnique({ where: { id: convId } });
+      const existing = await gated(prisma.conversation.findUnique({ where: { id: convId } }));
       // Scoped to this business by the tenant proxy; also require the same
       // visitor so one visitor cannot read another's thread.
       if (!existing || existing.customerContact !== visitor) {
         convId = "";
       } else if (activityToken) {
-        await bindActivityToken(convId, activityToken, existing.activityToken);
+        await gated(bindActivityToken(convId, activityToken, existing.activityToken));
       }
     }
     if (!convId) {
@@ -245,7 +297,7 @@ export async function POST(request: NextRequest) {
           sourceSite = "";
         }
       }
-      const conv = await prisma.conversation.create({
+      const conv = await gated(prisma.conversation.create({
         data: withBusinessId({
           channel: "widget",
           customerName: "Website Visitor",
@@ -257,7 +309,7 @@ export async function POST(request: NextRequest) {
           // 5 dashboard switch flips this to false for human takeover.
           aiEnabled: true,
         }),
-      });
+      }));
       convId = conv.id;
     }
     failureConversationId = convId;
