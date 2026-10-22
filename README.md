@@ -71,7 +71,7 @@ entirely (always free, no caps).
 ### 🧩 The canonical widget
 
 - One embed (`public/widget/ride-bangla-chat.js`, currently
-  **v2026-10-22.8**) powers the chat on **every** Ride Bangla website and on
+  **v2026-10-22.9**) powers the chat on **every** Ride Bangla website and on
   tenant websites — install is a single `<script>` tag with the business's
   site key.
 - Animated mascot brand (idle / working video states follow the same
@@ -166,6 +166,10 @@ entirely (always free, no caps).
 >   instead of the full pipeline; session refresh rotation grace (a
 >   second tab restoring with the just-rotated token no longer ends
 >   the session; sign-out and revocation behaviour unchanged).
+> - Widget embed v2026-10-22.9: Help Center inline parity — the status
+>   strip no longer repeats the typing bubble's generic caption (one
+>   animated typing indicator per turn; the strip speaks only when the
+>   server reports a specific activity).
 > - Login loading: the dashboard layout's serial session/config reads
 >   were parallelised (the last two now resolve together); the
 >   revocation read is deliberately never cached.

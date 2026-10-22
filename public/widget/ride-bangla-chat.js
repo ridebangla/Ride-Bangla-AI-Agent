@@ -1,6 +1,16 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-22.8 (re-audit #2, owner directive
+ * CANONICAL EMBED — v2026-10-22.9 (owner report 2026-10-22,
+ * Help Center inline box: ONE TYPING STATE — the status strip no
+ * longer repeats the typing bubble's generic "typing" caption:
+ * while a typing bubble is in the thread, the strip stays hidden
+ * until the server reports a SPECIFIC activity (whose caption
+ * says something the bubble does not); the bubble alone is the
+ * turn's typing indicator and it is now animated (rbai-pulse)
+ * instead of a frozen label. The strip also re-renders the
+ * moment a typing bubble is removed mid-turn, so the working
+ * state is never left unshown while a request is in flight.)
+ * Prior: v2026-10-22.8 (re-audit #2, owner directive
  * 2026-10-22: COMPOSE AUTO-GROW — the message box is now a
  * textarea that grows with its content up to ~45% of the panel
  * height (then scrolls internally) and resets to one line the
@@ -602,7 +612,7 @@
       .rbai-msg{max-width:80%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.4;word-wrap:break-word}\n\
       .rbai-msg.bot{background:#F1F5F9;color:#1E293B;align-self:flex-start;border-bottom-left-radius:4px}\n\
       .rbai-msg.user{background:" + config.color + ";color:#fff;align-self:flex-end;border-bottom-right-radius:4px}\n\
-      .rbai-msg.typing{color:#94A3B8;font-style:italic}\n\
+      .rbai-msg.typing{color:#94A3B8;font-style:italic;animation:rbai-pulse 1.2s infinite}\n\
       .rbai-msg.system{align-self:center;background:transparent;color:#94A3B8;font-size:12px;line-height:1.45;text-align:center;padding:6px 12px;max-width:92%}\n\
       .rbai-speak{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:6px;padding:0;border:none;border-radius:9999px;background:transparent;color:#94A3B8;cursor:pointer;vertical-align:-6px}\n\
       .rbai-speak:hover{color:#475569;background:rgba(100,116,139,.12)}\n\
@@ -853,14 +863,38 @@
     }
   }
 
+  // True only while the server has reported a SPECIFIC activity (a
+  // real caption key) — as opposed to nothing observed yet, in which
+  // case the caption falls back to the same generic "typing" words
+  // the typing bubble already shows.
+  function hasSpecificActivity() {
+    if (!currentActivity) return false;
+    var lang = ACTIVITY_CAPTIONS[uiLang] ? uiLang : "en";
+    if (
+      currentActivity.kind === "sending_reply" &&
+      currentActivity.channel &&
+      SEND_CHANNEL_CAPTIONS[lang][currentActivity.channel]
+    ) return true;
+    return !!ACTIVITY_CAPTIONS[lang][currentActivity.kind];
+  }
+
   // The status strip under the header avatar: visible only while the
   // agent is working, captioned with the current REAL activity (or the
   // plain typing caption while nothing specific has been observed).
+  // Owner 2026-10-22 (Help Center): the strip must never REPEAT the
+  // typing bubble's generic caption — while a typing bubble is in the
+  // thread, that bubble is the turn's one typing indicator, and the
+  // strip stays hidden until a specific activity gives it something
+  // of its own to say.
   function renderStatus() {
     var strip = document.getElementById("rbai-widget-status");
     var text = document.getElementById("rbai-widget-status-text");
     if (!strip || !text) return;
     if (agentState === "working") {
+      if (document.querySelector(".rbai-msg.typing") && !hasSpecificActivity()) {
+        strip.hidden = true;
+        return;
+      }
       text.textContent = captionForActivity(currentActivity);
       strip.hidden = false;
     } else {
@@ -1345,7 +1379,7 @@
   // last pending request finishes, return the agent to idle and stop
   // the activity polling. Shared by the JSON and streaming paths.
   function settleRequest(typing) {
-    if (typing) typing.remove();
+    if (typing) { typing.remove(); renderStatus(); }
     pendingRequests = Math.max(0, pendingRequests - 1);
     if (pendingRequests === 0) {
       setAgentState("idle");
@@ -1487,7 +1521,7 @@
           try { data = JSON.parse(dataStr); } catch (e) { return; }
           if (event === "token" && data.text) {
             if (!bubble) {
-              if (currentTyping) { currentTyping.remove(); currentTyping = null; }
+              if (currentTyping) { currentTyping.remove(); currentTyping = null; renderStatus(); }
               bubble = addMessage("", "bot");
             }
             streamed += data.text;
