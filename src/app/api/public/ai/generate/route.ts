@@ -111,6 +111,12 @@ export async function POST(request: NextRequest) {
     logger.warn(`[public-ai] blocked for business ${business.id}: subscription inactive`);
     return NextResponse.json({ ok: false, error: "subscription_paused" }, { status: 402 });
   }
+  // Feature scope (B6): a grant scoped away from "chat" blocks with
+  // the same 402 shape. Unscoped accounts pass unchanged.
+  if (sub.scopeAllowsChat === false) {
+    logger.warn(`[public-ai] blocked for business ${business.id}: grant scope excludes chat`);
+    return NextResponse.json({ ok: false, error: "subscription_paused" }, { status: 402 });
+  }
 
   // Plan quota hard-stop: this endpoint spends the site owner's LLM keys
   // but was previously neither metered nor limit-checked — any holder of

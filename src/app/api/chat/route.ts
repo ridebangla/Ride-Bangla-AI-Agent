@@ -20,14 +20,23 @@ export async function POST(request: NextRequest) {
   // LLM tokens are spent or conversations are created. Inactive trial /
   // subscription => HTTP 402 + { error: "subscription_paused" }; the caller
   // renders its own "paused" state. No AI reply, no spend, no exceptions.
+  let subscription;
   try {
-    await requireActiveSubscription(auth.businessId);
+    subscription = await requireActiveSubscription(auth.businessId);
   } catch (err) {
     if (err instanceof SubscriptionInactiveError) {
       logger.warn(`[billing] blocked /api/chat for business ${auth.businessId}: subscription inactive`);
       return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
     }
     throw err;
+  }
+
+  // Feature scope (B6): an active grant scoped away from "chat"
+  // (comp.scope / internal grantScope) blocks chat with the same 402
+  // shape as a paused subscription. Unscoped accounts pass unchanged.
+  if (subscription.scopeAllowsChat === false) {
+    logger.warn(`[billing] blocked /api/chat for business ${auth.businessId}: grant scope excludes chat`);
+    return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
   }
 
   // Plan quota hard-stop: metering alone never refused a message before
