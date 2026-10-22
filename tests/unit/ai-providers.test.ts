@@ -29,11 +29,13 @@ import {
   completeWithProvider,
   getProviderPriority,
   hasAnyProviderKey,
+  isRequestSizeError,
   keyedProviders,
   normalizePreferredProvider,
   normalizeProviderHint,
   publicProviderStatus,
   resolveSiteKeys,
+  __resetProviderBreakers,
   type ProviderKeys,
 } from "@/lib/ai/providers";
 import { maskSettingsSecrets } from "@/lib/security";
@@ -421,5 +423,91 @@ describe("key hygiene — keys never leak into client-safe payloads", () => {
       const e = err as AllProvidersFailedError;
       expect(JSON.stringify(e.attempts)).not.toContain(FAKE.groq);
     }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Re-audit #2 (2026-10-22): request-size rejections + Gemini leg.    */
+/* Production evidence: Groq answered oversized requests with HTTP    */
+/* 413 "[rate_limit_exceeded] Request too large … Limit 8000,          */
+/* Requested 9081–10521" — and the old classification let two of      */
+/* those trip the rate breaker and sideline the only working          */
+/* provider for every smaller, healthy request behind them.           */
+/* ------------------------------------------------------------------ */
+describe("re-audit #2 — request-size rejections", () => {
+  beforeEach(() => {
+    __resetProviderBreakers();
+  });
+
+  it("isRequestSizeError recognises the production 413 shape", () => {
+    expect(
+      isRequestSizeError(
+        new Error(
+          "groq: HTTP 413 [rate_limit_exceeded] 413 Request too large for model `openai/gpt-oss-120b` in organization `org_x` on tokens per minute (TPM): Limit 8000, Requested 9081, please reduce your message size and try again."
+        )
+      )
+    ).toBe(true);
+    expect(
+      isRequestSizeError(Object.assign(new Error("x"), { status: 413 }))
+    ).toBe(true);
+    expect(
+      isRequestSizeError(
+        new Error("groq: HTTP 429 [rate_limit_exceeded] Rate limit reached for model")
+      )
+    ).toBe(false);
+    expect(isRequestSizeError(new Error("openai: HTTP 500 boom"))).toBe(false);
+  });
+
+  it("size rejections never trip the circuit breaker", async () => {
+    const keys: ProviderKeys = { groq: FAKE.groq };
+    const sizeErr = Object.assign(
+      new Error(
+        "413 Request too large for model `openai/gpt-oss-120b` on tokens per minute (TPM): Limit 8000, Requested 10521, please reduce your message size"
+      ),
+      { status: 413 }
+    );
+    mockCreate.mockRejectedValue(sizeErr);
+    await expect(
+      completeWithFallback({ messages: [{ role: "user", content: "hi" }] }, { keys })
+    ).rejects.toBeInstanceOf(AllProvidersFailedError);
+    await expect(
+      completeWithFallback({ messages: [{ role: "user", content: "hi" }] }, { keys })
+    ).rejects.toBeInstanceOf(AllProvidersFailedError);
+    // Third call: groq must STILL be attempted (breaker stayed closed
+    // for size rejections) — and now it answers.
+    openAiOk("small answer");
+    const res = await completeWithFallback(
+      { messages: [{ role: "user", content: "hi" }] },
+      { keys }
+    );
+    expect(res?.text).toBe("small answer");
+    expect(mockCreate).toHaveBeenCalledTimes(3);
+  });
+
+  it("fails over to Gemini when it holds a key (F2 leg)", async () => {
+    const keys: ProviderKeys = { groq: FAKE.groq, gemini: FAKE.gemini };
+    mockCreate.mockRejectedValue(
+      Object.assign(new Error("429 Rate limit reached for model"), {
+        status: 429,
+      })
+    );
+    vi.stubGlobal("fetch", geminiFetchOk("gemini answer"));
+    const res = await completeWithFallback(
+      { messages: [{ role: "user", content: "hi" }] },
+      { keys }
+    );
+    expect(res?.provider).toBe("gemini");
+    expect(res?.text).toBe("gemini answer");
+  });
+
+  it("keyedProviders includes gemini in priority order when it holds a key", () => {
+    expect(keyedProviders({ gemini: FAKE.gemini })).toEqual(["gemini"]);
+    expect(
+      keyedProviders({
+        groq: FAKE.groq,
+        gemini: FAKE.gemini,
+        openai: FAKE.openai,
+      })
+    ).toEqual(["groq", "gemini", "openai"]);
   });
 });

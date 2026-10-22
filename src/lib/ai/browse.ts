@@ -35,8 +35,20 @@ import { logger } from "../logger";
 const MAX_REDIRECTS = 3;
 const TIMEOUT_MS = 10_000;
 const MAX_BODY_BYTES = 1_500_000;
-const MAX_TEXT_CHARS = 12_000;
-const MAX_LINKS = 25;
+/**
+ * Result-size budget (re-audit #2, 2026-10-22): the extracted text is
+ * appended to the chat request for the composition round, and the
+ * production provider budget is a hard per-minute token ceiling
+ * (Groq TPM 8,000 — a 12,000-char page result pushed real round-2
+ * requests to 9,081–10,521 tokens and Groq rejected them outright
+ * with HTTP 413, killing the whole turn AFTER a successful fetch).
+ * 5,000 chars of lead content (title + description + the page's
+ * opening text, in reading order) plus at most 10 links keeps a
+ * browse round comfortably inside the budget while still answering
+ * from what the page actually says.
+ */
+const MAX_TEXT_CHARS = 5_000;
+const MAX_LINKS = 10;
 const BROWSE_USER_AGENT =
   "RideBanglaAIAgent/1.0 (+https://ridebangla.bd)";
 

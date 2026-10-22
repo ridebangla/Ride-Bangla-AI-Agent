@@ -346,6 +346,29 @@ export function publicProviderStatus(keys: ProviderKeys): {
  */
 export type ProviderErrorClass = "credential" | "rate" | "transient";
 
+/**
+ * Request-SIZE rejections (re-audit #2, 2026-10-22): Groq answers an
+ * over-budget request with HTTP 413 "[rate_limit_exceeded] Request too
+ * large … please reduce your message size" — the request ALONE exceeds
+ * the provider's per-minute token ceiling. That is a property of THIS
+ * request, not of the provider's health: the same provider answers a
+ * smaller request immediately. Classifying it as "rate" used to trip
+ * the breaker after 2 such failures and sideline the one working
+ * provider for every (smaller, healthy) request behind it — two big
+ * browse turns could take the whole chat down. Size rejections are
+ * therefore never recorded against the breaker; failover to the next
+ * provider still happens (a different provider may accept the size),
+ * and the engine's reduced-request salvage can react to the marker.
+ */
+export function isRequestSizeError(err: unknown): boolean {
+  const status = (err as { status?: number } | null)?.status;
+  if (status === 413) return true;
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return /HTTP 413\b|request too large|reduce your message size|too large for model/i.test(
+    message
+  );
+}
+
 const CREDENTIAL_MARKERS =
   /credit_balance|insufficient_quota|insufficient[ _-]?funds|billing|payment required|invalid api key|invalid_api_key|api key not valid/i;
 
@@ -405,6 +428,9 @@ function recordProviderSuccess(provider: RealProvider, apiKey: string): void {
 }
 
 function recordProviderFailure(provider: RealProvider, apiKey: string, err: unknown): void {
+  // A request-size rejection indicts the request, not the provider —
+  // never let it trip the breaker (see isRequestSizeError).
+  if (isRequestSizeError(err)) return;
   const cls = classifyProviderError(err);
   const id = breakerId(provider, apiKey);
   const now = Date.now();

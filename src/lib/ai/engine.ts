@@ -6,6 +6,7 @@ import {
   normalizePreferredProvider,
   resolveSiteKeys,
   type ChatMessage as ProviderChatMessage,
+  type ChatCompletionResult,
   type ProviderKeys,
   type StreamCallbacks,
 } from "./providers";
@@ -70,6 +71,145 @@ export interface ChatResult {
    * Undefined/true = a brain answered.
    */
   aiConfigured?: boolean;
+}
+
+/* ------------------------------------------------------------------ */
+/* Re-audit #2 (2026-10-22) — measured latency/failure fixes F1/F4/F6/F7
+ * (agent-reply-latency.md §8.7). The production evidence: one chat
+ * completion requested ≈6,262 tokens against an 8,000 tokens-per-minute
+ * provider ceiling (so tool-loop rounds and busy minutes failed
+ * outright), the in-engine prep ran ≈4–7s of sequential reads before
+ * the first provider attempt, and when a later tool-loop round failed,
+ * the successful rounds before it were discarded for the generic
+ * failure text. The changes below attack exactly those stages:
+ *
+ *  F1 — chat completions are capped at a chat-sized maxTokens, the
+ *       replayed history is capped, and tool results stored in the
+ *       message list are size-capped, so a single request stays
+ *       inside the provider budget.
+ *  F4 — the independent prep reads run concurrently, and
+ *       [latency]/[tokens] spans make every stage measurable in
+ *       the production logs from now on (the split was UNMEASURED).
+ *       (A short-TTL knowledge/catalog cache was tried and REMOVED
+ *       the same day: an existing suite test encodes that knowledge
+ *       edits reach the very next chat — freshness is the product
+ *       requirement, concurrency is the honest win.)
+ *  F6 — when a completion fails, ONE reduced retry (no tools, small
+ *       maxTokens, tool results re-capped tighter) tries to answer
+ *       from the material already gathered instead of discarding it.
+ *       Routing only — no reply text changes.
+ *  F7 — a message that is ONLY a greeting takes a fast path: one
+ *       small tool-less completion under the same tone/language/
+ *       honorific rules, so the commonest visitor turn no longer pays
+ *       the full pipeline. Any failure falls through to the normal
+ *       pipeline, never to a worse outcome.
+ * ------------------------------------------------------------------ */
+const CHAT_MAX_TOKENS_CAP = 1024;
+const SALVAGE_MAX_TOKENS = 512;
+const GREETING_MAX_TOKENS = 200;
+const HISTORY_MESSAGE_CAP = 12;
+const TOOL_RESULT_CHAR_CAP = 6_000;
+const SALVAGE_TOOL_RESULT_CHAR_CAP = 2_000;
+
+/** Rough request-size estimate for the [tokens] log line (chars/3.5
+ *  tracks the providers' own accounting closely enough to see which
+ *  stage spends the budget; labelled an estimate wherever reported). */
+const TOOLS_JSON_CHARS = JSON.stringify(agentTools).length;
+function estimateRequestTokens(
+  messages: Array<{ content?: string }>,
+  withTools: boolean
+): number {
+  let chars = withTools ? TOOLS_JSON_CHARS : 0;
+  for (const m of messages) chars += m.content?.length ?? 0;
+  return Math.ceil(chars / 3.5);
+}
+
+function logLatencySpan(
+  stage: string,
+  startedAt: number,
+  extra?: Record<string, unknown>
+): void {
+  logger.info("[latency]", {
+    stage,
+    ms: Date.now() - startedAt,
+    ...extra,
+  });
+}
+
+const GREETING_PHRASES = new Set([
+  "hi",
+  "hello",
+  "hey",
+  "salam",
+  "assalamu alaikum",
+  "assalamualaikum",
+  "as-salamu alaikum",
+  "good morning",
+  "good afternoon",
+  "good evening",
+  "namaste",
+  "আসসালামু আলাইকুম",
+  "হাই",
+  "হ্যালো",
+  "শুভ সকাল",
+  "শুভ বিকেল",
+  "শুভ সন্ধ্যা",
+  "শুভ রাত",
+  "নমস্কার",
+  "আদাব",
+]);
+const GREETING_WORDS = new Set([
+  "hi",
+  "hello",
+  "hey",
+  "hii",
+  "salam",
+  "assalamu",
+  "alaikum",
+  "walaikum",
+  "good",
+  "morning",
+  "afternoon",
+  "evening",
+  "namaste",
+  "adab",
+  "হাই",
+  "হ্যালো",
+  "সালাম",
+  "আসসালামু",
+  "আলাইকুম",
+  "শুভ",
+  "সকাল",
+  "বিকেল",
+  "সন্ধ্যা",
+  "রাত",
+  "নমস্কার",
+  "আদাব",
+]);
+
+/**
+ * F7: is this message ONLY a greeting? Deliberately conservative —
+ * any question mark, any extra content word, or length beyond a
+ * greeting means the full pipeline handles it. Exported for tests.
+ */
+export function isPureGreeting(message: string): boolean {
+  const raw = (message || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[!।.,~…]+$/u, "")
+    .trim();
+  if (!raw || raw.length > 40) return false;
+  if (/[?？]/.test(raw)) return false;
+  if (GREETING_PHRASES.has(raw)) return true;
+  const words = raw
+    .split(/\s+/)
+    .map((w) => w.replace(/[!।.,~…]+/gu, ""))
+    .filter(Boolean);
+  return (
+    words.length > 0 &&
+    words.length <= 5 &&
+    words.every((w) => GREETING_WORDS.has(w))
+  );
 }
 
 function toProductCard(p: CatalogProduct): ProductCard {
@@ -236,6 +376,83 @@ export async function getAIConfig(): Promise<
   };
 }
 
+/**
+ * F7 fast-path prompt: a greeting turn's whole job is a warm, brief
+ * reply and an offer to help. The tone lines, the language rule and
+ * the honorific rule are the same sentences buildSystemPrompt uses —
+ * a greeting must sound like the same agent, only faster. (The one
+ * new sentence is the final task line; it is printed verbatim in the
+ * re-audit #2 log for the owner's review, per the agent-speech rule.)
+ */
+function buildGreetingSystemPrompt(
+  config: AIConfig & ConversationContext
+): string {
+  const toneGuide: Record<string, string> = {
+    friendly:
+      "Be warm, approachable, and conversational. Use a casual but professional tone.",
+    professional:
+      "Be polished and business-like. Maintain a confident, competent tone while remaining personable.",
+    formal:
+      "Be professional, polished, and courteous. Use formal language and proper grammar.",
+    technical:
+      "Be precise and detailed. Use technical terminology when appropriate and provide thorough explanations.",
+  };
+  return `You are the Ride Bangla AI Agent, the AI customer support assistant for ${config.businessName}.
+${config.businessDesc ? `About the business: ${config.businessDesc}` : ""}
+${toneGuide[config.tone] || toneGuide.friendly}
+${config.language !== "auto" ? `Always respond in: ${config.language}` : "Respond in the same language the customer uses. If the customer writes in Bengali (বাংলা), reply in Bengali. If they write in English, reply in English. Never mix languages in one reply unless the customer does."}
+Address a visitor whose gender you do not know as "স্যার/ম্যাডাম" in Bengali or "Sir/Madam" in English — never bare "স্যার" or "Sir" alone.
+The customer has only greeted you. Reply with a warm, brief greeting and ask how you can help. Keep it to one or two sentences.`;
+}
+
+/**
+ * F7: one small tool-less completion for a pure greeting. Returns
+ * null on ANY failure (no key, provider error, empty text) so the
+ * caller falls through to the full pipeline — the fast path can only
+ * ever make a greeting faster, never worse.
+ */
+async function tryGreetingFastPath(
+  config: AIConfig & ConversationContext,
+  userMessage: string,
+  conversationId: string,
+  keys: ProviderKeys,
+  stream?: StreamCallbacks
+): Promise<string | null> {
+  const startedAt = Date.now();
+  try {
+    await reportActivity(conversationId, "composing");
+    const req = {
+      messages: [
+        { role: "system" as const, content: buildGreetingSystemPrompt(config) },
+        { role: "user" as const, content: userMessage },
+      ],
+      model: config.model,
+      maxTokens: GREETING_MAX_TOKENS,
+      temperature: config.temperature,
+    };
+    const completionOpts = {
+      keys,
+      preferredProvider: normalizePreferredProvider(config.provider),
+      label: "chat-greeting",
+    };
+    const completion = stream?.onToken
+      ? await streamWithFallback(req, { ...completionOpts, stream })
+      : await completeWithFallback(req, completionOpts);
+    const text = completion?.text ?? "";
+    logLatencySpan("greeting", startedAt, {
+      conversationId,
+      ok: text.trim().length > 0,
+    });
+    return text.trim().length > 0 ? text : null;
+  } catch (err) {
+    logger.warn("[brain] greeting fast path failed; using the full pipeline", {
+      conversationId,
+      reason: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
 export async function chat(
   conversationId: string,
   userMessage: string,
@@ -252,14 +469,22 @@ export async function chat(
     onRetract?: () => void;
   }
 ): Promise<ChatResult> {
-  const config = await getAIConfig();
-
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: conversationId },
-    include: {
-      messages: { orderBy: { createdAt: "asc" }, take: 50 },
-    },
-  });
+  // F4: the three opening reads are independent (tenant settings,
+  // the conversation, the provider keys) — run them concurrently
+  // instead of sequentially, and span the block so the prep stage is
+  // measurable in production logs from now on.
+  const prepStartedAt = Date.now();
+  const [config, conversation, keys] = await Promise.all([
+    getAIConfig(),
+    prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        messages: { orderBy: { createdAt: "asc" }, take: 50 },
+      },
+    }),
+    resolveSiteKeys(),
+  ]);
+  logLatencySpan("prep.reads", prepStartedAt, { conversationId });
 
   if (!conversation) {
     return { response: "Conversation not found.", products: [], silent: false };
@@ -297,10 +522,10 @@ export async function chat(
     return { response: "", products: [], silent: true };
   }
 
-  // ---- Resolve AI keys (per-site dedicated keys first, shared env keys
-  // as fallback). Every AI path below degrades honestly when nothing
-  // resolves — never a faked reply.
-  const keys = await resolveSiteKeys();
+  // Provider keys were resolved in the parallel prep block above
+  // (per-site dedicated keys first, shared env keys as fallback).
+  // Every AI path below degrades honestly when nothing resolves —
+  // never a faked reply.
   const brainOnline = hasAnyProviderKey(keys);
 
   // ---- Multimodal perception (real path, not a stub) ----
@@ -434,15 +659,72 @@ export async function chat(
     };
   }
 
+  // ---- F7: pure-greeting fast path (re-audit #2) ----
+  // A message that is ONLY a greeting gets one small tool-less
+  // completion instead of the full pipeline (knowledge + catalog +
+  // tools + history). Any fast-path failure falls through to the
+  // normal flow below — never to a worse outcome.
+  if (!opts?.media && isPureGreeting(effectiveMessage)) {
+    const greetingStream: StreamCallbacks | undefined = opts?.onToken
+      ? { onToken: opts.onToken, onRetract: opts.onRetract }
+      : undefined;
+    const greeting = await tryGreetingFastPath(
+      config,
+      effectiveMessage,
+      conversationId,
+      keys,
+      greetingStream
+    );
+    if (greeting) {
+      // Persist + emit + meter, mirroring the normal tail's
+      // essentials (fail-soft: the reply is already generated).
+      try {
+        const savedMessage = await prisma.message.create({
+          data: withBusinessId({
+            conversationId,
+            role: "assistant",
+            content: greeting,
+          }),
+        });
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { updatedAt: new Date() },
+        });
+        emitNewMessage(conversationId, {
+          id: savedMessage.id,
+          role: "assistant",
+          content: greeting,
+        });
+      } catch (err) {
+        logger.warn("[brain] could not persist greeting reply; returning it anyway", {
+          conversationId,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+      const greetingBusinessId = getBusinessId();
+      if (greetingBusinessId) {
+        void recordAiMessage(greetingBusinessId);
+      }
+      await clearActivity(conversationId);
+      return { response: greeting, products: [], silent: false };
+    }
+  }
+
   // Live activity: the agent consults the business knowledge base for
   // every brain-online turn before composing.
   await reportActivity(conversationId, "consulting_knowledge");
-  const knowledgeBase = await getKnowledgeBase();
+  // F4: knowledge base + catalog brief are independent reads —
+  // fetch them concurrently (they used to run one after the other).
+  const knowledgeStartedAt = Date.now();
+  const [knowledgeBase, catalogBrief] = await Promise.all([
+    getKnowledgeBase(),
+    getCatalogBrief().catch(() => ""),
+  ]);
+  logLatencySpan("prep.knowledge", knowledgeStartedAt, { conversationId });
 
   // ---- Intent understanding: shape the answer for THIS question ----
   const intent = classifyIntent(effectiveMessage);
   const intentGuidance = getIntentGuidance(intent.intent);
-  const catalogBrief = await getCatalogBrief().catch(() => "");
 
   const context: ConversationContext = {
     ...config,
@@ -452,12 +734,17 @@ export async function chat(
     customerHistory: [],
   };
 
-  // Build message history
+  // Build message history. F1: only the most recent exchanges are
+  // replayed into the completion — the full record stays in the
+  // database (and in the dashboard), but replaying up to 50 stored
+  // messages made long threads spend the whole provider token
+  // budget on history instead of the answer.
   const messages: AIMessage[] = [
     { role: "system", content: buildSystemPrompt(context, { intentGuidance, catalogBrief }) },
   ];
 
-  for (const msg of conversation.messages) {
+  const recentMessages = conversation.messages.slice(-HISTORY_MESSAGE_CAP);
+  for (const msg of recentMessages) {
     if (msg.role === "customer") {
       messages.push({ role: "user", content: msg.content });
     } else if (msg.role === "assistant") {
@@ -730,6 +1017,55 @@ function collectOrderSignal(
   }
 }
 
+/**
+ * F6 salvage (re-audit #2): ONE reduced retry after a failed
+ * completion. The retry drops the tool definitions (the single
+ * largest fixed block in the request), re-caps tool results
+ * tighter, and asks for a short answer — a request small enough to
+ * fit a partly-spent provider token window, composed from the
+ * material the turn already gathered (tool results, knowledge,
+ * history). Returns the completion only when it carries real text;
+ * any failure returns null and the caller uses the pre-existing
+ * generic failure reply, unchanged.
+ */
+async function attemptSalvageCompletion(
+  config: AIConfig,
+  messages: AIMessage[],
+  keys: ProviderKeys
+): Promise<ChatCompletionResult | null> {
+  try {
+    const reducedMessages = messages.map((m) =>
+      m.role === "tool" && m.content.length > SALVAGE_TOOL_RESULT_CHAR_CAP
+        ? { ...m, content: m.content.slice(0, SALVAGE_TOOL_RESULT_CHAR_CAP) }
+        : m
+    );
+    const completion = await completeWithFallback(
+      {
+        messages: reducedMessages as ProviderChatMessage[],
+        model: config.model,
+        maxTokens: SALVAGE_MAX_TOKENS,
+        temperature: config.temperature,
+      },
+      {
+        keys,
+        preferredProvider: normalizePreferredProvider(config.provider),
+        label: "chat-salvage",
+      }
+    );
+    const text = completion?.text ?? "";
+    if (!completion || text.trim().length === 0) return null;
+    logger.info("[brain] salvage composition succeeded", {
+      estTokens: estimateRequestTokens(reducedMessages, false),
+    });
+    return completion;
+  } catch (err) {
+    logger.warn("[brain] salvage composition failed", {
+      reason: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
 async function callAI(
   config: AIConfig,
   messages: AIMessage[],
@@ -738,7 +1074,8 @@ async function callAI(
   depth = 0,
   collectedProducts: ProductCard[] = [],
   orderSignal: { taken: boolean; ref: string } = { taken: false, ref: "" },
-  stream?: StreamCallbacks
+  stream?: StreamCallbacks,
+  salvageUsed = false
 ): Promise<{ response: string; products: ProductCard[]; orderTaken: boolean; orderRef: string }> {
   if (depth > 5) {
     return {
@@ -754,19 +1091,49 @@ async function callAI(
   // (each recursion after tool results re-reports this).
   await reportActivity(conversationId, "composing");
 
+  // Stream-token tracking for the F6 salvage decision below: if
+  // reply text already reached the visitor and was NOT retracted, a
+  // second composition must not start (the visible partial is
+  // settled by the caller's terminal payload, exactly as before).
+  let tokensForwarded = false;
+  let tokensRetracted = false;
+  const trackedStream: StreamCallbacks | undefined = stream?.onToken
+    ? {
+        onToken: (t) => {
+          tokensForwarded = true;
+          stream.onToken!(t);
+        },
+        onRetract: () => {
+          tokensRetracted = true;
+          stream.onRetract?.();
+        },
+      }
+    : undefined;
+
   // Multi-provider brain: the business's preferred provider
   // (settings.aiProvider) is tried first, then the AI_PROVIDER_PRIORITY
   // chain with failover. No keys at all → honest degradation (the caller
   // guarantees this path never runs without a key). With stream
   // callbacks the same chain runs through streamWithFallback, so the
   // reply renders as it generates; the result shape is identical.
-  let completion;
+  let completion: ChatCompletionResult | null | undefined;
+  let completionError: unknown = null;
   try {
     const completionReq = {
       messages: messages as ProviderChatMessage[],
       model: config.model,
       tools: agentTools,
-      maxTokens: config.maxTokens,
+      // F1: chat replies are short (production replies observed at
+      // ≤ ~600 chars); the settings default of 2048 reserved tokens
+      // the chat never spends but the provider's per-minute budget
+      // charges for on every request. A business's own lower setting
+      // is still respected.
+      maxTokens: Math.min(
+        typeof config.maxTokens === "number" && config.maxTokens > 0
+          ? config.maxTokens
+          : 2048,
+        CHAT_MAX_TOKENS_CAP
+      ),
       temperature: config.temperature,
     };
     const completionOpts = {
@@ -774,21 +1141,36 @@ async function callAI(
       preferredProvider: normalizePreferredProvider(config.provider),
       label: "chat",
     };
-    completion = stream?.onToken
-      ? await streamWithFallback(completionReq, { ...completionOpts, stream })
+    logger.info("[tokens] completion request", {
+      depth,
+      estTokens: estimateRequestTokens(messages, true),
+      messageCount: messages.length,
+    });
+    completion = trackedStream
+      ? await streamWithFallback(completionReq, {
+          ...completionOpts,
+          stream: trackedStream,
+        })
       : await completeWithFallback(completionReq, completionOpts);
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    logger.warn("[brain] all AI providers failed", { reason });
-    return {
-      response:
-        "I'm temporarily unable to process your request. Please try again in a moment, or I can connect you with a team member.",
-      products: collectedProducts,
-      orderTaken: orderSignal.taken,
-      orderRef: orderSignal.ref,
-    };
+    completionError = err;
+  }
+  if (!completion && !salvageUsed && (!tokensForwarded || tokensRetracted)) {
+    // F6 — degrade, don't discard: one reduced retry (no tools,
+    // small maxTokens, tool results re-capped tighter) answers from
+    // the material already gathered instead of throwing away a
+    // successful tool round (or a whole turn) for the generic text.
+    const salvaged = await attemptSalvageCompletion(config, messages, keys);
+    if (salvaged) completion = salvaged;
   }
   if (!completion) {
+    if (completionError) {
+      const reason =
+        completionError instanceof Error
+          ? completionError.message
+          : String(completionError);
+      logger.warn("[brain] all AI providers failed", { reason });
+    }
     return {
       response:
         "I'm temporarily unable to process your request. Please try again in a moment, or I can connect you with a team member.",
@@ -866,15 +1248,25 @@ async function callAI(
       // Behaviour package: harvest the order-completed signal.
       collectOrderSignal(toolCall.function.name, result, orderSignal);
 
+      // F1: the result enters the NEXT completion request verbatim —
+      // cap what is stored in the message list (the harvesters above
+      // already read the full result) so one large tool output can
+      // never again push the composition round over the provider's
+      // per-minute token ceiling by itself.
+      const cappedResult =
+        result.length > TOOL_RESULT_CHAR_CAP
+          ? result.slice(0, TOOL_RESULT_CHAR_CAP) +
+            "\n[Tool output was cut short to fit the reply budget.]"
+          : result;
       messages.push({
         role: "tool",
-        content: result,
+        content: cappedResult,
         tool_call_id: toolCall.id,
       });
     }
 
     // Continue the conversation with tool results
-    return callAI(config, messages, conversationId, keys, depth + 1, collectedProducts, orderSignal, stream);
+    return callAI(config, messages, conversationId, keys, depth + 1, collectedProducts, orderSignal, stream, salvageUsed);
   }
 
   return {

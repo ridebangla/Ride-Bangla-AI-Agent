@@ -244,5 +244,92 @@ describe("AI Engine", () => {
 
     expect(result.response).toContain("could not generate a response");
   });
+
+  it("re-audit #2 (F6): a failed completion is salvaged by one reduced retry", async () => {
+    const sizeError = Object.assign(
+      new Error(
+        "413 Request too large for model `gpt-4` on tokens per minute (TPM): Limit 8000, Requested 9081, please reduce your message size"
+      ),
+      { status: 413 }
+    );
+    mockOpenAICreateFn
+      .mockRejectedValueOnce(sizeError)
+      .mockResolvedValueOnce({
+        choices: [
+          { finish_reason: "stop", message: { content: "Salvaged answer" } },
+        ],
+      });
+
+    const { chat } = await import("@/lib/ai/engine");
+    const result = await chat("conv-1", "Tell me about your services");
+
+    expect(result.response).toBe("Salvaged answer");
+    expect(mockOpenAICreateFn).toHaveBeenCalledTimes(2);
+    // The salvage request is reduced: no tools, small maxTokens.
+    const salvageParams = mockOpenAICreateFn.mock.calls[1][0] as Record<
+      string,
+      unknown
+    >;
+    expect(salvageParams.tools).toBeUndefined();
+    expect(salvageParams.max_tokens).toBeLessThanOrEqual(512);
+  });
+
+  it("re-audit #2 (F6): when the salvage also fails, the generic failure reply stands", async () => {
+    const sizeError = Object.assign(
+      new Error(
+        "413 Request too large for model `gpt-4` on tokens per minute (TPM): Limit 8000, Requested 9081, please reduce your message size"
+      ),
+      { status: 413 }
+    );
+    mockOpenAICreateFn.mockRejectedValue(sizeError);
+
+    const { chat } = await import("@/lib/ai/engine");
+    const result = await chat("conv-1", "Tell me about your services");
+
+    expect(result.response).toContain(
+      "temporarily unable to process your request"
+    );
+  });
+
+  it("re-audit #2 (F7): a pure greeting takes the fast path (one small tool-less completion)", async () => {
+    mockOpenAICreateFn.mockResolvedValue({
+      choices: [
+        {
+          finish_reason: "stop",
+          message: { content: "Hello! How can I help you today?" },
+        },
+      ],
+    });
+
+    const { chat } = await import("@/lib/ai/engine");
+    const result = await chat("conv-1", "Hello");
+
+    expect(result.response).toBe("Hello! How can I help you today?");
+    expect(mockOpenAICreateFn).toHaveBeenCalledTimes(1);
+    const params = mockOpenAICreateFn.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(params.tools).toBeUndefined();
+    expect(params.max_tokens).toBe(200);
+  });
+
+  it("re-audit #2 (F7): a greeting plus a question uses the full pipeline", async () => {
+    mockOpenAICreateFn.mockResolvedValue({
+      choices: [
+        { finish_reason: "stop", message: { content: "We offer delivery." } },
+      ],
+    });
+
+    const { chat } = await import("@/lib/ai/engine");
+    const result = await chat("conv-1", "Hello, what services do you offer?");
+
+    expect(result.response).toBe("We offer delivery.");
+    const params = mockOpenAICreateFn.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(params.tools).toBeDefined();
+  });
 });
 

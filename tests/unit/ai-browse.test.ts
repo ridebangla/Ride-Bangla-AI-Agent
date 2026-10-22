@@ -121,11 +121,27 @@ describe("extractPageContent", () => {
     );
   });
 
-  it("caps extracted text at the context budget", () => {
+  it("caps extracted text at the reply budget (re-audit #2: 5,000 chars)", () => {
+    // The extracted text is appended to the composition request; at
+    // the old 12,000-char budget a fetched page pushed real requests
+    // past the provider's per-minute token ceiling (HTTP 413) and
+    // killed the turn after a successful fetch.
     const big = `<html><body><p>${"x".repeat(20000)}</p></body></html>`;
     const capped = extractPageContent(big, "https://example.com/");
-    expect(capped.text.length).toBeLessThanOrEqual(12000);
+    expect(capped.text.length).toBeLessThanOrEqual(5000);
     expect(capped.textTruncated).toBe(true);
+  });
+
+  it("caps the link list at 10 (re-audit #2)", () => {
+    const anchors = Array.from(
+      { length: 30 },
+      (_, i) => `<a href="https://example.com/p${i}">Page ${i}</a>`
+    ).join("");
+    const page = extractPageContent(
+      `<html><body>${anchors}</body></html>`,
+      "https://example.com/"
+    );
+    expect(page.links.length).toBeLessThanOrEqual(10);
   });
 
   it("handles plain-text pages", () => {

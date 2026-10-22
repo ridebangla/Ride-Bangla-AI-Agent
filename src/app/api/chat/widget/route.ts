@@ -113,6 +113,44 @@ class GateDeadlineError extends Error {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Gate headroom (re-audit #2, F5 — agent-reply-latency.md §8.7)
+// ---------------------------------------------------------------------------
+// The healthy gate chain measured 2.2–2.6s of SEQUENTIAL Firestore
+// reads, occasionally breaching the 2.5s deadline on healthy traffic
+// (GateDeadlineError in the 2026-10-22 logs). Two structural fixes:
+//  1. The siteKey → business mapping is near-static (it changes only
+//     when a business is created or re-keyed), so it is cached in
+//     instance memory for a minute; subscription/limit state is NOT
+//     cached — billing gates always read fresh state.
+//  2. The subscription and message-limit reads are independent and
+//     now run concurrently instead of one after the other; the
+//     decisions are still applied in the original order.
+// The gate deadline above stays as the safety net, and the chain now
+// logs a [latency] span so its cost stays measurable.
+type SiteKeyBusiness = { id: string; name: string; isInternalAccount?: unknown };
+const businessBySiteKeyCache = new Map<
+  string,
+  { at: number; business: SiteKeyBusiness }
+>();
+
+function siteKeyCacheTtlMs(): number {
+  const n = Number(process.env.WIDGET_SITEKEY_CACHE_TTL_MS);
+  return Number.isFinite(n) && n >= 0 && n <= 600_000 ? n : 60_000;
+}
+
+async function getBusinessBySiteKeyCached(
+  siteKey: string
+): Promise<SiteKeyBusiness | null> {
+  const hit = businessBySiteKeyCache.get(siteKey);
+  if (hit && Date.now() - hit.at < siteKeyCacheTtlMs()) return hit.business;
+  const business = await getBusinessBySiteKey(siteKey);
+  if (business) {
+    businessBySiteKeyCache.set(siteKey, { at: Date.now(), business });
+  }
+  return business;
+}
+
 const GRACEFUL_TURN_TEXT = {
   bn: "দুঃখিত, এই মুহূর্তে আপনার বার্তাটির উত্তর দিতে একটু সমস্যা হচ্ছে। অনুগ্রহ করে একটু পরে আবার চেষ্টা করুন, অথবা জরুরি হলে আমাদের টিমের সঙ্গে সরাসরি যোগাযোগ করুন।",
   en: "I'm sorry, I'm having a little trouble answering your message right now. Please try again in a moment, or contact our team directly if it's urgent.",
@@ -186,7 +224,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const business = await gated(getBusinessBySiteKey(siteKey));
+    const gatesStartedAt = Date.now();
+    const business = await gated(getBusinessBySiteKeyCached(siteKey));
     if (!business) {
       return NextResponse.json({ error: "Invalid site key" }, { status: 401 });
     }
@@ -195,7 +234,15 @@ export async function POST(request: NextRequest) {
     // processed. Inactive trial/subscription => HTTP 402 +
     // { error: "subscription_paused" }; the widget renders a beautiful
     // "Subscription paused" state and sends nothing further.
-    const sub = await gated(getSubscription(business.id));
+    // F5: the subscription and message-limit reads are independent —
+    // they run concurrently; the decisions below keep the original
+    // order and shapes.
+    const [sub, messageLimitExceeded] = await gated(
+      Promise.all([
+        getSubscription(business.id),
+        checkMessageLimitExceeded(business.id),
+      ])
+    );
     if (!sub.isActive) {
       logger.warn(
         `[billing] blocked widget chat for business ${business.id}: subscription inactive`
@@ -210,7 +257,7 @@ export async function POST(request: NextRequest) {
       );
       return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
     }
-    if (await gated(checkMessageLimitExceeded(business.id))) {
+    if (messageLimitExceeded) {
       return NextResponse.json({ error: "message_limit_reached" }, { status: 402 });
     }
     enterBusinessContext(business.id);
@@ -331,6 +378,10 @@ export async function POST(request: NextRequest) {
       convId = conv.id;
     }
     failureConversationId = convId;
+    logger.info("[latency]", {
+      stage: "widget.gates",
+      ms: Date.now() - gatesStartedAt,
+    });
 
     if (wantsStream) {
       const encoder = new TextEncoder();
