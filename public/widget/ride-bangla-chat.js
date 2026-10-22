@@ -1,6 +1,22 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-22.6 (owner correction 2026-10-22:
+ * CANONICAL EMBED — v2026-10-22.7 (re-audit #2, owner reports
+ * 2026-10-22: (1) TYPING LAW — the typing bubble now exists ONLY
+ * before the first token of a turn: the stream 'retract' handler
+ * no longer re-adds it after tokens were shown (the post-reply
+ * "typing" echo the owner called unprofessional); the mascot
+ * working state still covers genuine in-flight work. (2) VOICE
+ * INPUT — a Permissions API pre-flight runs before getUserMedia:
+ * an already-denied microphone (browser policy or a prior denial,
+ * which never shows a prompt) now renders a brief SYSTEM NOTICE
+ * explaining the block instead of a fake agent reply, and every
+ * mic/recording error renders as that subtle notice rather than
+ * a bot message. (3) VOICE PLAYBACK — every agent reply carries
+ * a small speaker control that reads the reply aloud in the
+ * reply's own language via the browser's speech synthesis (no
+ * autoplay; click again stops; a new playback stops the old;
+ * hidden where speech is unavailable)). Prior:
+ * v2026-10-22.6 (owner correction 2026-10-22:
  * the v.5 whole-figure IDLE framing read TOO BIG in the front
  * slots — the idle/front clip is a SMALL CHEST-UP bust again,
  * the pre-v.5 presentation the owner liked (band y 64-544);
@@ -323,6 +339,9 @@
       recordingTooLong: "That recording is too long (max 10 MB). Please try a shorter one.",
       recordingProcessError: "I couldn't process that recording. Please try again.",
       micDenied: "I couldn't access the microphone. Please check the browser permission and try again.",
+      micBlocked: "Microphone is blocked for this site. Allow it from the browser's site settings, then tap the mic again.",
+      listenReply: "Listen to this reply",
+      stopListening: "Stop listening",
       micNotFound: "No microphone was found. Please check your device and try again.",
       micBusy: "The microphone is being used by another app. Please close it and try again.",
     },
@@ -363,6 +382,9 @@
       recordingTooLong: "রেকর্ডিংটি অনেক লম্বা (সর্বোচ্চ ১০ MB)। ছোট করে আবার রেকর্ড করুন।",
       recordingProcessError: "রেকর্ডিংটি প্রসেস করতে পারিনি। আবার চেষ্টা করুন।",
       micDenied: "মাইক্রোফোন ব্যবহারের অনুমতি পাইনি। ব্রাউজারের অনুমতি দেখে আবার চেষ্টা করুন।",
+      micBlocked: "এই সাইটের জন্য মাইক্রোফোন বন্ধ আছে। ব্রাউজারের সাইট সেটিংস থেকে অনুমতি দিয়ে আবার মাইকে চাপ দিন।",
+      listenReply: "উত্তরটি শুনুন",
+      stopListening: "শোনা থামান",
       micNotFound: "কোনো মাইক্রোফোন পাওয়া যায়নি। আপনার ডিভাইস দেখে আবার চেষ্টা করুন।",
       micBusy: "মাইক্রোফোনটি অন্য অ্যাপে ব্যবহৃত হচ্ছে। সেটি বন্ধ করে আবার চেষ্টা করুন।",
     },
@@ -575,6 +597,11 @@
       .rbai-msg.bot{background:#F1F5F9;color:#1E293B;align-self:flex-start;border-bottom-left-radius:4px}\n\
       .rbai-msg.user{background:" + config.color + ";color:#fff;align-self:flex-end;border-bottom-right-radius:4px}\n\
       .rbai-msg.typing{color:#94A3B8;font-style:italic}\n\
+      .rbai-msg.system{align-self:center;background:transparent;color:#94A3B8;font-size:12px;line-height:1.45;text-align:center;padding:6px 12px;max-width:92%}\n\
+      .rbai-speak{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:6px;padding:0;border:none;border-radius:9999px;background:transparent;color:#94A3B8;cursor:pointer;vertical-align:-6px}\n\
+      .rbai-speak:hover{color:#475569;background:rgba(100,116,139,.12)}\n\
+      .rbai-speak.speaking{color:#0B7A55;background:rgba(11,122,85,.12)}\n\
+      .rbai-speak svg{width:14px;height:14px;flex:none}\n\
       .rbai-msg.rbai-img-msg{padding:6px}\n\
       .rbai-msg.rbai-img-msg img{display:block;max-width:180px;border-radius:8px}\n\
       #rbai-widget-input{display:flex;align-items:center;border-top:1px solid #E2E8F0;padding:12px;gap:6px}\n\
@@ -948,6 +975,99 @@
     return msg;
   }
 
+  // ---- System notices (re-audit #2, owner report 2026-10-22) ----
+  // Subtle centred lines for BROWSER/DEVICE states (microphone
+  // blocked, no microphone found, recording problems). These are
+  // NOT agent replies — the previous code posted them as "bot"
+  // bubbles, which made a permission problem look like the agent
+  // itself speaking (the owner's screenshot). The .system style
+  // has no bubble: muted, centred, clearly chrome, not chat.
+  function addSystemNotice(text) {
+    return addMessage(text, "system");
+  }
+
+  // ---- Voice playback (re-audit #2, owner directive 2026-10-22) ----
+  // Every agent reply carries a small speaker control that reads
+  // the reply aloud IN THE REPLY'S OWN LANGUAGE (Bengali replies
+  // in Bengali, English in English) via the browser's built-in
+  // speech synthesis — no keys, no cost. Rules: click-only (never
+  // autoplay); clicking the same control again stops; starting
+  // another reply's playback stops the current one; where speech
+  // synthesis is unavailable the control is never rendered (no
+  // dead button).
+  var speakingBtn = null;
+  var SVG_SPEAK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4V5z" fill="currentColor" stroke="none"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.6 5.4a9 9 0 0 1 0 13.2"/></svg>';
+  var SVG_STOP = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+
+  function speechSupported() {
+    return (
+      typeof window !== "undefined" &&
+      "speechSynthesis" in window &&
+      typeof SpeechSynthesisUtterance !== "undefined"
+    );
+  }
+
+  function stopSpeaking() {
+    var btn = speakingBtn;
+    speakingBtn = null;
+    if (btn) {
+      btn.classList.remove("speaking");
+      btn.innerHTML = SVG_SPEAK;
+      btn.title = t("listenReply");
+      btn.setAttribute("aria-label", t("listenReply"));
+    }
+    if (speechSupported()) {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+    }
+  }
+
+  function speakReply(text, btn) {
+    if (!speechSupported() || !text) return;
+    if (speakingBtn === btn) {
+      stopSpeaking();
+      return;
+    }
+    stopSpeaking();
+    var lang = detectTextLang(text) === "bn" ? "bn-BD" : "en-US";
+    // Queue sentence by sentence: mobile Chrome silently truncates
+    // single very long utterances.
+    var parts =
+      String(text).replace(/\s+/g, " ").match(/[^.!?।\n]+[.!?।]*\s*/g) || [text];
+    var queue = parts
+      .map(function (p) { return p.trim(); })
+      .filter(function (p) { return p.length > 0; });
+    if (!queue.length) queue = [String(text)];
+    speakingBtn = btn;
+    btn.classList.add("speaking");
+    btn.innerHTML = SVG_STOP;
+    btn.title = t("stopListening");
+    btn.setAttribute("aria-label", t("stopListening"));
+    var last = queue.length - 1;
+    queue.forEach(function (part, i) {
+      var u = new SpeechSynthesisUtterance(part);
+      u.lang = lang;
+      if (i === last) {
+        u.onend = function () { if (speakingBtn === btn) stopSpeaking(); };
+        u.onerror = function () { if (speakingBtn === btn) stopSpeaking(); };
+      }
+      window.speechSynthesis.speak(u);
+    });
+  }
+
+  function attachSpeakButton(msgEl, text) {
+    if (!msgEl || !text || !speechSupported()) return;
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "rbai-speak";
+    btn.innerHTML = SVG_SPEAK;
+    btn.title = t("listenReply");
+    btn.setAttribute("aria-label", t("listenReply"));
+    btn.addEventListener("click", function () {
+      speakReply(text, btn);
+    });
+    msgEl.appendChild(btn);
+  }
+
   function addImageMessage(dataUrl) {
     var messages = document.getElementById("rbai-widget-messages");
     var msg = document.createElement("div");
@@ -1168,7 +1288,8 @@
             var threadLang = detectTextLang(m.content);
             if (threadLang) setUiLang(threadLang);
           }
-          addMessage(m.content, m.role === "customer" ? "user" : "bot");
+          var renderedMsg = addMessage(m.content, m.role === "customer" ? "user" : "bot");
+          if (m.role !== "customer") attachSpeakButton(renderedMsg, m.content);
         });
       })
       .catch(function () {});
@@ -1255,8 +1376,12 @@
       // A streamed reply reuses its live bubble: the done payload's
       // response text is authoritative (it can carry suffixes the
       // token stream never saw, e.g. a review ask).
-      if (streamBubble) streamBubble.textContent = data.response;
-      else addMessage(data.response, "bot");
+      if (streamBubble) {
+        streamBubble.textContent = data.response;
+        attachSpeakButton(streamBubble, data.response);
+      } else {
+        attachSpeakButton(addMessage(data.response, "bot"), data.response);
+      }
     } else if (data.error) {
       // Never render a raw server error text (they are English-only);
       // known ones map to their localized chrome string, unknown ones
@@ -1354,10 +1479,14 @@
             bubble.textContent = streamed;
             scrollToBottom();
           } else if (event === "retract") {
-            // The streamed text preceded tool calls — discard it and
-            // show the typing state again while the agent works.
+            // The streamed text preceded tool calls — discard it.
+            // Re-audit #2 TYPING LAW (owner 2026-10-22): the typing
+            // bubble must NEVER re-appear after the first token of a
+            // turn — the previous code re-added it here, which read
+            // as a second "typing…" at the END of the turn. The
+            // mascot working state (driven by pendingRequests) keeps
+            // signalling genuine in-flight tool work on its own.
             if (bubble) { bubble.remove(); bubble = null; streamed = ""; }
-            if (!currentTyping) currentTyping = addMessage(t("typing"), "bot typing");
           } else if (event === "done") {
             doneData = data;
           } else if (event === "error") {
@@ -1589,16 +1718,29 @@
       !navigator.mediaDevices.getUserMedia ||
       typeof MediaRecorder === "undefined"
     ) {
-      addMessage(t("voiceUnsupported"), "bot");
+      addSystemNotice(t("voiceUnsupported"));
       return;
     }
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+    // Re-audit #2 (owner report 2026-10-22): pre-flight the
+    // microphone permission state BEFORE calling getUserMedia.
+    // When permission is already denied — by the host page's
+    // Permissions-Policy, the browser's site settings, or a prior
+    // denial — getUserMedia rejects instantly and NO prompt is
+    // ever shown; the old code surfaced that as a fake agent reply
+    // ("মাইক্রোফোন ব্যবহারের অনুমতি পাইনি…"). A denied state now
+    // renders a brief SYSTEM NOTICE saying it is blocked and how
+    // to allow it. 'prompt'/'granted' fall through to getUserMedia,
+    // where the browser shows its real prompt. The Permissions API
+    // is not universal (and can throw for this name), so any doubt
+    // also falls through to getUserMedia.
+    var startCapture = function () {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
       audioChunks = [];
       try {
         mediaRecorder = new MediaRecorder(stream);
       } catch (e) {
         stream.getTracks().forEach(function (t) { t.stop(); });
-        addMessage(t("recordingUnsupported"), "bot");
+        addSystemNotice(t("recordingUnsupported"));
         return;
       }
       mediaRecorder.ondataavailable = function (e) {
@@ -1610,18 +1752,18 @@
         var mimeType = (mediaRecorder && mediaRecorder.mimeType) || "audio/webm";
         var blob = new Blob(audioChunks, { type: mimeType });
         if (!blob.size) {
-          addMessage(t("recordingEmpty"), "bot");
+          addSystemNotice(t("recordingEmpty"));
           return;
         }
         if (blob.size > MAX_MEDIA_BYTES) {
-          addMessage(t("recordingTooLong"), "bot");
+          addSystemNotice(t("recordingTooLong"));
           return;
         }
         var reader = new FileReader();
         reader.onload = function () {
           var base64 = String(reader.result || "").split(",")[1] || "";
           if (!base64) {
-            addMessage(t("recordingProcessError"), "bot");
+            addSystemNotice(t("recordingProcessError"));
             return;
           }
           addMessage(t("voiceSent"), "user");
@@ -1649,13 +1791,34 @@
       // microphone exists; NotReadableError = the device is busy.
       var errName = (err && err.name) || "";
       if (errName === "NotFoundError" || errName === "OverconstrainedError") {
-        addMessage(t("micNotFound"), "bot");
+        addSystemNotice(t("micNotFound"));
       } else if (errName === "NotReadableError" || errName === "AbortError") {
-        addMessage(t("micBusy"), "bot");
+        addSystemNotice(t("micBusy"));
       } else {
-        addMessage(t("micDenied"), "bot");
+        addSystemNotice(t("micDenied"));
       }
     });
+    };
+    if (navigator.permissions && navigator.permissions.query) {
+      try {
+        navigator.permissions
+          .query({ name: "microphone" })
+          .then(function (status) {
+            if (status && status.state === "denied") {
+              addSystemNotice(t("micBlocked"));
+            } else {
+              startCapture();
+            }
+          })
+          .catch(function () {
+            startCapture();
+          });
+      } catch (e) {
+        startCapture();
+      }
+    } else {
+      startCapture();
+    }
   }
 
   // ---- Inline mode (help-center pages) ----

@@ -151,6 +151,12 @@ async function getBusinessBySiteKeyCached(
   return business;
 }
 
+/** Test-only: clear the siteKey cache between cases (same pattern as
+ *  the provider breakers' __resetProviderBreakers). */
+export function __resetWidgetSiteKeyCache(): void {
+  businessBySiteKeyCache.clear();
+}
+
 const GRACEFUL_TURN_TEXT = {
   bn: "দুঃখিত, এই মুহূর্তে আপনার বার্তাটির উত্তর দিতে একটু সমস্যা হচ্ছে। অনুগ্রহ করে একটু পরে আবার চেষ্টা করুন, অথবা জরুরি হলে আমাদের টিমের সঙ্গে সরাসরি যোগাযোগ করুন।",
   en: "I'm sorry, I'm having a little trouble answering your message right now. Please try again in a moment, or contact our team directly if it's urgent.",

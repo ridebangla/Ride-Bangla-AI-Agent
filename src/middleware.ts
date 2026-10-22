@@ -50,7 +50,14 @@ const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
   "X-XSS-Protection": "1; mode=block",
   "Referrer-Policy": "strict-origin-when-cross-origin",
-  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  // Re-audit #2 (voice-input fix): microphone=(self) — the platform's
+  // OWN pages host the canonical widget (landing pages, homepage),
+  // whose voice input calls getUserMedia on this origin; the blanket
+  // microphone=() denied it here without ever showing a prompt (the
+  // same failure class the owner hit on a host site). (self) is the
+  // minimum grant the first-party feature needs; camera/geolocation
+  // stay fully denied.
+  "Permissions-Policy": "camera=(), microphone=(self), geolocation=()",
   "Content-Security-Policy": CSP_DIRECTIVES,
   "X-API-Version": API_VERSION,
 };

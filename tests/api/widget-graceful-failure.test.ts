@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { getBusinessBySiteKey } from "@/lib/tenant";
 import { getSubscription } from "@/lib/subscription";
+import { __resetWidgetSiteKeyCache } from "@/app/api/chat/widget/route";
 import { createRequest, parseJsonResponse } from "../helpers/request";
 
 const BN_GRACEFUL =
@@ -56,6 +57,10 @@ vi.mock("@/lib/ai/activity", () => ({
 describe("POST /api/chat/widget turn-failure guarantee", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Re-audit #2: the route caches siteKey -> business for 60s
+    // (F5); each case here must start from a cold cache or a warm
+    // entry would bypass the mocked lookup entirely.
+    __resetWidgetSiteKeyCache();
     mockPrisma.conversation.findUnique.mockResolvedValue(null);
     mockPrisma.conversation.create.mockResolvedValue({ id: "conv-new" });
   });
