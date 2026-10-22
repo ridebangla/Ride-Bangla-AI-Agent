@@ -1,6 +1,13 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-22.3 (NEW: agent-brand wiring — the three agent
+ * CANONICAL EMBED — v2026-10-22.4 (NEW: playback self-healing for real
+ * mobile browsers — the active clip is re-kicked on its canplay event
+ * (some Android browsers/WebViews silently drop a play() issued before
+ * the clip has data), a clip whose load errors gets ONE reload-and-retry
+ * before the still-image fallback (a transient network error must not
+ * freeze the mascot into a static image for the whole session), and the
+ * active clips are re-kicked ~1.2s and ~4s after mount. Prior:
+ * v2026-10-22.3 (agent-brand wiring — the three agent
  * character URLs now resolve at init from the platform's public
  * GET /api/widget/brand record (Firestore agent_brand/current, Admin SDK,
  * ~60s server cache) with a 2.5s fail-soft timeout; when it answers, the URLs
@@ -161,6 +168,7 @@
       el = idles[i];
       if (el.getAttribute("src") !== idleVideoUrl) {
         el.setAttribute("src", idleVideoUrl);
+        el.removeAttribute("data-rbai-retried");
         try { el.load(); } catch (e1) {}
       }
       el.setAttribute("poster", avatarUrl);
@@ -169,6 +177,7 @@
     for (i = 0; i < workings.length; i++) {
       el = workings[i];
       el.setAttribute("data-src", workingVideoUrl);
+      el.removeAttribute("data-rbai-retried");
       if (el.getAttribute("src")) el.setAttribute("src", workingVideoUrl);
       el.setAttribute("poster", avatarUrl);
     }
@@ -611,6 +620,10 @@
     }
     var idleVids = container.querySelectorAll(".rbai-vid-idle");
     for (var q = 0; q < idleVids.length; q++) safePlay(idleVids[q]);
+    // Belt-and-braces for mobile browsers that drop an early play()
+    // without a trace: re-kick the active clips shortly after mount.
+    setTimeout(kickActiveVideos, 1200);
+    setTimeout(kickActiveVideos, 4000);
 
     var launcherBtn = document.getElementById("rbai-widget-btn");
     if (launcherBtn) launcherBtn.onclick = toggleWidget;
@@ -748,8 +761,26 @@
     var vids = document.querySelectorAll(".rbai-vid");
     for (var i = 0; i < vids.length; i++) {
       vids[i].addEventListener("error", function () {
-        var wrap = this.closest(".rbai-avatarwrap");
+        var v = this;
+        // One self-heal attempt before giving up to the still image:
+        // a transient network error on a phone must not freeze the
+        // mascot into a static picture for the whole session.
+        if (!v.getAttribute("data-rbai-retried")) {
+          v.setAttribute("data-rbai-retried", "1");
+          setTimeout(function () {
+            try { v.load(); } catch (e) {}
+            if (v.classList.contains("active")) safePlay(v);
+          }, 1500);
+          return;
+        }
+        var wrap = v.closest(".rbai-avatarwrap");
         if (wrap) wrap.classList.add("novid");
+      });
+      // Some mobile browsers / WebViews silently drop a play() that
+      // was issued before the clip had any data: re-kick the active
+      // clip at the exact moment it becomes able to play.
+      vids[i].addEventListener("canplay", function () {
+        if (this.classList.contains("active") && this.paused) safePlay(this);
       });
     }
     // If autoplay was blocked, retry the active clip on user
