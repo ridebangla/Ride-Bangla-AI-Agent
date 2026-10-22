@@ -111,6 +111,13 @@ const HISTORY_MESSAGE_CAP = 12;
 const TOOL_RESULT_CHAR_CAP = 6_000;
 const SALVAGE_TOOL_RESULT_CHAR_CAP = 2_000;
 
+/** Parse a positive-integer env override with a fallback (mirrors the
+ *  provider module's envMs; local because that one is not exported). */
+function envMs(name: string, fallback: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+
 /** Rough request-size estimate for the [tokens] log line (chars/3.5
  *  tracks the providers' own accounting closely enough to see which
  *  stage spends the budget; labelled an estimate wherever reported). */
@@ -1034,6 +1041,17 @@ async function attemptSalvageCompletion(
   keys: ProviderKeys
 ): Promise<ChatCompletionResult | null> {
   try {
+    // Re-audit #2 Phase A.1: the dominant live failure is a provider
+    // per-minute token window (Groq 429 body: "Please try again in
+    // 3.9s"). The salvage runs on the failure path only, so a short
+    // wait here costs nothing on healthy turns and lets the window
+    // slide before the smaller retry — an immediate retry just hits
+    // the same wall (observed live: salvage 429'd in the same second
+    // as the main attempt). SALVAGE_DELAY_MS=0 disables (tests).
+    const salvageDelayMs = envMs("AI_SALVAGE_DELAY_MS", 4000);
+    if (salvageDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, salvageDelayMs));
+    }
     const reducedMessages = messages.map((m) =>
       m.role === "tool" && m.content.length > SALVAGE_TOOL_RESULT_CHAR_CAP
         ? { ...m, content: m.content.slice(0, SALVAGE_TOOL_RESULT_CHAR_CAP) }

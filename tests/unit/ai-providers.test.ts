@@ -510,4 +510,37 @@ describe("re-audit #2 — request-size rejections", () => {
       })
     ).toEqual(["groq", "gemini", "openai"]);
   });
+
+  it("rate-limit 429s never trip the breaker (A.1: TPM window, not ill-health)", async () => {
+    const keys: ProviderKeys = { openai: FAKE.openai };
+    // Five consecutive TPM-window 429s (past the old rate threshold
+    // of 3): every call must still ATTEMPT the provider — production
+    // showed the breaker opening on a 429 burst and then skipping
+    // the engine's salvage retry, failing the turn outright.
+    mockCreate.mockRejectedValue(
+      Object.assign(
+        new Error(
+          "429 [rate_limit_exceeded] Rate limit reached for model on tokens per minute (TPM): Limit 8000, Used 2218, Requested 6305. Please try again in 3.9s."
+        ),
+        { status: 429 }
+      )
+    );
+    for (let i = 0; i < 5; i++) {
+      await expect(
+        completeWithFallback(
+          { messages: [{ role: "user", content: "hi" }] },
+          { keys }
+        )
+      ).rejects.toBeInstanceOf(AllProvidersFailedError);
+    }
+    expect(mockCreate).toHaveBeenCalledTimes(5);
+    // And the moment the window slides, the provider answers again.
+    openAiOk("recovered");
+    const res = await completeWithFallback(
+      { messages: [{ role: "user", content: "hi" }] },
+      { keys }
+    );
+    expect(res?.text).toBe("recovered");
+    expect(mockCreate).toHaveBeenCalledTimes(6);
+  });
 });

@@ -432,6 +432,18 @@ function recordProviderFailure(provider: RealProvider, apiKey: string, err: unkn
   // never let it trip the breaker (see isRequestSizeError).
   if (isRequestSizeError(err)) return;
   const cls = classifyProviderError(err);
+  // Re-audit #2 Phase A.1 (live evidence 2026-10-22): rate-limit 429s
+  // are a per-minute token window, not provider ill-health — Groq's
+  // own body says "try again in ~3.9s". Counting them toward the
+  // breaker created a death spiral in production: a burst of 429s
+  // opened the breaker, the engine's reduced salvage retry was then
+  // SKIPPED ("provider circuit open"), and the turn failed outright.
+  // Rate failures therefore never accumulate either; the failover
+  // order still protects latency (a saturated provider fails fast
+  // and the chain moves on), and the engine's delayed salvage covers
+  // the window-slide retry. Credential/config/network classes keep
+  // their breaker behaviour unchanged.
+  if (cls === "rate") return;
   const id = breakerId(provider, apiKey);
   const now = Date.now();
   const prev = providerBreakers.get(id);
