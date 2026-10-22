@@ -132,6 +132,28 @@ export async function POST(request: NextRequest) {
     logger.warn(
       `[Auth] Firebase sign-in failed: ${err instanceof Error ? err.message : "unknown"}`
     );
+    // A quota-exhausted account store (Firestore RESOURCE_EXHAUSTED) is
+    // not a credential failure, and retrying immediately cannot succeed
+    // while it lasts - answer honestly instead of implying the visitor's
+    // sign-in itself was wrong.
+    const errCode =
+      typeof err === "object" && err !== null && "code" in err
+        ? String((err as { code: unknown }).code)
+        : "";
+    const errMessage = err instanceof Error ? err.message : "";
+    if (
+      errCode === "8" ||
+      errCode === "resource-exhausted" ||
+      /RESOURCE_EXHAUSTED|quota exceeded/i.test(errMessage)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Sign-in is temporarily unavailable. Please try again later.",
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
       { error: "Sign-in failed. Please try again." },
       { status: 500 }
