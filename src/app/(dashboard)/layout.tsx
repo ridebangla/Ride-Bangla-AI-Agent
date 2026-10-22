@@ -75,9 +75,17 @@ export default async function DashboardLayout({
   // Billing Phase 2: countdown banner — shown ONLY when a warning threshold
   // is breached (days 7/3/1, usage 80%/100%) or the team posted an
   // adminNotice. Otherwise the dashboard stays exactly as it was.
-  const countdown = admin.businessId
-    ? await getBillingCountdown(admin.businessId)
-    : null;
+  // Login/dashboard performance (owner directive 2026-10-22): the
+  // countdown and limit-state reads are independent of each other (both
+  // key off businessId only) — run them CONCURRENTLY instead of serially
+  // so a dashboard load pays one round-trip window for the pair, not two.
+  // Results and all downstream behaviour are unchanged.
+  const [countdown, limitState] = admin.businessId
+    ? await Promise.all([
+        getBillingCountdown(admin.businessId),
+        getLimitExhaustedState(admin.businessId),
+      ])
+    : [null, null];
 
   // Limit-exhausted UX (owner directive 2026-10-22): when the tenant's
   // product limit is finished, the dashboard still renders fully — a
@@ -86,9 +94,6 @@ export default async function DashboardLayout({
   // Internal/company accounts are exempt (getLimitExhaustedState
   // returns null for them); the Super Admin (businessId null) never
   // has a limit. The auth/session path above is untouched.
-  const limitState = admin.businessId
-    ? await getLimitExhaustedState(admin.businessId)
-    : null;
   const limitPlans =
     limitState && admin.businessId
       ? (await getCatalogView(new Date(), admin.businessId)).filter(
