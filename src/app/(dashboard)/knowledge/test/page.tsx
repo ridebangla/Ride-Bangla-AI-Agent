@@ -16,6 +16,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useLimitUx } from "@/components/billing/limit-ux-context";
+import { LIMIT_UX_TEXTS } from "@/lib/limit-ux";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,6 +60,10 @@ export default function KnowledgeTestPage() {
   const [error, setError] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Limit-exhausted UX (owner directive 2026-10-22): while the product
+  // limit is finished, ONLY this work-action stops — the send button is
+  // disabled and the popup explains why. Everything else stays usable.
+  const { exhausted: limitExhausted, openPopup: openLimitPopup } = useLimitUx();
   const inputRef = useRef<HTMLInputElement>(null);
 
   // ---------------------------------------------------------------------------
@@ -113,6 +119,10 @@ export default function KnowledgeTestPage() {
   async function handleSend() {
     const question = input.trim();
     if (!question || loading) return;
+    if (limitExhausted) {
+      openLimitPopup();
+      return;
+    }
 
     setError("");
     setInput("");
@@ -379,12 +389,24 @@ export default function KnowledgeTestPage() {
               />
               <button
                 onClick={handleSend}
-                disabled={!input.trim() || loading}
+                disabled={!input.trim() || loading || limitExhausted}
+                title={limitExhausted ? LIMIT_UX_TEXTS.headline : undefined}
                 className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-rbai-primary text-white hover:bg-rbai-primary-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <Send className="h-4 w-4" />
               </button>
             </div>
+            {limitExhausted && (
+              <div className="px-6 pb-3 -mt-1">
+                <button
+                  type="button"
+                  onClick={openLimitPopup}
+                  className="text-xs text-red-700 underline underline-offset-2 hover:text-red-900"
+                >
+                  {LIMIT_UX_TEXTS.headline} — {LIMIT_UX_TEXTS.viewPlans}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

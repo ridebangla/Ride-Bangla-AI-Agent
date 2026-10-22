@@ -11,7 +11,11 @@ import {
 } from "@/lib/auth";
 import { getUnscopedPrisma } from "@/lib/prisma";
 import { getSubscription } from "@/lib/subscription";
-import { getBillingCountdown } from "@/lib/billing-usage";
+import { getBillingCountdown, getLimitExhaustedState } from "@/lib/billing-usage";
+import { getCatalogView } from "@/lib/plan-catalog";
+import { LimitUxProvider } from "@/components/billing/limit-ux-context";
+import { LimitExhaustedBar } from "@/components/billing/limit-exhausted-bar";
+import { LimitExhaustedPopup } from "@/components/billing/limit-exhausted-popup";
 
 // This layout wraps every dashboard page, so it is the page-level
 // enforcement point for the SaaS trial/subscription rule (Phase 1):
@@ -74,13 +78,48 @@ export default async function DashboardLayout({
   const countdown = admin.businessId
     ? await getBillingCountdown(admin.businessId)
     : null;
+
+  // Limit-exhausted UX (owner directive 2026-10-22): when the tenant's
+  // product limit is finished, the dashboard still renders fully — a
+  // bar + popup show the account state, WHEN it resets, and the plans
+  // from the live ai_plans catalog. ONLY the work-action is disabled.
+  // Internal/company accounts are exempt (getLimitExhaustedState
+  // returns null for them); the Super Admin (businessId null) never
+  // has a limit. The auth/session path above is untouched.
+  const limitState = admin.businessId
+    ? await getLimitExhaustedState(admin.businessId)
+    : null;
+  const limitPlans =
+    limitState && admin.businessId
+      ? (await getCatalogView(new Date(), admin.businessId)).filter(
+          (p) => p.active
+        )
+      : [];
+
+  // While the limit-exhausted UX is active it supersedes the old
+  // 100%-usage banner line (same exhausted fact, one voice).
+  const countdownNotices = limitState
+    ? (countdown?.notices ?? []).filter(
+        (n) => !(n.type === "usage" && n.threshold === 100)
+      )
+    : (countdown?.notices ?? []);
   const showCountdownBanner =
     !!countdown &&
-    (countdown.notices.length > 0 || !!countdown.adminNotice);
+    (countdownNotices.length > 0 || !!countdown.adminNotice);
 
   return (
-    <>
+    <LimitUxProvider exhausted={!!limitState}>
       <SessionKeeper />
+      {limitState && <LimitExhaustedBar reset={limitState.reset} />}
+      {limitState && (
+        <LimitExhaustedPopup
+          reset={limitState.reset}
+          plans={limitPlans}
+          currentPlanId={limitState.planId}
+          used={limitState.used}
+          limit={limitState.limit}
+        />
+      )}
       {showCountdownBanner && countdown && (
         <div
           role="status"
@@ -92,7 +131,7 @@ export default async function DashboardLayout({
                 Notice from our team: {countdown.adminNotice.message}
               </span>
             )}
-            {countdown.notices.map((n, i) =>
+            {countdownNotices.map((n, i) =>
               n.type === "days" ? (
                 <span key={`d-${i}`}>
                   {n.daysRemaining <= 0
@@ -122,6 +161,6 @@ export default async function DashboardLayout({
         <Sidebar />
         <main className="flex-1 flex flex-col overflow-hidden">{children}</main>
       </div>
-    </>
+    </LimitUxProvider>
   );
 }

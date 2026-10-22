@@ -26,6 +26,7 @@ import { getPlanCatalog, type EffectivePlan } from "./plan-catalog";
 import { isCompActive, activeCompPlanId, activeCompEndsAt } from "./comp";
 import { isCompanyBusiness } from "./company-identity";
 import { logger } from "./logger";
+import type { LimitReset } from "./limit-ux";
 
 export const USAGE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -496,6 +497,124 @@ export async function getBillingCountdown(
     );
   } catch (err) {
     logger.warn("[billing] getBillingCountdown failed", {
+      businessId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+export interface LimitExhaustedState {
+  exhausted: true;
+  /** How the limit resets (drives the popup's reset line). */
+  reset: LimitReset;
+  /** Resolved plan id driving the gate ('trial' borrows starter, comp resolves to the comp plan). */
+  planId: string;
+  /** Effective message allowance for the current usage period. */
+  limit: number;
+  /** Messages used in the current usage period. */
+  used: number;
+}
+
+/**
+ * getLimitExhaustedState — server-only read behind the limit-exhausted
+ * popup/bar (owner directive 2026-10-22: login never breaks; the
+ * dashboard shows the account state and ONLY the work-action stops).
+ *
+ * Returns the exhausted state when the business's product limit is
+ * finished, else null. Internal/company accounts (isInternalAccount /
+ * estate-scoped company identity) are EXEMPT — always null, never shown
+ * the popup. Never throws: any read error degrades to null (no popup),
+ * the spend gate (checkMessageLimitExceeded) stays the enforcement point.
+ *
+ * The platform's product limit is the AI-message allowance per 30-day
+ * usage period, so the live reset descriptor is { kind: "period" } with
+ * the period's end instant. The popup's pure renderer also covers the
+ * doctrine's daily/hourly shapes for future gates.
+ */
+export async function getLimitExhaustedState(
+  businessId: string | null
+): Promise<LimitExhaustedState | null> {
+  if (!businessId) return null;
+  try {
+    const biz = (await getUnscopedPrisma().business.findUnique({
+      where: { id: businessId },
+      select: {
+        plan: true,
+        subscriptionStatus: true,
+        trialEndsAt: true,
+        aiMessagesUsed: true,
+        usagePeriodStart: true,
+        isInternalAccount: true,
+        manualActiveOverride: true,
+        comp: true,
+      },
+    })) as unknown as (BusinessUsageFields & { usagePeriodStart?: unknown }) | null;
+    if (!biz) return null;
+
+    // Exemption: company/internal accounts never see the limit UX.
+    const company = await isCompanyBusiness({
+      ...(biz as unknown as Record<string, unknown>),
+      id: businessId,
+    });
+    if (company) return null;
+
+    // Same catalog-aware limit resolution as the spend gate.
+    const now = Date.now();
+    const compPlan = activeCompPlanId(
+      biz as unknown as Record<string, unknown>,
+      now
+    );
+    const plan = typeof biz.plan === "string" && biz.plan ? biz.plan : "unknown";
+    const limitOverride = await catalogLimitForPlan(
+      compPlan ?? (plan === "trial" ? "trial" : plan)
+    );
+
+    if (!isMessageLimitExceeded(biz, now, limitOverride)) return null;
+
+    // Resolve the concrete allowance for display — mirroring the pure
+    // gate's branch order exactly (comp → free tier → plan). The gate
+    // already established exhaustion, so the result is a positive
+    // number; anything else degrades to null (no popup).
+    const used = effectiveAiMessagesUsed(biz, now);
+    const bizRecord = biz as unknown as Record<string, unknown>;
+    let limit: number | null;
+    if (isCompActive(bizRecord, now)) {
+      limit =
+        limitOverride !== undefined
+          ? limitOverride
+          : compPlan
+            ? messagesLimitForPlan(compPlan)
+            : null;
+    } else if (isFreeTierBusiness(biz, now)) {
+      limit = FREE_MESSAGES_PER_MONTH;
+    } else {
+      limit =
+        limitOverride !== undefined
+          ? limitOverride
+          : messagesLimitForPlan(plan === "trial" ? "trial" : plan);
+    }
+    if (limit === null || limit <= 0) return null;
+
+    // Usage-period reset: the period restarts USAGE_PERIOD_MS after
+    // usagePeriodStart. Exhaustion implies a live period (a missing or
+    // rolled-over start reports used=0), so the reset instant is in the
+    // future; clamp defensively anyway.
+    const startMs = toDate(biz.usagePeriodStart)?.getTime() ?? 0;
+    const resetAtMs =
+      startMs > 0 ? startMs + USAGE_PERIOD_MS : now + USAGE_PERIOD_MS;
+
+    return {
+      exhausted: true,
+      reset: { kind: "period", resetAtMs: Math.max(resetAtMs, now + 1000) },
+      // The countdown reports a lapsed trial as plan "free" — match it so
+      // the popup's current-plan marking stays truthful.
+      planId: compPlan ?? (isFreeTierBusiness(biz, now) ? "free" : plan),
+      limit,
+      used,
+    };
+  } catch (err) {
+    logger.warn("[billing] getLimitExhaustedState failed (no limit UX)", {
       businessId,
       error: err instanceof Error ? err.message : String(err),
     });
