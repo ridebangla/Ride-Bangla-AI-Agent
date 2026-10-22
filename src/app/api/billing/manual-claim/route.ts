@@ -236,7 +236,9 @@ export async function POST(request: NextRequest) {
   const interval: BillingInterval = isBillingInterval(body.interval)
     ? body.interval
     : "monthly";
-  const charge = plan ? await resolveChargePrice(plan, interval) : null;
+  const charge = plan
+    ? await resolveChargePrice(plan, interval, new Date(), auth.businessId)
+    : null;
   if (!charge || !charge.plan.active) {
     const activeIds = (await getPlanCatalog())
       .filter((p) => p.active)

@@ -23,6 +23,14 @@
  * when 0 < effective < regular. Multiple live offers on one plan: the
  * lowest effective price wins. Offers never apply to trial/internal.
  *
+ * Targeted offers (B5): an offer doc may carry targetAccountIds?: string[].
+ * Absent/empty = global (the behaviour above, unchanged). Non-empty =
+ * the offer applies ONLY to those businessIds, and for those accounts it
+ * may be free (percentOff 100 or a fixed price of 0 → effective 0).
+ * Per-business call sites thread their businessId through
+ * bestOfferHit / getActiveOffer / getActiveOffersByPlan / getCatalogView /
+ * resolveChargePrice; reads without a businessId see global offers only.
+ *
  * SERVER-ONLY: uses firebase-admin via admin-db. Client components receive
  * serialized CatalogPlanView props — never import values from here.
  */
@@ -59,10 +67,16 @@ export interface ParsedOffer {
   id: string;
   name: string;
   planId: string;
-  /** 1–90 when set, else null. */
+  /** 1–90 when set (1–100 for targeted offers), else null. */
   percentOff: number | null;
   offerPriceMonthlyUsd: number | null;
   offerPriceYearlyUsd: number | null;
+  /**
+   * Targeted offers (B5): business ids this offer applies to.
+   * Absent/empty = global (applies to everyone on the plan, exactly
+   * the pre-B5 behaviour). Non-empty = ONLY those businessIds.
+   */
+  targetAccountIds?: string[];
   /** Required: an offer doc without a parseable startsAt is rejected
    *  (attack-test 2026-10-21 — a missing start must never mean "live
    *  since the beginning of time"; mirrors the Studio parser). */
@@ -263,14 +277,46 @@ function toDateValue(v: unknown): Date | null {
   return null;
 }
 
-function validOfferPrice(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+function validOfferPrice(v: unknown, allowZero = false): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  return allowZero ? (v >= 0 ? v : null) : v > 0 ? v : null;
 }
 
-function validPercentOff(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= 90
+function validPercentOff(v: unknown, max = 90): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= max
     ? v
     : null;
+}
+
+/** Parse the optional targetAccountIds list: strings only, trimmed,
+ *  de-duplicated. Anything malformed degrades to an empty (global)
+ *  list — never to a wider targeting than the doc carries. */
+function parseTargetAccountIds(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const item of v) {
+    if (typeof item === "string" && item.trim() && !out.includes(item.trim())) {
+      out.push(item.trim());
+    }
+  }
+  return out;
+}
+
+/** True when an offer is targeted at specific accounts (B5). */
+export function isTargetedOffer(offer: ParsedOffer): boolean {
+  return Array.isArray(offer.targetAccountIds) && offer.targetAccountIds.length > 0;
+}
+
+/** True when an offer may apply to `businessId` (B5): global offers
+ *  apply to everyone; targeted offers only to a listed businessId
+ *  (a missing businessId never matches a targeted offer). */
+export function offerAppliesToAccount(
+  offer: ParsedOffer,
+  businessId?: string | null
+): boolean {
+  if (!isTargetedOffer(offer)) return true;
+  if (!businessId) return false;
+  return offer.targetAccountIds!.includes(businessId);
 }
 
 /**
@@ -298,6 +344,15 @@ export function parseOfferDoc(id: string, data: unknown): ParsedOffer | null {
   const startsAt = toDateValue(d.startsAt);
   if (!startsAt) return null;
 
+  // Targeted offers (B5): a non-empty targetAccountIds list scopes the
+  // offer to those accounts AND unlocks a free price (percentOff 100
+  // or a fixed price of 0) for those accounts only. Global offers keep
+  // the exact pre-B5 validation (percentOff 1–90, prices > 0) — that
+  // validation lives in Admin for writes; this parser mirrors it so a
+  // malformed global doc can never discount to free.
+  const targetAccountIds = parseTargetAccountIds(d.targetAccountIds);
+  const targeted = targetAccountIds.length > 0;
+
   return {
     id,
     name: typeof d.name === "string" ? d.name.trim() : "",
@@ -305,9 +360,10 @@ export function parseOfferDoc(id: string, data: unknown): ParsedOffer | null {
     percentOff:
       d.percentOff === undefined || d.percentOff === null
         ? null
-        : validPercentOff(d.percentOff),
-    offerPriceMonthlyUsd: validOfferPrice(d.offerPriceMonthlyUsd),
-    offerPriceYearlyUsd: validOfferPrice(d.offerPriceYearlyUsd),
+        : validPercentOff(d.percentOff, targeted ? 100 : 90),
+    offerPriceMonthlyUsd: validOfferPrice(d.offerPriceMonthlyUsd, targeted),
+    offerPriceYearlyUsd: validOfferPrice(d.offerPriceYearlyUsd, targeted),
+    targetAccountIds,
     startsAt,
     endsAt,
     active: docActive(d),
@@ -329,7 +385,11 @@ function roundCents(n: number): number {
  * The price this offer yields for (plan, interval), or null when it does
  * not make the plan cheaper. Fixed price for the interval wins when set;
  * otherwise the percent discount applies to the plan's regular price.
- * The result counts only when 0 < effective < regular.
+ * The result counts only when 0 < effective < regular — EXCEPT a
+ * targeted offer (B5), which may yield exactly 0 (free) for its listed
+ * accounts: 0 <= effective < regular. Global offers can never yield 0
+ * here (their parser already rejects percentOff 100 / price 0, and this
+ * check is the second lock).
  */
 export function offerEffectivePrice(
   plan: EffectivePlan,
@@ -348,20 +408,31 @@ export function offerEffectivePrice(
     eff = roundCents(regular * (1 - offer.percentOff / 100));
   }
   if (eff === null) return null;
+  if (isTargetedOffer(offer)) {
+    return eff >= 0 && eff < regular ? eff : null;
+  }
   return eff > 0 && eff < regular ? eff : null;
 }
 
-/** Lowest effective price wins among live offers. Pure. */
+/**
+ * Lowest effective price wins among live offers. Pure.
+ * Account-aware (B5): when `businessId` is given, targeted offers for
+ * that business compete alongside global offers; targeted offers for
+ * OTHER businesses are skipped. When it is omitted, only global
+ * offers apply — exactly the pre-B5 behaviour.
+ */
 export function bestOfferHit(
   plan: EffectivePlan,
   offers: ParsedOffer[],
   interval: BillingInterval,
-  now: Date
+  now: Date,
+  businessId?: string | null
 ): ActiveOfferHit | null {
   const regular = interval === "yearly" ? plan.yearlyPriceUsd : plan.priceUsd;
   let best: ActiveOfferHit | null = null;
   for (const offer of offers) {
     if (offer.planId !== plan.id) continue;
+    if (!offerAppliesToAccount(offer, businessId)) continue;
     if (!isOfferLive(offer, now)) continue;
     const eff = offerEffectivePrice(plan, offer, interval);
     if (eff === null) continue;
@@ -478,17 +549,23 @@ export async function getOfferById(offerId: string): Promise<ParsedOffer | null>
 export async function getActiveOffer(
   planId: string,
   interval: BillingInterval,
-  now: Date = new Date()
+  now: Date = new Date(),
+  businessId?: string | null
 ): Promise<ActiveOfferHit | null> {
   const plan = await getCatalogPlan(planId);
   if (!plan) return null;
   const offers = await fetchOffersForPlan(planId);
-  return bestOfferHit(plan, offers, interval, now);
+  return bestOfferHit(plan, offers, interval, now, businessId);
 }
 
-/** Per-plan live offers for both intervals — the rendering read. */
+/**
+ * Per-plan live offers for both intervals — the rendering read.
+ * Pass `businessId` for a per-business read (targeted offers for that
+ * business included); omit it for the public/global view.
+ */
 export async function getActiveOffersByPlan(
-  now: Date = new Date()
+  now: Date = new Date(),
+  businessId?: string | null
 ): Promise<Map<string, { monthly: ActiveOfferHit | null; yearly: ActiveOfferHit | null }>> {
   const catalog = await getPlanCatalog();
   const offers = await fetchAllOffers();
@@ -498,8 +575,8 @@ export async function getActiveOffersByPlan(
   >();
   for (const plan of catalog) {
     out.set(plan.id, {
-      monthly: bestOfferHit(plan, offers, "monthly", now),
-      yearly: bestOfferHit(plan, offers, "yearly", now),
+      monthly: bestOfferHit(plan, offers, "monthly", now, businessId),
+      yearly: bestOfferHit(plan, offers, "yearly", now, businessId),
     });
   }
   return out;
@@ -523,9 +600,15 @@ function toIntervalView(
   };
 }
 
-/** Serializable catalog + offers view-model for pages/client components. */
+/**
+ * Serializable catalog + offers view-model for pages/client components.
+ * Pass `businessId` for a per-business view (the billing page does):
+ * targeted offers for that business are included; omit it for the
+ * public view, where only global offers appear.
+ */
 export async function getCatalogView(
-  now: Date = new Date()
+  now: Date = new Date(),
+  businessId?: string | null
 ): Promise<CatalogPlanView[]> {
   const catalog = await getPlanCatalog();
   const offers = await fetchAllOffers();
@@ -538,11 +621,11 @@ export async function getCatalogView(
     source: plan.source,
     monthly: toIntervalView(
       plan.priceUsd,
-      bestOfferHit(plan, offers, "monthly", now)
+      bestOfferHit(plan, offers, "monthly", now, businessId)
     ),
     yearly: toIntervalView(
       plan.yearlyPriceUsd,
-      bestOfferHit(plan, offers, "yearly", now)
+      bestOfferHit(plan, offers, "yearly", now, businessId)
     ),
   }));
 }
@@ -555,7 +638,8 @@ export async function getCatalogView(
 export async function resolveChargePrice(
   planId: string,
   interval: BillingInterval,
-  now: Date = new Date()
+  now: Date = new Date(),
+  businessId?: string | null
 ): Promise<{
   plan: EffectivePlan;
   regularPriceUsd: number;
@@ -567,7 +651,7 @@ export async function resolveChargePrice(
   const regularPriceUsd =
     interval === "yearly" ? plan.yearlyPriceUsd : plan.priceUsd;
   const offers = await fetchOffersForPlan(planId);
-  const offer = bestOfferHit(plan, offers, interval, now);
+  const offer = bestOfferHit(plan, offers, interval, now, businessId);
   return {
     plan,
     regularPriceUsd,

@@ -347,7 +347,12 @@ export async function purchaseFromWallet(
   if (!isBillingInterval(input.interval)) {
     throw new WalletError("Invalid plan or interval.", "invalid_amount");
   }
-  const charge = await resolveChargePrice(input.plan, input.interval);
+  const charge = await resolveChargePrice(
+    input.plan,
+    input.interval,
+    new Date(),
+    businessId
+  );
   if (!charge || !charge.plan.active) {
     throw new WalletError("Invalid plan or interval.", "invalid_amount");
   }

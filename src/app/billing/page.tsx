@@ -159,7 +159,9 @@ export default async function BillingPage() {
   // Effective plan catalog + live offers (panel-driven, 2026-10-21) —
   // serialized to the billing client components; getCatalogView never
   // throws (code-catalog fallback on any read error).
-  const catalogView = !isSuperAdmin ? await getCatalogView() : [];
+  const catalogView = !isSuperAdmin
+    ? await getCatalogView(new Date(), admin.businessId)
+    : [];
   const activeCatalog = catalogView.filter((p) => p.active);
   // Default picker selection: the business's current plan when it is an
   // active catalog plan, else Growth when available, else the first
