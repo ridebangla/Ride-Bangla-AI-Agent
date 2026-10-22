@@ -240,7 +240,12 @@ describe("AI Engine", () => {
     });
 
     const { chat } = await import("@/lib/ai/engine");
-    const result = await chat("conv-1", "Hello");
+    // Voice/video round (F7): this case used to send "Hello", but a
+    // bare greeting no longer reaches the provider at all (it is
+    // answered deterministically) — a substantive message keeps
+    // this case testing what it always tested: an empty provider
+    // completion degrades to the honest fallback.
+    const result = await chat("conv-1", "Tell me something");
 
     expect(result.response).toContain("could not generate a response");
   });
@@ -291,12 +296,14 @@ describe("AI Engine", () => {
     );
   });
 
-  it("re-audit #2 (F7): a pure greeting takes the fast path (one small tool-less completion)", async () => {
+  it("voice/video round (F7): a pure greeting is answered deterministically — ZERO provider calls, reply persisted", async () => {
+    // The provider would answer if called — the point is it is NOT
+    // called: a bare greeting must survive a dead provider layer.
     mockOpenAICreateFn.mockResolvedValue({
       choices: [
         {
           finish_reason: "stop",
-          message: { content: "Hello! How can I help you today?" },
+          message: { content: "PROVIDER REPLY — must not be used" },
         },
       ],
     });
@@ -304,14 +311,43 @@ describe("AI Engine", () => {
     const { chat } = await import("@/lib/ai/engine");
     const result = await chat("conv-1", "Hello");
 
-    expect(result.response).toBe("Hello! How can I help you today?");
-    expect(mockOpenAICreateFn).toHaveBeenCalledTimes(1);
-    const params = mockOpenAICreateFn.mock.calls[0][0] as Record<
-      string,
-      unknown
-    >;
-    expect(params.tools).toBeUndefined();
-    expect(params.max_tokens).toBe(200);
+    expect(result.response).toBe(
+      "Hello, Sir/Madam! Welcome to Test Biz. How can I help you today?"
+    );
+    expect(mockOpenAICreateFn).not.toHaveBeenCalled();
+    // Persistence mirrors the identity path: the customer message
+    // and the assistant greeting are both saved.
+    const savedContents = mockPrisma.message.create.mock.calls.map(
+      (c) => (c[0] as { data: { content: string } }).data.content
+    );
+    expect(savedContents).toContain("Hello");
+    expect(savedContents).toContain(
+      "Hello, Sir/Madam! Welcome to Test Biz. How can I help you today?"
+    );
+  });
+
+  it("voice/video round (F7): a Bengali greeting is answered in Bengali with zero provider calls", async () => {
+    const { chat } = await import("@/lib/ai/engine");
+    const result = await chat("conv-1", "হাই");
+
+    expect(result.response).toBe(
+      "হ্যালো, স্যার/ম্যাডাম! Test Biz-এ স্বাগতম। আমি আপনাকে কীভাবে সাহায্য করতে পারি?"
+    );
+    expect(mockOpenAICreateFn).not.toHaveBeenCalled();
+  });
+
+  it("voice/video round (F7): a greeting answers even when the provider layer hard-fails", async () => {
+    mockOpenAICreateFn.mockRejectedValue(
+      Object.assign(new Error("429 Too Many Requests"), { status: 429 })
+    );
+
+    const { chat } = await import("@/lib/ai/engine");
+    const result = await chat("conv-1", "আসসালামু আলাইকুম");
+
+    expect(result.response).toBe(
+      "ওয়ালাইকুম আসসালাম, স্যার/ম্যাডাম! Test Biz-এ স্বাগতম। আমি আপনাকে কীভাবে সাহায্য করতে পারি?"
+    );
+    expect(result.silent).toBe(false);
   });
 
   it("re-audit #2 (F7): a greeting plus a question uses the full pipeline", async () => {

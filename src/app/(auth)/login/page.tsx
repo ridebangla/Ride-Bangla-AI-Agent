@@ -4,7 +4,10 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import {
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+} from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase-client";
 import { GoogleButton } from "@/components/auth/google-button";
 
@@ -14,8 +17,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [checking, setChecking] = useState(true);
+  const [resetSending, setResetSending] = useState(false);
+  const [resetMsg, setResetMsg] = useState("");
 
+  // The sign-in form renders IMMEDIATELY. The already-signed-in check runs
+  // in the background and only redirects when it positively confirms a
+  // session — a slow or unavailable /api/auth must never leave the user
+  // staring at a spinner on the login page (measured 13.5s blank spinner
+  // on a phone viewport while the datastore was degraded, 2026-10-22).
   useEffect(() => {
     async function checkAuth() {
       try {
@@ -30,12 +39,40 @@ export default function LoginPage() {
           return;
         }
       } catch {
-        // Allow login page to render
+        // Stay on the login page — the form is already usable.
       }
-      setChecking(false);
     }
     checkAuth();
   }, [router]);
+
+  async function handleForgotPassword() {
+    setResetMsg("");
+    if (!email.trim()) {
+      setResetMsg("Enter your email above first, then tap Forgot password.");
+      return;
+    }
+    setResetSending(true);
+    try {
+      // Passwords live in Firebase Auth only (this app never stores them),
+      // so the reset email is sent by Firebase for the shared project.
+      const auth = getFirebaseAuth();
+      await sendPasswordResetEmail(auth, email.trim());
+      setResetMsg("Password reset email sent. Check your inbox.");
+    } catch (err: unknown) {
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? String((err as { code: unknown }).code)
+          : "";
+      if (code === "auth/invalid-email") {
+        setResetMsg("Enter a valid email address first.");
+      } else if (code === "auth/too-many-requests") {
+        setResetMsg("Too many attempts. Please try again later.");
+      } else {
+        setResetMsg("Could not send the reset email. Please try again.");
+      }
+    }
+    setResetSending(false);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -90,14 +127,6 @@ export default function LoginPage() {
       }
       setLoading(false);
     }
-  }
-
-  if (checking) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-rbai-primary border-t-transparent" />
-      </div>
-    );
   }
 
   return (
@@ -180,7 +209,23 @@ export default function LoginPage() {
             className="w-full rounded-lg border border-rbai-border bg-rbai-bg px-3.5 py-2.5 text-sm text-rbai-text placeholder:text-rbai-text-light focus:outline-none focus:ring-2 focus:ring-rbai-primary focus:border-transparent transition-shadow"
             placeholder="Enter your password"
           />
+          <div className="text-right mt-1.5">
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              disabled={resetSending}
+              className="text-xs text-rbai-primary hover:underline disabled:opacity-60"
+            >
+              {resetSending ? "Sending..." : "Forgot password?"}
+            </button>
+          </div>
         </div>
+
+        {resetMsg && (
+          <div className="rounded-lg bg-rbai-bg border border-rbai-border px-3.5 py-2.5 text-sm text-rbai-text">
+            {resetMsg}
+          </div>
+        )}
 
         {error && (
           <div className="rounded-lg bg-red-50 border border-red-200 px-3.5 py-2.5 text-sm text-red-700">

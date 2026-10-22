@@ -98,11 +98,15 @@ export interface ChatResult {
  *       maxTokens, tool results re-capped tighter) tries to answer
  *       from the material already gathered instead of discarding it.
  *       Routing only — no reply text changes.
- *  F7 — a message that is ONLY a greeting takes a fast path: one
- *       small tool-less completion under the same tone/language/
- *       honorific rules, so the commonest visitor turn no longer pays
- *       the full pipeline. Any failure falls through to the normal
- *       pipeline, never to a worse outcome.
+ *  F7 — a message that is ONLY a greeting takes a fast path, so
+ *       the commonest visitor turn no longer pays the full pipeline.
+ *       Voice/video round 2026-10-22: the reply is now DETERMINISTIC
+ *       (built locally by buildGreetingReply — zero provider calls,
+ *       zero tools), because the old one-completion version still
+ *       died on the provider layer whenever every provider was
+ *       erroring: a bare greeting must be answerable with the whole
+ *       provider layer down. The reply texts are printed verbatim
+ *       in the round log for the owner's review.
  * ------------------------------------------------------------------ */
 const CHAT_MAX_TOKENS_CAP = 1024;
 const SALVAGE_MAX_TOKENS = 512;
@@ -203,6 +207,13 @@ export function isPureGreeting(message: string): boolean {
   const raw = (message || "")
     .trim()
     .toLowerCase()
+    // Emoji/symbol tolerance (voice/video round 2026-10-22): a
+    // greeting carrying an emoji ("Hello 👋", "হাই 😊") is still
+    // ONLY a greeting. Pictographs and symbol characters are
+    // stripped before matching; letters (incl. Bengali) are never
+    // in these classes, so no greeting word can be eaten by this.
+    .replace(/[\p{Extended_Pictographic}\p{So}\uFE0F]+/gu, " ")
+    .replace(/\s+/g, " ")
     .replace(/[!।.,~…]+$/u, "")
     .trim();
   if (!raw || raw.length > 40) return false;
@@ -396,80 +407,92 @@ export async function getAIConfig(): Promise<
 }
 
 /**
- * F7 fast-path prompt: a greeting turn's whole job is a warm, brief
- * reply and an offer to help. The tone lines, the language rule and
- * the honorific rule are the same sentences buildSystemPrompt uses —
- * a greeting must sound like the same agent, only faster. (The one
- * new sentence is the final task line; it is printed verbatim in the
- * re-audit #2 log for the owner's review, per the agent-speech rule.)
+ * F7 greeting reply (voice/video round 2026-10-22): a pure
+ * greeting is answered DETERMINISTICALLY — no provider call, no
+ * tools, no facts beyond the business's own name. The old fast
+ * path still spent one provider completion per greeting, so a
+ * bare "হাই" died whenever the provider layer was down (the
+ * owner's live probe: greeting in, failure text out). These
+ * texts are agent speech: they are printed VERBATIM in the
+ * round log (agent-voice-video-round.md, Item F) for the
+ * owner's review. Rules mirrored from the system prompt: warm
+ * and short (one line), language-matched (the greeting's own
+ * language decides; a business language setting wins), the
+ * স্যার/ম্যাডাম / Sir/Madam honorific for a visitor of unknown
+ * gender, a salam answered with its traditional reply, a
+ * time-of-day greeting echoed with its own phrase. Nothing
+ * else: no services, no prices, no contact push.
+ * Exported for tests.
  */
-function buildGreetingSystemPrompt(
-  config: AIConfig & ConversationContext
+export function buildGreetingReply(
+  message: string,
+  businessName: string,
+  configLanguage?: string | null
 ): string {
-  const toneGuide: Record<string, string> = {
-    friendly:
-      "Be warm, approachable, and conversational. Use a casual but professional tone.",
-    professional:
-      "Be polished and business-like. Maintain a confident, competent tone while remaining personable.",
-    formal:
-      "Be professional, polished, and courteous. Use formal language and proper grammar.",
-    technical:
-      "Be precise and detailed. Use technical terminology when appropriate and provide thorough explanations.",
-  };
-  return `You are the Ride Bangla AI Agent, the AI customer support assistant for ${config.businessName}.
-${config.businessDesc ? `About the business: ${config.businessDesc}` : ""}
-${toneGuide[config.tone] || toneGuide.friendly}
-${config.language !== "auto" ? `Always respond in: ${config.language}` : "Respond in the same language the customer uses. If the customer writes in Bengali (বাংলা), reply in Bengali. If they write in English, reply in English. Never mix languages in one reply unless the customer does."}
-Address a visitor whose gender you do not know as "স্যার/ম্যাডাম" in Bengali or "Sir/Madam" in English — never bare "স্যার" or "Sir" alone.
-The customer has only greeted you. Reply with a warm, brief greeting and ask how you can help. Keep it to one or two sentences.`;
-}
-
-/**
- * F7: one small tool-less completion for a pure greeting. Returns
- * null on ANY failure (no key, provider error, empty text) so the
- * caller falls through to the full pipeline — the fast path can only
- * ever make a greeting faster, never worse.
- */
-async function tryGreetingFastPath(
-  config: AIConfig & ConversationContext,
-  userMessage: string,
-  conversationId: string,
-  keys: ProviderKeys,
-  stream?: StreamCallbacks
-): Promise<string | null> {
-  const startedAt = Date.now();
-  try {
-    await reportActivity(conversationId, "composing");
-    const req = {
-      messages: [
-        { role: "system" as const, content: buildGreetingSystemPrompt(config) },
-        { role: "user" as const, content: userMessage },
-      ],
-      model: config.model,
-      maxTokens: GREETING_MAX_TOKENS,
-      temperature: config.temperature,
-    };
-    const completionOpts = {
-      keys,
-      preferredProvider: normalizePreferredProvider(config.provider),
-      label: "chat-greeting",
-    };
-    const completion = stream?.onToken
-      ? await streamWithFallback(req, { ...completionOpts, stream })
-      : await completeWithFallback(req, completionOpts);
-    const text = completion?.text ?? "";
-    logLatencySpan("greeting", startedAt, {
-      conversationId,
-      ok: text.trim().length > 0,
-    });
-    return text.trim().length > 0 ? text : null;
-  } catch (err) {
-    logger.warn("[brain] greeting fast path failed; using the full pipeline", {
-      conversationId,
-      reason: err instanceof Error ? err.message : String(err),
-    });
-    return null;
+  const normalized = (message || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\p{Extended_Pictographic}\p{So}\uFE0F]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const name = sanitizePromptLine(businessName);
+  const cfg = (configLanguage || "").trim().toLowerCase();
+  const lang: "bn" | "en" =
+    cfg.indexOf("bn") === 0 || cfg === "bangla" || cfg === "bengali"
+      ? "bn"
+      : cfg.indexOf("en") === 0 || cfg === "english"
+        ? "en"
+        : /[\u0980-\u09FF]/.test(message || "")
+          ? "bn"
+          : "en";
+  const isSalam =
+    normalized.indexOf("সালাম") >= 0 ||
+    normalized.indexOf("salam") >= 0 ||
+    normalized.indexOf("assalamu") >= 0;
+  const isMorning =
+    normalized.indexOf("শুভ সকাল") >= 0 ||
+    normalized.indexOf("good morning") >= 0;
+  const isAfternoon =
+    normalized.indexOf("শুভ বিকেল") >= 0 ||
+    normalized.indexOf("good afternoon") >= 0;
+  const isEvening =
+    normalized.indexOf("শুভ সন্ধ্যা") >= 0 ||
+    normalized.indexOf("good evening") >= 0;
+  const isNight = normalized.indexOf("শুভ রাত") >= 0;
+  if (lang === "bn") {
+    const open = isSalam
+      ? "ওয়ালাইকুম আসসালাম"
+      : isMorning
+        ? "শুভ সকাল"
+        : isAfternoon
+          ? "শুভ বিকেল"
+          : isEvening
+            ? "শুভ সন্ধ্যা"
+            : isNight
+              ? "শুভ রাত"
+              : "হ্যালো";
+    return (
+      open +
+      ", স্যার/ম্যাডাম! " +
+      (name ? name + "-এ " : "") +
+      "স্বাগতম। আমি আপনাকে কীভাবে সাহায্য করতে পারি?"
+    );
   }
+  const open = isSalam
+    ? "Wa alaikum assalam"
+    : isMorning
+      ? "Good morning"
+      : isAfternoon
+        ? "Good afternoon"
+        : isEvening
+          ? "Good evening"
+          : "Hello";
+  return (
+    open +
+    ", Sir/Madam! " +
+    (name ? "Welcome to " + name + ". " : "Welcome! ") +
+    "How can I help you today?"
+  );
 }
 
 /**
@@ -789,55 +812,57 @@ export async function chat(
     };
   }
 
-  // ---- F7: pure-greeting fast path (re-audit #2) ----
-  // A message that is ONLY a greeting gets one small tool-less
-  // completion instead of the full pipeline (knowledge + catalog +
-  // tools + history). Any fast-path failure falls through to the
-  // normal flow below — never to a worse outcome.
+  // ---- F7: pure-greeting fast path (re-audit #2; deterministic
+  // since the voice/video round 2026-10-22) ----
+  // A message that is ONLY a greeting is answered locally by
+  // buildGreetingReply — ZERO provider calls, zero tools — so the
+  // commonest visitor turn can never die on the provider layer.
+  // Persistence, emit and metering mirror the identity path
+  // below exactly; a streaming caller gets the reply as a single
+  // token so the widget renders it like any streamed answer.
   if (!opts?.media && isPureGreeting(effectiveMessage)) {
-    const greetingStream: StreamCallbacks | undefined = opts?.onToken
-      ? { onToken: opts.onToken, onRetract: opts.onRetract }
-      : undefined;
-    const greeting = await tryGreetingFastPath(
-      config,
+    const greeting = buildGreetingReply(
       effectiveMessage,
-      conversationId,
-      keys,
-      greetingStream
+      config.businessName,
+      config.language
     );
-    if (greeting) {
-      // Persist + emit + meter, mirroring the normal tail's
-      // essentials (fail-soft: the reply is already generated).
+    await reportActivity(conversationId, "composing");
+    if (opts?.onToken) {
       try {
-        const savedMessage = await prisma.message.create({
-          data: withBusinessId({
-            conversationId,
-            role: "assistant",
-            content: greeting,
-          }),
-        });
-        await prisma.conversation.update({
-          where: { id: conversationId },
-          data: { updatedAt: new Date() },
-        });
-        emitNewMessage(conversationId, {
-          id: savedMessage.id,
+        opts.onToken(greeting);
+      } catch {
+        /* stream sink gone — the reply still returns + persists */
+      }
+    }
+    try {
+      const savedMessage = await prisma.message.create({
+        data: withBusinessId({
+          conversationId,
           role: "assistant",
           content: greeting,
-        });
-      } catch (err) {
-        logger.warn("[brain] could not persist greeting reply; returning it anyway", {
-          conversationId,
-          reason: err instanceof Error ? err.message : String(err),
-        });
-      }
-      const greetingBusinessId = getBusinessId();
-      if (greetingBusinessId) {
-        void recordAiMessage(greetingBusinessId);
-      }
-      await clearActivity(conversationId);
-      return { response: greeting, products: [], silent: false };
+        }),
+      });
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { updatedAt: new Date() },
+      });
+      emitNewMessage(conversationId, {
+        id: savedMessage.id,
+        role: "assistant",
+        content: greeting,
+      });
+    } catch (err) {
+      logger.warn("[brain] could not persist greeting reply; returning it anyway", {
+        conversationId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
     }
+    const greetingBusinessId = getBusinessId();
+    if (greetingBusinessId) {
+      void recordAiMessage(greetingBusinessId);
+    }
+    await clearActivity(conversationId);
+    return { response: greeting, products: [], silent: false };
   }
 
   // ---- Identity fast path (owner acceptance case, 2026-10-22) ----

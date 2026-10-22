@@ -26,6 +26,12 @@ describe("isPureGreeting", () => {
     "শুভ বিকেল",
     "নমস্কার",
     "আদাব",
+    // Emoji tolerance (voice/video round 2026-10-22): an emoji
+    // riding on a bare greeting does not make it substantive.
+    "Hello 👋",
+    "হাই 😊",
+    "good morning ☀️",
+    "আসসালামু আলাইকুম 🤲",
   ];
   for (const g of greetings) {
     it(`treats ${JSON.stringify(g)} as a pure greeting`, () => {
@@ -47,6 +53,10 @@ describe("isPureGreeting", () => {
     "   ",
     "hi there, I want to place an order",
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    // Emoji do NOT rescue a substantive message (hard negatives).
+    "Hello 👋, what services do you offer?",
+    "হাই 😊, দাম কত?",
+    "👋",
   ];
   for (const g of notGreetings) {
     it(`does NOT treat ${JSON.stringify(g)} as a pure greeting`, () => {

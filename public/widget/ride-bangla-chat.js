@@ -1,6 +1,44 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-22.9 (owner report 2026-10-22,
+ * CANONICAL EMBED — v2026-10-22.11 (composer fix
+ * 2026-10-22: the empty message box could open as a HUGE tall
+ * slab (owner screenshot, Tools site). Root causes, all in the
+ * composer: (1) NO sizing ever ran on panel open, so whatever
+ * height the box happened to carry is what greeted the visitor;
+ * (2) autoGrowInput derived the EMPTY height from scrollHeight,
+ * but for an empty textarea scrollHeight reports the
+ * PLACEHOLDER's height — and the placeholder wraps at phone
+ * widths (measured in Chromium at a 390px viewport: empty
+ * scrollHeight 61px vs the true one-line 40px at the widget's
+ * ~141px composer width; it grows with every extra wrapped
+ * placeholder line), so send/clear "resets" landed inflated;
+ * (3) the textarea CSS declared no height at all, leaving the
+ * rest size unowned. Fix: the CSS now pins the one-line rest
+ * height, the empty case sizes from the box's own line metrics
+ * (never placeholder scrollHeight), and every panel open runs
+ * a slim reset — a preserved draft keeps its TEXT but reopens
+ * slim, scrolling inside the one-line box until the next input
+ * event re-grows it. Growth, the ~45% cap, internal scroll,
+ * Enter/Shift+Enter and the send reset are otherwise unchanged.)
+ * Prior: v2026-10-22.10 (voice + video round
+ * 2026-10-22: (A) FEMALE VOICE — spoken replies now pick a
+ * known female voice for the reply's language from the
+ * browser's voice list (cached, refreshed on voiceschanged
+ * and at every speak; graceful fallback to the language
+ * default when no female voice exists on the device).
+ * (B) WORKING VIDEO — the owner's new typing clip replaces
+ * the working default, and the 90s working watchdog is
+ * progress-aware: it force-settles only after 90s with NO
+ * sign of life (token / retract / live server activity), so
+ * genuinely long turns (multi-round tools, media analysis)
+ * keep the working mascot until their terminal done.
+ * (C) COMPLETION VIDEO — a third mascot state: a short
+ * completion clip (new default /agent-done.mp4, brand field
+ * completionVideoUrl) plays exactly ONCE after a successful
+ * turn, then settles to idle; error terminals go straight
+ * to idle. (D) MIC DEDUPE — the same system notice renders
+ * at most once per conversation; distinct notices unaffected.)
+ * Prior: v2026-10-22.9 (owner report 2026-10-22,
  * Help Center inline box: ONE TYPING STATE — the status strip no
  * longer repeats the typing bubble's generic "typing" caption:
  * while a typing bubble is in the thread, the strip stays hidden
@@ -175,22 +213,24 @@
 
   // ---- Agent character assets (ONE place) ----
   // The agent character is a PLATFORM asset: the bust still (also
-  // the video poster + the no-video fallback), the idle clip and
-  // the working clip resolve from these three constants and
+  // the video poster + the no-video fallback), the idle clip,
+  // the working clip and the completion clip resolve from these
+  // constants and
   // nowhere else in the embed. Central control for the brand-assets
   // build (shipped v2026-10-22.3): the Admin Panel's brand record is
   // fetched at init by fetchAgentBrand() (below); when it answers,
-  // these three vars re-resolve from the record (with its version
+  // these vars re-resolve from the record (with its version
   // cache-bust) and every placement in this file follows automatically.
   var avatarUrl = config.server.replace(/\/$/, "") + "/agent-avatar.png";
   var idleVideoUrl = config.server.replace(/\/$/, "") + "/agent-idle.mp4";
   var workingVideoUrl = config.server.replace(/\/$/, "") + "/agent-working.mp4";
+  var doneVideoUrl = config.server.replace(/\/$/, "") + "/agent-done.mp4";
 
   // ---- Agent brand record (Admin-controlled) ----
   // The agent character is an Admin Panel setting (Super Admin only,
   // Firestore agent_brand/current). The platform serves it publicly at
   // GET /api/widget/brand (relative to config.server). At init the embed
-  // asks for it ONCE; when the record answers, the three URL vars above
+  // asks for it ONCE; when the record answers, the URL vars above
   // re-resolve with the record's version as a cache-buster, and the
   // already-rendered launcher/header markup is swapped in place.
   // Fail-soft by contract: a dead endpoint, a timeout, or a partial
@@ -207,6 +247,7 @@
     if (typeof rec.logoUrl === "string" && rec.logoUrl) { avatarUrl = brandCacheBust(rec.logoUrl, v); changed = true; }
     if (typeof rec.idleVideoUrl === "string" && rec.idleVideoUrl) { idleVideoUrl = brandCacheBust(rec.idleVideoUrl, v); changed = true; }
     if (typeof rec.workingVideoUrl === "string" && rec.workingVideoUrl) { workingVideoUrl = brandCacheBust(rec.workingVideoUrl, v); changed = true; }
+    if (typeof rec.completionVideoUrl === "string" && rec.completionVideoUrl) { doneVideoUrl = brandCacheBust(rec.completionVideoUrl, v); changed = true; }
     return changed;
   }
   function applyBrandToLiveDom() {
@@ -230,6 +271,14 @@
       el.setAttribute("data-src", workingVideoUrl);
       el.removeAttribute("data-rbai-retried");
       if (el.getAttribute("src")) el.setAttribute("src", workingVideoUrl);
+      el.setAttribute("poster", avatarUrl);
+    }
+    var dones = document.querySelectorAll(".rbai-vid-done");
+    for (i = 0; i < dones.length; i++) {
+      el = dones[i];
+      el.setAttribute("data-src", doneVideoUrl);
+      el.removeAttribute("data-rbai-retried");
+      if (el.getAttribute("src")) el.setAttribute("src", doneVideoUrl);
       el.setAttribute("poster", avatarUrl);
     }
     var fallbacks = document.querySelectorAll(".rbai-avatar-fallback");
@@ -257,6 +306,8 @@
   var agentState = "idle";
   var pendingRequests = 0;
   var workingWatchdog = null;
+  var doneSettleTimer = null;
+  var lastTurnProgressAt = 0;
 
   var isOpen = false;
   var widgetContainer = null;
@@ -607,6 +658,7 @@
       #rbai-widget-status .rbai-status-dot{width:8px;height:8px;border-radius:50%;background:" + config.color + ";flex:none;animation:rbai-pulse 1.2s infinite}\n\
       .rbai-vid-idle{object-position:50% 17%}\n\
       .rbai-vid-working{left:50%;transform:translateX(-50%);width:84%;object-position:50% 32%}\n\
+      .rbai-vid-done{left:50%;transform:translateX(-50%);width:84%;object-position:50% 32%}\n\
       #rbai-widget-close{background:none;border:none;color:#fff;cursor:pointer;font-size:20px;padding:0;line-height:1}\n\
       #rbai-widget-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}\n\
       .rbai-msg{max-width:80%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.4;word-wrap:break-word}\n\
@@ -621,7 +673,7 @@
       .rbai-msg.rbai-img-msg{padding:6px}\n\
       .rbai-msg.rbai-img-msg img{display:block;max-width:180px;border-radius:8px}\n\
       #rbai-widget-input{display:flex;align-items:flex-end;border-top:1px solid #E2E8F0;padding:12px;gap:6px}\n\
-      #rbai-widget-input textarea{flex:1;min-width:0;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;font-size:14px;outline:none;resize:none;line-height:1.45;font-family:inherit;overflow-y:hidden;box-sizing:border-box}\n\
+      #rbai-widget-input textarea{flex:1;min-width:0;height:42px;min-height:42px;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;font-size:14px;outline:none;resize:none;line-height:1.45;font-family:inherit;overflow-y:hidden;box-sizing:border-box}\n\
       #rbai-widget-input textarea:focus{border-color:" + config.color + "}\n\
       #rbai-widget-input button#rbai-widget-send{background:" + config.color + ";color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:14px;flex:none}\n\
       .rbai-iconbtn{background:none;border:none;cursor:pointer;color:#64748B;padding:6px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:none}\n\
@@ -662,7 +714,7 @@
     container.innerHTML = '\
       <div id="rbai-widget-panel">\
         <div id="rbai-widget-header">\
-          <div id="rbai-widget-headwrap"><span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="none" disablepictureinpicture data-src="' + workingVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span><h3>' + escapeHtml(config.title) + '</h3></div>\
+          <div id="rbai-widget-headwrap"><span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="none" disablepictureinpicture data-src="' + workingVideoUrl + '"></video><video class="rbai-vid rbai-vid-done" muted playsinline preload="none" disablepictureinpicture data-src="' + doneVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span><h3>' + escapeHtml(config.title) + '</h3></div>\
           <button id="rbai-widget-close">&times;</button>\
         </div>\
         <div id="rbai-widget-status" hidden><span class="rbai-status-dot"></span><span id="rbai-widget-status-text"></span></div>\
@@ -678,7 +730,7 @@
         <input type="file" id="rbai-widget-videofile" accept="video/*" style="display:none" />\
       </div>\
       <button id="rbai-widget-btn" aria-label="' + t("openChat") + '">\
-        <span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="none" disablepictureinpicture data-src="' + workingVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span>\
+        <span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="none" disablepictureinpicture data-src="' + workingVideoUrl + '"></video><video class="rbai-vid rbai-vid-done" muted playsinline preload="none" disablepictureinpicture data-src="' + doneVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span>\
       </button>\
     ';
     document.body.appendChild(container);
@@ -771,6 +823,9 @@
   function kickActiveVideos() {
     var act = document.querySelectorAll(".rbai-vid.active");
     for (var i = 0; i < act.length; i++) {
+      // An ENDED completion clip stays ended (it plays once);
+      // a merely-paused one may still be re-kicked mid-play.
+      if (act[i].classList.contains("rbai-vid-done") && act[i].ended) continue;
       if (act[i].paused) safePlay(act[i]);
     }
   }
@@ -795,6 +850,9 @@
     var act = document.querySelectorAll(".rbai-vid.active");
     for (var i = 0; i < act.length; i++) {
       var v = act[i];
+      // The completion clip plays exactly ONCE: the alive watchdog
+      // must never replay it (its own settle path handles it).
+      if (v.classList.contains("rbai-vid-done")) continue;
       var wrap = v.closest(".rbai-avatarwrap");
       if (wrap && wrap.classList.contains("novid")) continue;
       if (!v.getClientRects().length) continue; // hidden wrap (closed panel) — kicked on open
@@ -833,23 +891,59 @@
   // Working-state watchdog: a request whose transport hangs
   // forever (half-open SSE/fetch on mobile) must not pin the
   // agent in the working state until reload. If the state is
-  // still "working" 90s after it was entered, force-settle to
-  // idle; a reply that arrives later still renders through the
-  // normal response handler (its settle is a no-op against the
-  // zeroed counter, guarded by Math.max in settleRequest).
-  function armWorkingWatchdog() {
+  // still "working" 90s after the turn's LAST SIGN OF LIFE,
+  // force-settle to idle; a reply that arrives later still
+  // renders through the normal response handler (its settle is
+  // a no-op against the zeroed counter, guarded by Math.max in
+  // settleRequest).
+  // Progress-aware (voice/video round 2026-10-22): the old
+  // watchdog measured from state ENTRY, so a genuinely long
+  // turn — multi-round tool work, a media-analysis wait (three
+  // sequential vision calls + synthesis + the chat turn) —
+  // was force-settled to idle mid-turn at 90s even though it
+  // was alive and progressing. The watchdog now settles only
+  // after 90s of SILENCE: tokens, retracts and live server
+  // activity reports all stamp lastTurnProgressAt via
+  // noteTurnProgress(), and a firing watchdog with recent
+  // progress re-arms for just the remaining quiet time.
+  function noteTurnProgress() {
+    lastTurnProgressAt = Date.now();
+  }
+  function armWorkingWatchdog(delayMs) {
     if (workingWatchdog) return;
+    var delay = typeof delayMs === "number" && delayMs > 0 ? delayMs : 90000;
     workingWatchdog = setTimeout(function () {
       workingWatchdog = null;
       if (agentState === "working") {
+        var quietFor = Date.now() - (lastTurnProgressAt || 0);
+        if (lastTurnProgressAt && quietFor < 90000) {
+          armWorkingWatchdog(90000 - quietFor);
+          return;
+        }
         pendingRequests = 0;
         setAgentState("idle");
         stopActivityPolling();
       }
-    }, 90000);
+    }, delay);
   }
   function clearWorkingWatchdog() {
     if (workingWatchdog) { clearTimeout(workingWatchdog); workingWatchdog = null; }
+  }
+
+  // Completion-state safety net: the completion clip settles to
+  // idle on its own 'ended' event; if that event never fires
+  // (autoplay refused, clip error before first frame), this
+  // timer guarantees the pose still settles shortly after the
+  // clip's 1.2s runtime instead of pinning the mascot.
+  function armDoneSettle() {
+    clearDoneSettle();
+    doneSettleTimer = setTimeout(function () {
+      doneSettleTimer = null;
+      if (agentState === "done") setAgentState("idle");
+    }, 2800);
+  }
+  function clearDoneSettle() {
+    if (doneSettleTimer) { clearTimeout(doneSettleTimer); doneSettleTimer = null; }
   }
 
   function ensureWorkingVideo() {
@@ -859,6 +953,18 @@
       if (!v.getAttribute("src") && v.getAttribute("data-src")) {
         v.setAttribute("src", v.getAttribute("data-src"));
         try { v.load(); } catch (e) {}
+      }
+    }
+    // The completion clip attaches on the same lazy path, so it
+    // is loaded and ready BEFORE the first successful turn ends
+    // (attaching it only at the done moment would race its own
+    // first frame and the pose would be missed).
+    var dones = document.querySelectorAll(".rbai-vid-done");
+    for (var j = 0; j < dones.length; j++) {
+      var d = dones[j];
+      if (!d.getAttribute("src") && d.getAttribute("data-src")) {
+        d.setAttribute("src", d.getAttribute("data-src"));
+        try { d.load(); } catch (e) {}
       }
     }
   }
@@ -904,24 +1010,33 @@
 
   function setAgentState(s) {
     var showWorking = s === "working";
-    if (showWorking) ensureWorkingVideo();
+    var showDone = s === "done";
+    if (showWorking) noteTurnProgress();
+    if (showWorking || showDone) ensureWorkingVideo();
     // Repeat calls in the same state (a second concurrent request,
     // an extra settle) only refresh the caption — they must not
     // restart the working clip at 0 or re-pause/re-play the clips.
     if (agentState === s) { renderStatus(); return; }
     agentState = s;
     if (showWorking) armWorkingWatchdog(); else clearWorkingWatchdog();
+    if (showDone) armDoneSettle(); else clearDoneSettle();
     var idles = document.querySelectorAll(".rbai-vid-idle");
     var workings = document.querySelectorAll(".rbai-vid-working");
+    var dones = document.querySelectorAll(".rbai-vid-done");
     for (var i = 0; i < idles.length; i++) {
-      idles[i].classList.toggle("active", !showWorking);
-      if (showWorking) { safePause(idles[i]); }
+      idles[i].classList.toggle("active", !showWorking && !showDone);
+      if (showWorking || showDone) { safePause(idles[i]); }
       else { safePlay(idles[i]); }
     }
     for (var j = 0; j < workings.length; j++) {
       workings[j].classList.toggle("active", showWorking);
       if (showWorking) { try { workings[j].currentTime = 0; } catch (e) {} safePlay(workings[j]); }
       else { safePause(workings[j]); }
+    }
+    for (var k = 0; k < dones.length; k++) {
+      dones[k].classList.toggle("active", showDone);
+      if (showDone) { try { dones[k].currentTime = 0; } catch (e) {} safePlay(dones[k]); }
+      else { safePause(dones[k]); }
     }
     renderStatus();
   }
@@ -957,6 +1072,13 @@
       // ACTIVE clip on its last frame. Restart it at once: the
       // mascot must never sit frozen (owner rule 2026-10-22).
       vids[i].addEventListener("ended", function () {
+        // The completion clip is the exception to the restart law
+        // below: it plays exactly ONCE, and its end is the signal
+        // to settle back to idle.
+        if (this.classList.contains("rbai-vid-done")) {
+          if (agentState === "done") setAgentState("idle");
+          return;
+        }
         if (this.classList.contains("active")) {
           try { this.currentTime = 0; } catch (e) {}
           safePlay(this);
@@ -1002,6 +1124,8 @@
     // First open: lazily fetch the working clip (never on host-page load).
     if (isOpen) ensureWorkingVideo();
     if (isOpen) {
+      // The panel always opens with the slim one-line composer.
+      resetComposerOnOpen();
       kickActiveVideos();
       // A restored conversation renders its own history via the thread
       // sync; the greeting is only for a brand-new thread.
@@ -1031,7 +1155,18 @@
   // bubbles, which made a permission problem look like the agent
   // itself speaking (the owner's screenshot). The .system style
   // has no bubble: muted, centred, clearly chrome, not chat.
+  // Dedupe (voice/video round 2026-10-22): the owner's screen
+  // recording showed the identical mic-blocked notice inserted
+  // TWICE in one conversation — every repeated mic attempt (or
+  // any repeated device-state failure) stacked another copy of
+  // the same line. A system notice is chrome, not chat: the
+  // same text renders at most ONCE per widget lifetime, while
+  // DISTINCT notices are never suppressed.
+  var shownSystemNotices = {};
   function addSystemNotice(text) {
+    if (!text) return null;
+    if (shownSystemNotices[text]) return null;
+    shownSystemNotices[text] = true;
     return addMessage(text, "system");
   }
 
@@ -1070,6 +1205,61 @@
     }
   }
 
+  // ---- Female voice selection (voice/video round 2026-10-22) ----
+  // A spoken reply must sound like a person, not the device
+  // default (male or robotic on many phones). Per reply, the
+  // picker takes the first voice that (a) speaks the REPLY'S
+  // language and (b) carries a known female name. The list is
+  // cached and refreshed on voiceschanged AND re-read at every
+  // speak, because browsers load voices asynchronously — a
+  // first click must never wait for the list or stay silent:
+  // with no female voice (yet, or ever, on this device) the
+  // utterance simply carries its lang and the browser's own
+  // default for that language speaks. Bengali voices are
+  // scarce and rarely carry a gendered name, so a bn voice is
+  // picked only when its name matches; otherwise the same
+  // language-default fallback applies.
+  var FEMALE_VOICE_NAME_PARTS = [
+    "zira", "jenny", "aria", "samantha", "google us english",
+    "karen", "moira", "tessa", "fiona", "veena", "serena",
+    "allison", "ava", "susan", "heera", "aditi", "raveena",
+    "lekha", "female",
+  ];
+  var cachedVoices = [];
+  function refreshVoices() {
+    if (!speechSupported()) return;
+    try {
+      var vs = window.speechSynthesis.getVoices();
+      if (vs && vs.length) cachedVoices = vs;
+    } catch (e) {}
+  }
+  function initVoiceCache() {
+    if (!speechSupported()) return;
+    refreshVoices();
+    try {
+      if (typeof window.speechSynthesis.addEventListener === "function") {
+        window.speechSynthesis.addEventListener("voiceschanged", refreshVoices);
+      } else {
+        window.speechSynthesis.onvoiceschanged = refreshVoices;
+      }
+    } catch (e) {}
+  }
+  function pickFemaleVoice(langTag) {
+    refreshVoices();
+    var lang = String(langTag || "").toLowerCase().split("-")[0];
+    if (!lang || !cachedVoices.length) return null;
+    for (var i = 0; i < cachedVoices.length; i++) {
+      var v = cachedVoices[i];
+      var vLang = String(v.lang || "").toLowerCase();
+      if (vLang.indexOf(lang) !== 0) continue;
+      var name = String(v.name || "").toLowerCase();
+      for (var j = 0; j < FEMALE_VOICE_NAME_PARTS.length; j++) {
+        if (name.indexOf(FEMALE_VOICE_NAME_PARTS[j]) >= 0) return v;
+      }
+    }
+    return null;
+  }
+
   function speakReply(text, btn) {
     if (!speechSupported() || !text) return;
     if (speakingBtn === btn) {
@@ -1078,6 +1268,7 @@
     }
     stopSpeaking();
     var lang = detectTextLang(text) === "bn" ? "bn-BD" : "en-US";
+    var femaleVoice = pickFemaleVoice(lang);
     // Queue sentence by sentence: mobile Chrome silently truncates
     // single very long utterances.
     var parts =
@@ -1095,6 +1286,7 @@
     queue.forEach(function (part, i) {
       var u = new SpeechSynthesisUtterance(part);
       u.lang = lang;
+      if (femaleVoice) u.voice = femaleVoice;
       if (i === last) {
         u.onend = function () { if (speakingBtn === btn) stopSpeaking(); };
         u.onerror = function () { if (speakingBtn === btn) stopSpeaking(); };
@@ -1264,6 +1456,9 @@
       .then(function (res) { return res.json(); })
       .then(function (data) {
         currentActivity = (data && data.activity) || null;
+        // A live server activity is a sign of life for the
+        // in-flight turn (progress-aware watchdog).
+        if (currentActivity) noteTurnProgress();
         renderStatus();
       })
       .catch(function () { /* caption keeps its last honest state */ });
@@ -1375,20 +1570,38 @@
       .catch(function () { handleApiResponse(null, 0, typing); });
   }
 
-  // Settle one in-flight request: drop its typing bubble and, when the
-  // last pending request finishes, return the agent to idle and stop
+  // Settle one in-flight request: drop its typing bubble and, when
+  // the last pending request finishes, settle the agent and stop
   // the activity polling. Shared by the JSON and streaming paths.
-  function settleRequest(typing) {
+  // `succeeded` marks a SUCCESS terminal (a real reply fully
+  // delivered): the agent then plays the completion clip once
+  // before settling to idle. Anything else — errors, gates,
+  // silence, aborts — settles straight to idle: no happy pose
+  // on a failure.
+  function settleRequest(typing, succeeded) {
     if (typing) { typing.remove(); renderStatus(); }
     pendingRequests = Math.max(0, pendingRequests - 1);
     if (pendingRequests === 0) {
-      setAgentState("idle");
+      setAgentState(succeeded ? "done" : "idle");
       stopActivityPolling();
     }
   }
 
   function handleApiResponse(data, status, typing, streamBubble) {
-    settleRequest(typing);
+    // Success = a reply delivered through the normal success
+    // shape. Every gate/error/silent outcome below settles
+    // straight to idle instead (see settleRequest).
+    var succeeded =
+      !!data &&
+      status !== 401 &&
+      status !== 402 &&
+      data.error !== "subscription_paused" &&
+      data.error !== "message_limit_reached" &&
+      !data.error &&
+      !data.silent &&
+      typeof data.response === "string" &&
+      data.response.length > 0;
+    settleRequest(typing, succeeded);
 
     if (!data) {
       // Genuine transport failure only (network down / unreadable
@@ -1520,6 +1733,7 @@
           var data = null;
           try { data = JSON.parse(dataStr); } catch (e) { return; }
           if (event === "token" && data.text) {
+            noteTurnProgress();
             if (!bubble) {
               if (currentTyping) { currentTyping.remove(); currentTyping = null; renderStatus(); }
               bubble = addMessage("", "bot");
@@ -1528,6 +1742,7 @@
             bubble.textContent = streamed;
             scrollToBottom();
           } else if (event === "retract") {
+            noteTurnProgress();
             // The streamed text preceded tool calls — discard it.
             // Re-audit #2 TYPING LAW (owner 2026-10-22): the typing
             // bubble must NEVER re-appear after the first token of a
@@ -1590,9 +1805,40 @@
   // painful. The textarea now grows with its content up to ~45% of
   // the panel height, then scrolls internally; sendMessage resets it
   // to one line. The message list above is untouched.
+  //
+  // Composer fix (v2026-10-22.11, owner screenshot): the empty box
+  // must rest at EXACTLY one line. scrollHeight must never size the
+  // EMPTY box: for an empty textarea the browser reports the
+  // PLACEHOLDER's height there, and the placeholder wraps at phone
+  // widths — measured in Chromium (390px viewport, the widget's
+  // ~141px-wide composer): empty scrollHeight 61px against a true
+  // one-line clientHeight of 40px, i.e. every send/clear "reset"
+  // actually landed on the wrapped placeholder's height, and any
+  // taller placeholder wrap (narrower box, device font) inflates it
+  // further. The empty height is therefore computed from the box's
+  // own line metrics: line-height + vertical padding + borders
+  // (= 42px border-box at the shipped metrics).
+  function restHeightPx(input) {
+    var cs = null;
+    try { cs = window.getComputedStyle ? window.getComputedStyle(input) : null; } catch (e) {}
+    function px(v) { var n = parseFloat(v); return n > 0 ? n : 0; }
+    var lineHeight = cs ? px(cs.lineHeight) : 0;
+    if (!lineHeight) lineHeight = (cs && px(cs.fontSize) ? px(cs.fontSize) : 14) * 1.45;
+    return Math.round(lineHeight + px(cs && cs.paddingTop) + px(cs && cs.paddingBottom) +
+      px(cs && cs.borderTopWidth) + px(cs && cs.borderBottomWidth));
+  }
+
   function autoGrowInput() {
     var input = document.getElementById("rbai-widget-text");
     if (!input) return;
+    if (!input.value) {
+      // Empty (rest / just sent / just cleared): slim one line,
+      // sized from line metrics — never from placeholder-inflated
+      // scrollHeight.
+      input.style.height = restHeightPx(input) + "px";
+      input.style.overflowY = "hidden";
+      return;
+    }
     input.style.height = "auto";
     var panel = document.getElementById("rbai-widget-panel");
     var cap = panel && panel.clientHeight
@@ -1601,6 +1847,22 @@
     var full = input.scrollHeight;
     input.style.height = Math.min(full, cap) + "px";
     input.style.overflowY = full > cap ? "auto" : "hidden";
+  }
+
+  // Panel-open reset (v2026-10-22.11): the panel must ALWAYS open
+  // with the slim one-line box — no sizing ran on open before, so a
+  // height grown (or inflated) earlier in the page's lifetime was
+  // what greeted the visitor, even with the box empty. A preserved
+  // draft keeps its TEXT (unsent words are the visitor's — opening
+  // a panel must never delete them) but not its height: the box
+  // reopens slim, the draft scrolls inside the one-line box, and
+  // the visitor's next input event re-grows it via autoGrowInput.
+  function resetComposerOnOpen() {
+    var input = document.getElementById("rbai-widget-text");
+    if (!input) return;
+    input.style.height = restHeightPx(input) + "px";
+    input.style.overflowY = input.value ? "auto" : "hidden";
+    input.scrollTop = 0;
   }
 
   function sendMessage() {
@@ -1910,6 +2172,8 @@
     var panel = document.getElementById("rbai-widget-panel");
     isOpen = true;
     if (panel) panel.classList.add("open");
+    // Inline panels follow the same rule: slim one-line composer.
+    resetComposerOnOpen();
     ensureWorkingVideo();
     // The container was just (re)moved into the inline mount —
     // DOM moves can pause a media element, so re-kick the active
@@ -1956,6 +2220,11 @@
     var observer = new MutationObserver(function () { syncInlineMount(); });
     observer.observe(document.body, { childList: true, subtree: true });
   }
+
+  // Voice list warm-up: browsers load speech voices
+  // asynchronously; start listening for them at init so the
+  // first spoken reply already knows the device's female voice.
+  initVoiceCache();
 
   // The brand fetch fires at once and never blocks the render:
   // the widget builds instantly from the defaults and the live
