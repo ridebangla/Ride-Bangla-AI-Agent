@@ -1287,6 +1287,36 @@ export function emptyCompletionFallbackText(
   ];
 }
 
+/**
+ * CF-4 sibling (check #2 follow-up): the depth>5 recursion guard at
+ * the top of callAI returned an English-only string — the same
+ * language-match break CF-4 fixed for the empty-completion fallback
+ * above. It is now selected with the same resolveBehaviourLang
+ * handling (a forced settings language wins; otherwise the customer's
+ * latest message decides). The English string is byte-identical to
+ * the legacy guard text.
+ */
+const DEPTH_GUARD_FALLBACK = {
+  bn: "দুঃখিত, আপনার অনুরোধটি প্রক্রিয়া করতে সমস্যা হচ্ছে। আমি আপনাকে টিমের একজন সদস্যের সঙ্গে যুক্ত করে দিচ্ছি।",
+  en: "I apologize, but I'm having trouble processing your request. Let me connect you with a team member.",
+} as const;
+
+export function depthGuardFallbackText(
+  settingsLanguage: string | undefined,
+  messages: AIMessage[]
+): string {
+  let lastCustomerText = "";
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      lastCustomerText = messages[i].content;
+      break;
+    }
+  }
+  return DEPTH_GUARD_FALLBACK[
+    resolveBehaviourLang(settingsLanguage, lastCustomerText)
+  ];
+}
+
 async function callAI(
   // CF-4: widened from AIConfig — every caller already passes the
   // getAIConfig() intersection, and the empty-completion fallback now
@@ -1303,8 +1333,7 @@ async function callAI(
 ): Promise<{ response: string; products: ProductCard[]; orderTaken: boolean; orderRef: string }> {
   if (depth > 5) {
     return {
-      response:
-        "I apologize, but I'm having trouble processing your request. Let me connect you with a team member.",
+      response: depthGuardFallbackText(config.language, messages),
       products: collectedProducts,
       orderTaken: orderSignal.taken,
       orderRef: orderSignal.ref,
