@@ -91,6 +91,14 @@ export async function POST(request: NextRequest) {
       );
       return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
     }
+    // Feature scope (B6 follow-up): a grant scoped away from "chat"
+    // blocks with the same 402 shape. Unscoped accounts pass unchanged.
+    if (sub.scopeAllowsChat === false) {
+      logger.warn(
+        `[billing] blocked voice upload for business ${business.id}: grant scope excludes chat`
+      );
+      return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
+    }
 
     if (await checkMessageLimitExceeded(business.id)) {
       return NextResponse.json({ error: "message_limit_reached" }, { status: 402 });

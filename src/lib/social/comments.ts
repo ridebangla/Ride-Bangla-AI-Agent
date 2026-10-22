@@ -113,32 +113,50 @@ export async function handleCommentEvent(event: CommentEvent): Promise<{
   }
 
   // Subscription hard-stop (user decision 16): store the comment honestly,
-  // but spend nothing on a draft and send nothing.
+  // but spend nothing on a draft and send nothing. The stored-without-draft
+  // path is shared with the feature-scope gate below.
+  const storeWithoutDraft = async () => {
+    const stored = await prisma.socialInteraction.create({
+      data: withBusinessId({
+        platform,
+        kind: "comment",
+        externalId: commentId,
+        parentRef,
+        customerRef: authorRef,
+        content: `${authorName}: ${text}`.slice(0, 1000),
+        likes: 0,
+        replied: false,
+        repliedAt: null,
+        replyRef: "",
+        draftReply: "",
+      }),
+    });
+    return { interactionId: stored.id, autoReplied: false };
+  };
+
+  let sub;
   try {
-    await requireActiveSubscription(businessId);
+    sub = await requireActiveSubscription(businessId);
   } catch (err) {
     if (err instanceof SubscriptionInactiveError) {
-      const stored = await prisma.socialInteraction.create({
-        data: withBusinessId({
-          platform,
-          kind: "comment",
-          externalId: commentId,
-          parentRef,
-          customerRef: authorRef,
-          content: `${authorName}: ${text}`.slice(0, 1000),
-          likes: 0,
-          replied: false,
-          repliedAt: null,
-          replyRef: "",
-          draftReply: "",
-        }),
-      });
+      const blocked = await storeWithoutDraft();
       logger.warn(
         `[comments] subscription inactive — stored comment without AI draft (${platform} ${commentId})`
       );
-      return { interactionId: stored.id, autoReplied: false };
+      return blocked;
     }
     throw err;
+  }
+
+  // Feature scope (B6 follow-up): a grant scoped away from "chat" gets
+  // the same stored-without-draft treatment. Chat-scoped grants and
+  // unscoped accounts pass unchanged (explicit-false check only).
+  if (sub.scopeAllowsChat === false) {
+    const blocked = await storeWithoutDraft();
+    logger.warn(
+      `[comments] grant scope excludes chat — stored comment without AI draft (${platform} ${commentId})`
+    );
+    return blocked;
   }
 
   const account = await findAccountForComment(platform, parentRef);

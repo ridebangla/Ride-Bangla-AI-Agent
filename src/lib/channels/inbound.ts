@@ -48,27 +48,48 @@ export async function processChannelMessage(
   // ---- User decision 16 (airtight): subscription hard-stop BEFORE any
   // LLM tokens are spent or conversations are created. Inactive trial /
   // subscription => the message is stored honestly, no AI reply, no spend.
+  // The blocked path is shared with the feature-scope gate below: both
+  // answer a channel message with the route's existing silent-drop —
+  // store the message, generate nothing, spend nothing.
+  const storeSilently = async (): Promise<InboundResult> => {
+    await prisma.message.create({
+      data: withBusinessId({
+        conversationId,
+        role: "customer",
+        content: userMessage,
+      }),
+    });
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { updatedAt: new Date() },
+    });
+    return { response: "", products: [], silent: true, blockedBySubscription: true };
+  };
+
+  let sub;
   try {
-    await requireActiveSubscription(businessId);
+    sub = await requireActiveSubscription(businessId);
   } catch (err) {
     if (err instanceof SubscriptionInactiveError) {
-      await prisma.message.create({
-        data: withBusinessId({
-          conversationId,
-          role: "customer",
-          content: userMessage,
-        }),
-      });
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { updatedAt: new Date() },
-      });
+      const blocked = await storeSilently();
       logger.warn(
         `[inbound] subscription inactive — stored customer message silently for conversation ${conversationId}`
       );
-      return { response: "", products: [], silent: true, blockedBySubscription: true };
+      return blocked;
     }
     throw err;
+  }
+
+  // Feature scope (B6 follow-up): a grant scoped away from "chat" gets
+  // the same silent-drop as an inactive subscription. A chat-scoped
+  // grant (scopeAllowsChat true) and every unscoped account pass
+  // unchanged — the check is explicit-false only.
+  if (sub.scopeAllowsChat === false) {
+    const blocked = await storeSilently();
+    logger.warn(
+      `[inbound] grant scope excludes chat — stored customer message silently for conversation ${conversationId}`
+    );
+    return blocked;
   }
 
   // Plan quota hard-stop (same pattern as the subscription block above):

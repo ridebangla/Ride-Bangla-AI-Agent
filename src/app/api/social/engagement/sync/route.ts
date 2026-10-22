@@ -24,6 +24,12 @@ export async function POST(request: NextRequest) {
   if (!sub.isActive) {
     return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
   }
+  // Feature scope (B6 follow-up): this sync generates AI replies to
+  // customer comments/messages — a grant scoped away from "chat" is
+  // blocked with the same 402 shape. Unscoped accounts pass unchanged.
+  if (sub.scopeAllowsChat === false) {
+    return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
+  }
 
   return runWithBusiness(auth.businessId, async () => {
     try {
