@@ -1,6 +1,19 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-22.4 (NEW: playback self-healing for real
+ * CANONICAL EMBED — v2026-10-22.5 (NEW: full-scene mascot framing
+ * (owner directive 2026-10-22: the scene must READ — the working
+ * clip is now framed so the robot AND its laptop are both inside
+ * the circular slots, and the idle clip shows the full standing
+ * figure; the old bust-centred cover crop centred the face and
+ * cut the laptop, the whole point of the working scene, out of
+ * the frame) + always-alive playback (the active clip can no
+ * longer settle into a frozen frame or a permanent still: an
+ * 'ended' active clip replays at once, a 4s watchdog re-plays a
+ * paused active clip, a wrap scrolling back on-screen re-kicks
+ * via IntersectionObserver, a back/forward-cache restore
+ * re-kicks on pageshow, and a wrap that fell back to the still
+ * image retries its video at most once a minute until it
+ * recovers). Prior: v2026-10-22.4 (playback self-healing for real
  * mobile browsers — the active clip is re-kicked on its canplay event
  * (some Android browsers/WebViews silently drop a play() issued before
  * the clip has data), a clip whose load errors gets ONE reload-and-retry
@@ -500,18 +513,31 @@
   var MAX_IMAGE_BYTES = 4 * 1024 * 1024;
   var MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 
-  // Mascot framing (owner reference 2026-10-22: BUST — head +
-  // shoulders, face centred). Since v2026-10-22.2 the ASSET ITSELF
-  // is the bust: agent-avatar.png is the 432x432 crop at (296,186)
-  // of the 1024x1024 mascot artwork, exported at 512x512 — measured
-  // figure bounds x 4.5-94% / y 4-100% of the frame, matching the
-  // owner's reference (x 4.7-94% / y 3.5-100%). The fallback <img>
-  // is therefore plain cover-fit again (no CSS crop anywhere).
-  // The clips are 480x854 full-scene: in a square slot, cover-fit shows
-  // a 56%-of-height band; the idle figure's head sits at y 19-38%, so
-  // object-position 17% centres that band on the bust; the working
-  // scene's mascot head sits higher (y 8-40%), hence 8%. Launcher
-  // (56px) and header (36px) wrap sizes are unchanged.
+  // Mascot framing. The STILL (agent-avatar.png) is the bust asset
+  // (since v2026-10-22.2 the ASSET ITSELF is the bust: the 432x432
+  // crop at (296,186) of the 1024x1024 mascot artwork, exported at
+  // 512x512 — measured figure bounds x 4.5-94% / y 4-100% of the
+  // frame). The fallback <img> stays plain cover-fit: it is only
+  // the poster / failure fallback. The VIDEO clips are 480x854
+  // FULL SCENES and are framed as scenes (owner directive
+  // 2026-10-22, superseding the v.2 bust-centred video crop, which
+  // centred the face and cut the laptop — the point of the working
+  // scene — out of the circular slots entirely). Measured on the
+  // shipped clips (composition is stable across each 10s loop):
+  //   idle    — standing figure x 55-425, y 107-838, no props;
+  //   working — head y 105-375, torso to y ~600, laptop screen
+  //             x 0-125 / y 445-640, hands + keyboard y 530-650.
+  // In a square slot, cover-fit on a full-width <video> can only
+  // ever show a 480x480 band of the 854-tall frame. The per-clip
+  // classes below therefore NARROW the element (kept centred):
+  // cover maps the full 480 width into the narrower box, which
+  // stretches the visible window vertically —
+  //   idle:    width 59% -> window 480x814, object-position 74%
+  //            -> band y 30-843: the WHOLE standing figure.
+  //   working: width 84% -> window 480x571, object-position 32%
+  //            -> band y 90-662: head, torso, typing hands AND
+  //            the full laptop (screen 445-640) inside the frame.
+  // Launcher (56px) and header (36px) wrap sizes are unchanged.
   function createStyles() {
     var style = document.createElement("style");
     style.textContent = "\n\
@@ -530,8 +556,8 @@
       #rbai-widget-status{display:flex;align-items:center;gap:7px;padding:7px 16px;background:#F0FDF6;border-bottom:1px solid #E2E8F0;font-size:12.5px;font-weight:600;color:#065F46}\n\
       #rbai-widget-status[hidden]{display:none}\n\
       #rbai-widget-status .rbai-status-dot{width:8px;height:8px;border-radius:50%;background:" + config.color + ";flex:none;animation:rbai-pulse 1.2s infinite}\n\
-      .rbai-vid-idle{object-position:50% 17%}\n\
-      .rbai-vid-working{object-position:50% 8%}\n\
+      .rbai-vid-idle{left:50%;transform:translateX(-50%);width:59%;object-position:50% 74%}\n\
+      .rbai-vid-working{left:50%;transform:translateX(-50%);width:84%;object-position:50% 32%}\n\
       #rbai-widget-close{background:none;border:none;color:#fff;cursor:pointer;font-size:20px;padding:0;line-height:1}\n\
       #rbai-widget-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}\n\
       .rbai-msg{max-width:80%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.4;word-wrap:break-word}\n\
@@ -603,6 +629,7 @@
     ';
     document.body.appendChild(container);
     wireVideoFallback();
+    startAliveWatchdog();
     syncInlineMount();
     // The bust still is the poster for BOTH clips: the idle clip
     // shows it until its first frame paints, and the working clip
@@ -683,6 +710,61 @@
     for (var i = 0; i < act.length; i++) {
       if (act[i].paused) safePlay(act[i]);
     }
+  }
+
+  // Always-alive watchdog (owner rule 2026-10-22): the mascot
+  // must never end up frozen — a browser can park the active clip
+  // at any time (autoplay-policy change mid-session, a discarded
+  // media resource under memory pressure, an OS interruption, a
+  // stall at the loop seam) without firing any event the kicks
+  // above listen to. Every 4s this checks the clip that SHOULD be
+  // playing (the .active one, in a wrap that is actually on
+  // screen) and re-plays it if it is paused or ended. Clips in an
+  // error state are left to the error handler + the probe below.
+  // A wrap that fell back to the still image (.novid) is retried
+  // at most once a minute: the still is a momentary fallback,
+  // never a terminal state — if the clip can load again, the
+  // wrap returns to video on its own.
+  var aliveWatchdog = null;
+  var lastNovidProbe = 0;
+  function aliveTick() {
+    if (document.hidden) return;
+    var act = document.querySelectorAll(".rbai-vid.active");
+    for (var i = 0; i < act.length; i++) {
+      var v = act[i];
+      var wrap = v.closest(".rbai-avatarwrap");
+      if (wrap && wrap.classList.contains("novid")) continue;
+      if (!v.getClientRects().length) continue; // hidden wrap (closed panel) — kicked on open
+      if (v.error) continue;
+      if (v.ended) {
+        try { v.currentTime = 0; } catch (e) {}
+        safePlay(v);
+      } else if (v.paused) {
+        safePlay(v);
+      }
+    }
+    var now = Date.now();
+    if (now - lastNovidProbe > 60000) {
+      var wraps = document.querySelectorAll(".rbai-avatarwrap.novid");
+      if (wraps.length) {
+        lastNovidProbe = now;
+        for (var j = 0; j < wraps.length; j++) {
+          wraps[j].classList.remove("novid");
+          var wv = wraps[j].querySelectorAll(".rbai-vid");
+          for (var k = 0; k < wv.length; k++) {
+            wv[k].removeAttribute("data-rbai-retried");
+            if (wv[k].classList.contains("active")) {
+              try { wv[k].load(); } catch (e2) {}
+              safePlay(wv[k]);
+            }
+          }
+        }
+      }
+    }
+  }
+  function startAliveWatchdog() {
+    if (aliveWatchdog) return;
+    aliveWatchdog = setInterval(aliveTick, 4000);
   }
 
   // Working-state watchdog: a request whose transport hangs
@@ -782,6 +864,17 @@
       vids[i].addEventListener("canplay", function () {
         if (this.classList.contains("active") && this.paused) safePlay(this);
       });
+      // The clips carry `loop`, so an 'ended' event should never
+      // fire — but a browser that interrupts the loop (resource
+      // reloaded, playback stall at the seam) can still land the
+      // ACTIVE clip on its last frame. Restart it at once: the
+      // mascot must never sit frozen (owner rule 2026-10-22).
+      vids[i].addEventListener("ended", function () {
+        if (this.classList.contains("active")) {
+          try { this.currentTime = 0; } catch (e) {}
+          safePlay(this);
+        }
+      });
     }
     // If autoplay was blocked, retry the active clip on user
     // interaction — every wrap's clip, not just the first, and
@@ -793,6 +886,26 @@
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden) kickActiveVideos();
     });
+    // Back/forward-cache restore: the page comes back with its
+    // clips paused by the browser and NONE of the mount-time kicks
+    // fire (the script does not re-run) — re-kick the active clip
+    // on pageshow and make sure the watchdog is running.
+    window.addEventListener("pageshow", function () {
+      kickActiveVideos();
+      startAliveWatchdog();
+    });
+    // A wrap that scrolled / was routed off-screen and comes back
+    // into view gets its active clip re-kicked: some browsers
+    // park off-screen media elements and never resume them.
+    if (typeof IntersectionObserver !== "undefined") {
+      var rbaiIo = new IntersectionObserver(function (entries) {
+        for (var ei = 0; ei < entries.length; ei++) {
+          if (entries[ei].isIntersecting) kickActiveVideos();
+        }
+      }, { threshold: 0.1 });
+      var rbaiWraps = document.querySelectorAll(".rbai-avatarwrap");
+      for (var wi = 0; wi < rbaiWraps.length; wi++) rbaiIo.observe(rbaiWraps[wi]);
+    }
   }
 
   function toggleWidget() {
