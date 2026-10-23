@@ -104,6 +104,23 @@ export default async function RootPage() {
           __html: JSON.stringify(SOFTWARE_APP_JSON_LD),
         }}
       />
+      {/* Own-agent widget — the canonical embed, mounted on this public
+          landing page ONLY (same snippet Main mounts in its RootShell:
+          src + data-server + data-site-key + async; the widget reads its
+          config from document.currentScript's data-* attributes). It is
+          deliberately scoped to this page component — NOT the root layout
+          (src/app/layout.tsx) — so dashboard/auth/app pages never mount
+          it. Plain <script> JSX mirrors this repo's existing page-scoped
+          widget mount in src/app/p/[slug]/theme-page.tsx. Same-origin
+          src, so the middleware CSP (script-src 'self') already allows
+          it. Logged-in visitors never see it: RootPage redirects them to
+          /dashboard or /billing above, before this renders. */}
+      <script
+        src="https://ai.ridebangla.bd/widget/ride-bangla-chat.js"
+        data-server="https://ai.ridebangla.bd"
+        data-site-key="rbsite-00f37b79c72f4e678febbd82d43bb46c"
+        async
+      />
       <MarketingLanding reviewsSiteKey={reviewsSiteKey} />
     </>
   );
