@@ -597,6 +597,9 @@ describe("(e) follow-up rule fires once + activity-visible", () => {
     m(prisma.business.findMany).mockResolvedValue([{ id: "test-business", isActive: true }]);
     m(prisma.settings.findFirst).mockResolvedValue(baseSettings());
     m(prisma.conversation.findMany).mockResolvedValue([droppedConv]);
+    // Waste-audit fix B4: the revival scan no longer includes messages
+    // on the conversation query — survivors load their own messages.
+    m(prisma.message.findMany).mockResolvedValue(droppedConv.messages);
     // Stateful conversation fake: reportActivity/clearActivity write and
     // read liveActivity through these two delegates, exactly like prod.
     const state: { liveActivity: unknown } = { liveActivity: null };

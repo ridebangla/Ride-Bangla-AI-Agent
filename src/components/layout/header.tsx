@@ -50,7 +50,11 @@ export function Header({ title, description, actions }: HeaderProps) {
       } catch { /* bell simply shows no dot on failure */ }
     };
     load();
-    const timer = window.setInterval(load, 60_000);
+    const timer = window.setInterval(() => {
+      // Hidden tabs skip the poll; the next visible tick refreshes.
+      if (document.visibilityState === "hidden") return;
+      void load();
+    }, 60_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

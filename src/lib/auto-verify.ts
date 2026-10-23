@@ -246,8 +246,29 @@ async function markAutoVerify(
     status: "pending" | "matched" | "failed" | "not_configured";
     exchange?: string;
     note?: string;
-  }
+  },
+  // When the caller already holds the claim's stored autoVerify (the
+  // sweep / decision paths load the claim first), an identical
+  // status/exchange/note payload is a redundant write — the only field
+  // that would change is checkedAt, which no in-repo consumer reads —
+  // so the Firestore write is skipped. Callers that do not pass the
+  // stored payload keep the unconditional write.
+  existingAutoVerify?: unknown
 ): Promise<void> {
+  if (existingAutoVerify && typeof existingAutoVerify === "object") {
+    const prev = existingAutoVerify as {
+      status?: unknown;
+      exchange?: unknown;
+      note?: unknown;
+    };
+    if (
+      prev.status === autoVerify.status &&
+      prev.exchange === autoVerify.exchange &&
+      prev.note === autoVerify.note
+    ) {
+      return;
+    }
+  }
   await db
     .collection("payment_claims")
     .doc(claimId)
@@ -396,12 +417,19 @@ async function processCryptoClaim(
 
   if (!match.found) {
     // Lightweight by design: no match is NOT a rejection — the claim
-    // stays pending for human verification / a later sweep.
-    await markAutoVerify(db, claimId, {
-      status: "pending",
-      exchange: method,
-      note: match.note,
-    }).catch(() => {});
+    // stays pending for human verification / a later sweep. The
+    // claim's already-stored autoVerify is passed so a repeat sweep
+    // with the identical outcome skips the redundant doc rewrite.
+    await markAutoVerify(
+      db,
+      claimId,
+      {
+        status: "pending",
+        exchange: method,
+        note: match.note,
+      },
+      claim.autoVerify
+    ).catch(() => {});
     return { action: "no_match", note: match.note };
   }
 

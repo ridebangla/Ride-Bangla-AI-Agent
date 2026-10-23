@@ -1168,15 +1168,22 @@ export async function chat(
     });
   }
   let business: { websiteUrl?: string | null; websites?: Array<{ url?: string | null }> | null } | null = null;
-  try {
-    const bid = getBusinessId();
-    if (bid) {
-      business = await getUnscopedPrisma().business.findUnique({
-        where: { id: bid },
-      });
+  // The business doc is consumed ONLY by maybeAppendReviewAsk's review
+  // link resolution, and only when review asks are enabled AND no
+  // reviewUrl is set (maybeAppendReviewAsk returns immediately when
+  // disabled; resolveReviewLink returns reviewUrl without touching the
+  // business doc when it is set) — fetch it only in that case.
+  if (behaviour.reviewRequestsEnabled && !behaviour.reviewUrl) {
+    try {
+      const bid = getBusinessId();
+      if (bid) {
+        business = await getUnscopedPrisma().business.findUnique({
+          where: { id: bid },
+        });
+      }
+    } catch {
+      business = null;
     }
-  } catch {
-    business = null;
   }
   const finalResponse = await maybeAppendReviewAsk({
     conversation,

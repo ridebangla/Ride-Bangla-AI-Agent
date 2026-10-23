@@ -68,45 +68,104 @@ export async function GET(request: NextRequest) {
         ];
       }
 
-      const [conversations, total] = await Promise.all([
-        prisma.conversation.findMany({
-          where,
-          orderBy: { updatedAt: "desc" },
-          skip,
-          take,
-          select: {
-            id: true,
-            channel: true,
-            customerName: true,
-            customerContact: true,
-            status: true,
-            aiEnabled: true,
-            liveActivity: true,
-            createdAt: true,
-            updatedAt: true,
-            _count: { select: { messages: true } },
-          },
-        }),
-        prisma.conversation.count({ where }),
-      ]);
+      const listSelect = {
+        id: true,
+        channel: true,
+        customerName: true,
+        customerContact: true,
+        status: true,
+        aiEnabled: true,
+        liveActivity: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: { select: { messages: true } },
+      } as const;
 
-      // Per-conversation unread + last message. Batched: one messages query
-      // per conversation is N+1, so fetch recent messages for the page in
-      // a single query and compute in memory.
+      // updatedAt may arrive as a Date or an ISO string depending on the
+      // data layer; normalize before comparing so the merged per-channel
+      // ordering below matches a single updatedAt-desc query.
+      const updatedAtTime = (value: unknown): number => {
+        if (value instanceof Date) return value.getTime();
+        const time = new Date(value as string).getTime();
+        return Number.isNaN(time) ? 0 : time;
+      };
+
+      const [conversations, total] = await (async () => {
+        if (tab === "all") {
+          return Promise.all([
+            prisma.conversation.findMany({
+              where,
+              orderBy: { updatedAt: "desc" },
+              skip,
+              take,
+              select: listSelect,
+            }),
+            prisma.conversation.count({ where }),
+          ]);
+        }
+
+        // Non-"all" tab: split list + count per channel with channel as an
+        // equality. Equality wheres are aggregation-eligible for count()
+        // (an `in` filter falls back to a full fetch) and can be pushed
+        // down as a server-side prefilter for the list. The list merge
+        // re-applies the same updatedAt-desc order, then the same
+        // skip/take window, so results are identical to the single
+        // `in`-filter query.
+        const whereWithoutChannel: Record<string, unknown> = { ...where };
+        delete whereWithoutChannel.channel;
+
+        const perChannel = await Promise.all(
+          TAB_CHANNELS[tab].map(async (channel) => {
+            const channelWhere = { ...whereWithoutChannel, channel };
+            const [list, count] = await Promise.all([
+              prisma.conversation.findMany({
+                where: channelWhere,
+                orderBy: { updatedAt: "desc" },
+                select: listSelect,
+              }),
+              prisma.conversation.count({ where: channelWhere }),
+            ]);
+            return { list, count };
+          })
+        );
+
+        const merged = perChannel.flatMap((p) => p.list);
+        merged.sort(
+          (a, b) => updatedAtTime(b.updatedAt) - updatedAtTime(a.updatedAt)
+        );
+
+        return [
+          merged.slice(skip, skip + take),
+          perChannel.reduce((sum, p) => sum + p.count, 0),
+        ] as const;
+      })();
+
+      // Per-conversation unread + last message. Fetch per conversation
+      // (in parallel) with conversationId as an equality: an
+      // `in: ids` filter cannot be pushed down as a server-side
+      // prefilter, so it billed the tenant's whole message collection.
+      // Per-conversation equality fetches bill only the page
+      // conversations' own messages; the grouping + computation below
+      // is unchanged.
       const ids = conversations.map((c) => c.id);
       const recent =
         ids.length > 0
-          ? await prisma.message.findMany({
-              where: { conversationId: { in: ids } },
-              orderBy: { createdAt: "desc" },
-              take: ids.length * 40,
-              select: {
-                conversationId: true,
-                role: true,
-                content: true,
-                createdAt: true,
-              },
-            })
+          ? (
+              await Promise.all(
+                ids.map((id) =>
+                  prisma.message.findMany({
+                    where: { conversationId: id },
+                    orderBy: { createdAt: "desc" },
+                    select: {
+                      conversationId: true,
+                      role: true,
+                      content: true,
+                      createdAt: true,
+                    },
+                  })
+                )
+              )
+            ).flat()
           : [];
 
       const byConv = new Map<string, typeof recent>();

@@ -127,6 +127,8 @@ export function OnboardingChecklist() {
     const wasDismissed = localStorage.getItem("rbai-onboarding-dismissed");
     if (wasDismissed === "true") {
       setDismissed(true);
+      setLoading(false);
+      return;
     }
     fetchStatus();
   }, [fetchStatus]);

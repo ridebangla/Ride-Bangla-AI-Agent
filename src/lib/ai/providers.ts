@@ -1509,14 +1509,23 @@ export async function describeImageWithFallback(
 ): Promise<ChatCompletionResult | null> {
   const order = keyedProviders(keys);
   if (order.length === 0) return null;
+  const label = opts.label ?? "vision";
   const failures: Array<{ provider: string; reason: string }> = [];
   for (const provider of order) {
+    const apiKey = keys[provider]!;
+    if (providerCircuitOpen(provider, apiKey)) {
+      logger.warn(`[providers:${label}] provider circuit open, skipping`, { provider });
+      failures.push({ provider, reason: "circuit-open" });
+      continue;
+    }
     try {
-      const text = await describeImageOneProvider(provider, keys[provider]!, input, question, opts.model);
+      const text = await describeImageOneProvider(provider, apiKey, input, question, opts.model);
+      recordProviderSuccess(provider, apiKey);
       return { provider, model: visionModelFor(provider, opts.model), text };
     } catch (err) {
+      recordProviderFailure(provider, apiKey, err);
       const reason = err instanceof Error ? err.message : String(err);
-      logger.warn(`[providers:${opts.label ?? "vision"}] provider failed, failing over`, { provider, reason });
+      logger.warn(`[providers:${label}] provider failed, failing over`, { provider, reason });
       failures.push({ provider, reason });
     }
   }
@@ -1633,13 +1642,23 @@ export async function transcribeAudioWithFallback(
 ): Promise<string | null> {
   const order = keyedProviders(keys);
   if (order.length === 0) return null;
+  const label = opts.label ?? "transcribe";
   const failures: Array<{ provider: string; reason: string }> = [];
   for (const provider of order) {
+    const apiKey = keys[provider]!;
+    if (providerCircuitOpen(provider, apiKey)) {
+      logger.warn(`[providers:${label}] provider circuit open, skipping`, { provider });
+      failures.push({ provider, reason: "circuit-open" });
+      continue;
+    }
     try {
-      return await transcribeOneProvider(provider, keys[provider]!, input);
+      const text = await transcribeOneProvider(provider, apiKey, input);
+      recordProviderSuccess(provider, apiKey);
+      return text;
     } catch (err) {
+      recordProviderFailure(provider, apiKey, err);
       const reason = err instanceof Error ? err.message : String(err);
-      logger.warn(`[providers:${opts.label ?? "transcribe"}] provider failed, failing over`, { provider, reason });
+      logger.warn(`[providers:${label}] provider failed, failing over`, { provider, reason });
       failures.push({ provider, reason });
     }
   }

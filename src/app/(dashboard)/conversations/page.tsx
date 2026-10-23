@@ -123,15 +123,66 @@ export default function ConversationsPage() {
   // Signature of the last rendered detail payload — silent polls skip
   // the state write when nothing material changed (see inbox page).
   const detailSigRef = useRef<string>("");
+  // Delta sync: newest message createdAt held for the open conversation
+  // (keyed by conversation id — a different id means a full first load),
+  // plus a mirror of the rendered detail for merging delta responses.
+  const detailDeltaRef = useRef<{ id: string; ts: string } | null>(null);
+  const detailRef = useRef<ConversationData | null>(null);
+
+  useEffect(() => {
+    detailRef.current = selectedConversation;
+  }, [selectedConversation]);
 
   const fetchConversationDetail = useCallback(
     async (id: string, opts?: { silent?: boolean }) => {
       if (!opts?.silent) setDetailLoading(true);
       try {
-        const res = await fetch(`/api/conversations/${id}`);
+        const deltaTs =
+          detailDeltaRef.current?.id === id ? detailDeltaRef.current.ts : "";
+        const res = await fetch(
+          deltaTs
+            ? `/api/conversations/${id}?since=${encodeURIComponent(deltaTs)}`
+            : `/api/conversations/${id}`
+        );
         if (res.ok) {
           const data = await res.json();
-          const msgs = Array.isArray(data?.messages) ? data.messages : [];
+          const msgs: MessageData[] = Array.isArray(data?.messages) ? data.messages : [];
+          if (data?.delta) {
+            // Delta response: replace the conversation fields from the
+            // payload, append only messages not already held, in
+            // createdAt order.
+            const existing =
+              detailRef.current?.id === id ? detailRef.current.messages : [];
+            const existingIds = new Set(existing.map((m) => m.id));
+            const fresh = msgs.filter((m) => !existingIds.has(m.id));
+            const mergedMsgs = [...existing, ...fresh].sort(
+              (a, b) =>
+                new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
+            // Signature guard: skip the state write when the delta brings
+            // no new messages and the non-message fields are unchanged.
+            const sig = [
+              fresh.length,
+              fresh.length ? fresh[fresh.length - 1]?.id ?? "" : "",
+              data?.liveActivity?.kind ?? "",
+              data?.liveActivity?.at ?? "",
+              data?.aiEnabled ?? "",
+              data?.status,
+              data?._count?.messages ?? "",
+              JSON.stringify(data?.customer ?? null),
+              JSON.stringify(data?.tags ?? null),
+              JSON.stringify(data?.tickets ?? null),
+            ].join("|");
+            if (!opts?.silent || sig !== detailSigRef.current) {
+              detailSigRef.current = sig;
+              detailDeltaRef.current = mergedMsgs.length
+                ? { id, ts: mergedMsgs[mergedMsgs.length - 1].createdAt }
+                : { id, ts: deltaTs };
+              const { delta: _delta, ...rest } = data;
+              setSelectedConversation({ ...rest, messages: mergedMsgs });
+            }
+            return;
+          }
           const sig = [
             msgs.length,
             msgs.length ? msgs[msgs.length - 1]?.id ?? "" : "",
@@ -142,6 +193,14 @@ export default function ConversationsPage() {
           if (!opts?.silent || sig !== detailSigRef.current) {
             detailSigRef.current = sig;
             setSelectedConversation(data);
+          }
+          // Full response: (re)seed the delta cursor for this conversation.
+          if (msgs.length) {
+            let maxTs = msgs[0].createdAt;
+            for (const m of msgs) if (m.createdAt > maxTs) maxTs = m.createdAt;
+            detailDeltaRef.current = { id, ts: maxTs };
+          } else {
+            detailDeltaRef.current = null;
           }
         }
       } catch (error) {

@@ -28,6 +28,52 @@ export interface CatalogProduct {
  * presentation and alternative-suggestion logic below is real and shared.
  * Ride Bangla has no own production yet, so this ships empty-but-wired.
  */
+/**
+ * Exact-args product-query memo (waste-audit 2026-10-23): within one
+ * engine turn the SAME product findMany repeats — findAlternatives
+ * re-runs matchProductsInMessage with the same text/limit, and
+ * searchCatalog issues a byte-identical query to matchProductsInMessage.
+ * A module-level Map keyed by tenant + JSON.stringify of the findMany
+ * args (ONLY identical args share), TTL 10_000 ms, storing the
+ * in-flight/resolved promise. Worst-case staleness: a product edit
+ * made outside createProduct/autoCategorizeProducts (which invalidate
+ * immediately) can be matched against for at most 10 s. Failures are
+ * not cached. Category queries are deliberately NOT memoized here.
+ */
+const PRODUCT_QUERY_TTL_MS = 10_000;
+const productQueryCache = new Map<
+  string,
+  { at: number; promise: ReturnType<typeof prisma.product.findMany> }
+>();
+
+function invalidateProductQueryCache(): void {
+  productQueryCache.clear();
+}
+
+/** Test-only: clear the product-query memo between cases. */
+export function __resetProductQueryCache(): void {
+  productQueryCache.clear();
+}
+
+function findProductsMemoized(
+  args: Record<string, unknown>
+): ReturnType<typeof prisma.product.findMany> {
+  const key = `${getBusinessId() ?? ""}:${JSON.stringify(args)}`;
+  const hit = productQueryCache.get(key);
+  if (hit && Date.now() - hit.at < PRODUCT_QUERY_TTL_MS) {
+    return hit.promise;
+  }
+  const promise = prisma.product.findMany(args);
+  const entry = { at: Date.now(), promise };
+  productQueryCache.set(key, entry);
+  promise.catch(() => {
+    if (productQueryCache.get(key) === entry) {
+      productQueryCache.delete(key);
+    }
+  });
+  return promise;
+}
+
 export async function searchCatalog(query: string, limit = 5): Promise<CatalogProduct[]> {
   const businessId = getBusinessId();
   if (!businessId) throw new TenantContextError("product", "searchCatalog");
@@ -37,7 +83,7 @@ export async function searchCatalog(query: string, limit = 5): Promise<CatalogPr
     .split(/[^a-z0-9\u0980-\u09FF]+/u)
     .filter((t) => t.length > 2);
 
-  const products = await prisma.product.findMany({
+  const products = await findProductsMemoized({
     where: { isAvailable: true },
     include: { category: { select: { name: true } } },
     orderBy: { updatedAt: "desc" },
@@ -63,7 +109,7 @@ export async function searchCatalog(query: string, limit = 5): Promise<CatalogPr
 export async function listAvailableProducts(limit = 20): Promise<CatalogProduct[]> {
   const businessId = getBusinessId();
   if (!businessId) throw new TenantContextError("product", "listAvailableProducts");
-  const products = await prisma.product.findMany({
+  const products = await findProductsMemoized({
     where: { isAvailable: true },
     include: { category: { select: { name: true } } },
     orderBy: { name: "asc" },
@@ -94,7 +140,7 @@ export async function recommendAlternatives(
   // Fall back: any available products, preferring ones whose category or tags
   // overlap with the query terms.
   const terms = query.toLowerCase().split(/[^a-z0-9\u0980-\u09FF]+/u).filter((t) => t.length > 2);
-  const products = await prisma.product.findMany({
+  const products = await findProductsMemoized({
     where: { isAvailable: true },
     include: { category: { select: { name: true } } },
     take: 30,
@@ -231,6 +277,7 @@ export async function createProduct(input: {
 }) {
   const businessId = getBusinessId();
   invalidateCatalogBrief(businessId);
+  invalidateProductQueryCache();
   const created = await prisma.product.create({
     data: withBusinessId({
       name: input.name.trim(),
@@ -244,6 +291,7 @@ export async function createProduct(input: {
     }),
   });
   invalidateCatalogBrief(businessId);
+  invalidateProductQueryCache();
   return created;
 }
 
@@ -273,7 +321,7 @@ export async function matchProductsInMessage(
   if (terms.length === 0) return [];
 
   const products =
-    (await prisma.product.findMany({
+    (await findProductsMemoized({
       where: { isAvailable: true },
       include: { category: { select: { name: true } } },
       orderBy: { updatedAt: "desc" },
@@ -421,7 +469,7 @@ export async function productsInPriceBand(
   const lo = budget * (1 - tolerance);
   const hi = budget * (1 + tolerance);
   const products =
-    (await prisma.product.findMany({
+    (await findProductsMemoized({
       where: { isAvailable: true },
       include: { category: { select: { name: true } } },
       take: 60,
@@ -738,6 +786,7 @@ export async function autoCategorizeProducts(opts?: {
   if (!businessId) throw new TenantContextError("product", "autoCategorizeProducts");
 
   invalidateCatalogBrief(businessId);
+  invalidateProductQueryCache();
   const mode = opts?.mode === "rebuild" ? "rebuild" : "fill";
 
   const allProducts = (await prisma.product.findMany({
@@ -803,5 +852,6 @@ export async function autoCategorizeProducts(opts?: {
   }
 
   invalidateCatalogBrief(businessId);
+  invalidateProductQueryCache();
   return { created, reused, assigned, groups };
 }

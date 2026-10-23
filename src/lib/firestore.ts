@@ -1597,6 +1597,11 @@ function makeDelegate(model: string): ModelDelegate {
       tx.set(ref, encodeValues(row) as Record<string, unknown>);
     });
     invalidateReadCaches(model); // Q-QUOTA: post-write, before the re-read
+    // Opt-out for callers that discard the return value: skip the
+    // post-write re-read and shape the row as written instead.
+    if ((args as { skipReread?: unknown }).skipReread === true) {
+      return applySelectInclude(model, row, args, ctx);
+    }
     const created = await findFirstRaw({ where: { id: row.id } });
     if (!created) throw p2025(model);
     return applySelectInclude(model, created, args, ctx);
@@ -1621,6 +1626,7 @@ function makeDelegate(model: string): ModelDelegate {
       targetId = String(first.id);
     }
     const ref = db.collection(meta.collection).doc(targetId);
+    let mergedRow: Row | null = null;
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
       if (!snap.exists) throw p2025(model);
@@ -1634,8 +1640,14 @@ function makeDelegate(model: string): ModelDelegate {
       }
       await checkUniques(model, merged, tx, db, targetId as string);
       tx.set(ref, encodeValues(merged) as Record<string, unknown>);
+      mergedRow = merged;
     });
     invalidateReadCaches(model); // Q-QUOTA: post-write, before the re-read
+    // Opt-out for callers that discard the return value: skip the
+    // post-write re-read and shape the merged row as written instead.
+    if ((args as { skipReread?: unknown }).skipReread === true && mergedRow) {
+      return applySelectInclude(model, mergedRow, args, ctx);
+    }
     const updated = await findFirstRaw({ where: { id: targetId } });
     if (!updated) throw p2025(model);
     return applySelectInclude(model, updated, args, ctx);

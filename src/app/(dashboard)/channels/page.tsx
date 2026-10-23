@@ -377,7 +377,15 @@ function WhatsAppCard({
       }
       // Start polling for QR code / status updates
       if (pollRef.current) clearInterval(pollRef.current);
+      const pollStartedAt = Date.now();
       pollRef.current = setInterval(async () => {
+        // Stop polling after 10 minutes, exactly as on connect/unmount.
+        if (Date.now() - pollStartedAt > 10 * 60 * 1000) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          return;
+        }
+        // Hidden tabs skip the fetch; the next visible tick resumes.
+        if (document.visibilityState === "hidden") return;
         try {
           const statusRes = await fetch("/api/channels/whatsapp");
           if (statusRes.ok) {

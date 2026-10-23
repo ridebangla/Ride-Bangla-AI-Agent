@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getUnscopedPrisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { getCompanyIdentity } from "@/lib/company-identity";
 
 const startTime = Date.now();
 
@@ -21,9 +22,25 @@ export async function GET() {
   // AI provider reachability check — probes the CONFIGURED provider's
   // base URL (OpenRouter tenants must not be probed against OpenAI).
   try {
-    const settings = await db.settings.findFirst({
-      select: { aiApiKey: true, aiProvider: true },
-    });
+    // The probe's intent is "the platform's configured provider": when
+    // the company business is known (shared identity record, 60s-cached,
+    // fail-soft), read ITS settings row by the unique businessId
+    // instead of an unscoped findFirst that scans the whole settings
+    // collection on every uptime ping. Fall back to the old findFirst
+    // when identity is empty or the company row has no settings.
+    const identity = await getCompanyIdentity();
+    const companyBusinessId = identity.aiBusinessIds[0];
+    const companySettings = companyBusinessId
+      ? await db.settings.findUnique({
+          where: { businessId: companyBusinessId },
+          select: { aiApiKey: true, aiProvider: true },
+        })
+      : null;
+    const settings =
+      companySettings ??
+      (await db.settings.findFirst({
+        select: { aiApiKey: true, aiProvider: true },
+      }));
     const isOpenRouter = settings?.aiProvider === "openrouter";
     const modelsUrl = isOpenRouter
       ? "https://openrouter.ai/api/v1/models"

@@ -405,6 +405,10 @@
   var threadDelayMs = THREAD_SYNC_FAST_MS;
   var threadSyncActive = false;
   var threadRenderedCount = 0;
+  // Delta sync: newest createdAt (ISO) seen in a thread-sync response,
+  // and the in-flight sync promise (concurrent callers share it).
+  var lastThreadTs = null;
+  var threadSyncInFlight = null;
   var isPaused = false;
 
   // Live-activity caption channel: one random token per page session,
@@ -1859,11 +1863,16 @@
     if (!conversationId || !config.siteKey || !config.visitorId) {
       return Promise.resolve();
     }
+    if (threadSyncInFlight) return threadSyncInFlight;
     var q =
       "siteKey=" + encodeURIComponent(config.siteKey) +
       "&conversationId=" + encodeURIComponent(conversationId) +
       "&visitorId=" + encodeURIComponent(config.visitorId);
-    return fetch(config.server + "/api/chat/thread?" + q)
+    if (lastThreadTs) {
+      // 2 s overlap: safe because rendered messages dedupe by id.
+      q += "&since=" + encodeURIComponent(new Date(Date.parse(lastThreadTs) - 2000).toISOString());
+    }
+    var promise = fetch(config.server + "/api/chat/thread?" + q)
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (data) {
         if (!data || !data.messages) return;
@@ -1888,6 +1897,16 @@
           // mid-turn are deferred the same way and render on the
           // first poll after the turn settles.
           if (m.role !== "customer" && pendingRequests > 0) return;
+          // Advance the delta cursor from this processed message.
+          // (Deferred messages above deliberately do not advance it:
+          // they must be re-fetched after the turn settles, exactly as
+          // the duplicate-reply guard intends.)
+          if (m.createdAt) {
+            var mTs = Date.parse(m.createdAt);
+            if (!isNaN(mTs) && (!lastThreadTs || mTs > Date.parse(lastThreadTs))) {
+              lastThreadTs = new Date(mTs).toISOString();
+            }
+          }
           // Consume a local echo instead of rendering a duplicate.
           for (var i = 0; i < pendingEcho.length; i++) {
             if (pendingEcho[i].role === m.role && pendingEcho[i].content === m.content) {
@@ -1910,6 +1929,12 @@
         });
       })
       .catch(function () {});
+    threadSyncInFlight = promise;
+    promise.then(
+      function () { if (threadSyncInFlight === promise) threadSyncInFlight = null; },
+      function () { if (threadSyncInFlight === promise) threadSyncInFlight = null; }
+    );
+    return promise;
   }
 
   // Adaptive scheduler (v2026-10-23.3): a timeout chain instead of a
@@ -2083,6 +2108,11 @@
       return;
     }
     if (data.conversationId) {
+      // A different conversation must not inherit the delta cursor of
+      // the previous one (its history predates the cursor).
+      if (conversationId && data.conversationId !== conversationId) {
+        lastThreadTs = null;
+      }
       conversationId = data.conversationId;
       storeSet("conv", conversationId);
     }

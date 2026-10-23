@@ -86,6 +86,7 @@ export async function bindActivityToken(
     await prisma.conversation.update({
       where: { id: conversationId },
       data: { activityToken: token },
+      skipReread: true,
     });
   } catch (err) {
     logger.warn("[activity] failed to bind activity token", {
@@ -113,6 +114,7 @@ export async function reportActivity(
     await prisma.conversation.update({
       where: { id: conversationId },
       data: { liveActivity: activity },
+      skipReread: true,
     });
   } catch (err) {
     logger.warn("[activity] failed to record agent activity", {
@@ -141,6 +143,7 @@ export async function clearActivity(conversationId: string): Promise<void> {
     await prisma.conversation.update({
       where: { id: conversationId },
       data: { liveActivity: null },
+      skipReread: true,
     });
   } catch (err) {
     logger.warn("[activity] failed to clear agent activity", {

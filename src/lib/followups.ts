@@ -152,10 +152,13 @@ async function createDroppedRevivalFollowUps(
   const now = Date.now();
   const quietMs = behaviour.followUpDroppedHours * 60 * 60 * 1000;
 
+  // Load the candidate conversations WITHOUT their messages: the
+  // cheap guards below (status, aiEnabled, quiet window) need no
+  // messages at all, and the old include billed EVERY message of all
+  // 100 conversations per run. Messages are loaded per survivor only.
   const conversations = await prisma.conversation.findMany({
     orderBy: { updatedAt: "asc" },
     take: 100,
-    include: { messages: { orderBy: { createdAt: "asc" } } },
   });
 
   let created = 0;
@@ -167,7 +170,10 @@ async function createDroppedRevivalFollowUps(
     const quietFor = now - new Date(conv.updatedAt).getTime();
     if (quietFor < quietMs || quietFor > REVIVAL_MAX_AGE_MS) continue;
 
-    const messages = (conv.messages ?? []) as Array<{
+    const messages = ((await prisma.message.findMany({
+      where: { conversationId: conv.id },
+      orderBy: { createdAt: "asc" },
+    })) ?? []) as Array<{
       role: string;
       content: string;
     }>;

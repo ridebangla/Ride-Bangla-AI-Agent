@@ -10,10 +10,14 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { resolveSiteKeysMock, completeMock } = vi.hoisted(() => ({
-  resolveSiteKeysMock: vi.fn(),
-  completeMock: vi.fn(),
-}));
+const { resolveSiteKeysMock, completeMock, requireSubMock, limitMock, recordMock } =
+  vi.hoisted(() => ({
+    resolveSiteKeysMock: vi.fn(),
+    completeMock: vi.fn(),
+    requireSubMock: vi.fn(),
+    limitMock: vi.fn(),
+    recordMock: vi.fn(),
+  }));
 
 vi.mock("@/lib/ai/providers", () => ({
   resolveSiteKeys: resolveSiteKeysMock,
@@ -21,6 +25,20 @@ vi.mock("@/lib/ai/providers", () => ({
     !!keys && Object.values(keys).some((v) => typeof v === "string" && v),
   completeWithFallback: completeMock,
   normalizePreferredProvider: () => null,
+}));
+
+// Waste-audit fix B1: the route is now billing-gated like its sibling
+// spenders — an active subscription, the message-limit gate, and
+// metering. The gates are mocked open here so the funnel behaviour
+// below stays the subject of this suite.
+vi.mock("@/lib/subscription", () => ({
+  requireActiveSubscription: requireSubMock,
+  SubscriptionInactiveError: class SubscriptionInactiveError extends Error {},
+}));
+
+vi.mock("@/lib/billing-usage", () => ({
+  checkMessageLimitExceeded: limitMock,
+  recordAiMessage: recordMock,
 }));
 
 import { prisma } from "@/lib/prisma";
@@ -43,6 +61,11 @@ async function callRoute() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // B1 gates: active subscription, under the message limit, metering
+  // is fire-and-forget.
+  requireSubMock.mockResolvedValue({ isActive: true, scopeAllowsChat: true });
+  limitMock.mockResolvedValue(false);
+  recordMock.mockResolvedValue(undefined);
   // Settings carry NO legacy aiApiKey — the old route 400'd here.
   mockPrisma.settings.findUnique.mockResolvedValue({
     aiApiKey: null,
@@ -83,9 +106,13 @@ describe("B7 (3) — knowledge-test route uses the providers funnel", () => {
         messages: expect.arrayContaining([
           expect.objectContaining({ role: "user", content: "What are your hours?" }),
         ]),
+        // B1: output capped at the engine's chat cap (settings said 2048).
+        maxTokens: 1024,
       }),
       expect.objectContaining({ keys: { groq: "platform-groq-key" } })
     );
+    // B1: the successful completion was metered for this business.
+    expect(recordMock).toHaveBeenCalledWith("test-business");
   });
 
   it("keeps the existing 400 + error text when no key resolves anywhere", async () => {

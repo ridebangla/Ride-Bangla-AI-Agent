@@ -83,6 +83,9 @@ describe("reportActivity / clearActivity", () => {
           at: expect.any(String),
         },
       },
+      // Waste-audit 2026-10-23: discarded-result writes opt out of the
+      // data layer's post-write re-read.
+      skipReread: true,
     });
   });
 
@@ -104,6 +107,7 @@ describe("reportActivity / clearActivity", () => {
     expect(mockPrisma.conversation.update).toHaveBeenCalledWith({
       where: { id: "conv-1" },
       data: { liveActivity: null },
+      skipReread: true,
     });
 
     vi.clearAllMocks();

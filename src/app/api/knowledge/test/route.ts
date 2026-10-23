@@ -3,6 +3,11 @@ import { prisma, runWithBusiness } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 import {
+  requireActiveSubscription,
+  SubscriptionInactiveError,
+} from "@/lib/subscription";
+import { checkMessageLimitExceeded, recordAiMessage } from "@/lib/billing-usage";
+import {
   resolveSiteKeys,
   hasAnyProviderKey,
   completeWithFallback,
@@ -12,6 +17,24 @@ import {
 export async function POST(request: NextRequest) {
   const auth = await requireAuth(request, "knowledge:read");
   if (!isAuthenticated(auth)) return auth;
+
+  // Billing hard-stop BEFORE any LLM tokens are spent (sibling-spender
+  // parity with /api/public/ai/generate): an inactive subscription or
+  // a grant scoped away from "chat" blocks with the same 402 shape.
+  let subscription;
+  try {
+    subscription = await requireActiveSubscription(auth.businessId);
+  } catch (err) {
+    if (err instanceof SubscriptionInactiveError) {
+      logger.warn(`[billing] blocked knowledge test for business ${auth.businessId}: subscription inactive`);
+      return NextResponse.json({ ok: false, error: "subscription_paused" }, { status: 402 });
+    }
+    throw err;
+  }
+  if (subscription.scopeAllowsChat === false) {
+    logger.warn(`[billing] blocked knowledge test for business ${auth.businessId}: grant scope excludes chat`);
+    return NextResponse.json({ ok: false, error: "subscription_paused" }, { status: 402 });
+  }
 
   return runWithBusiness(auth.businessId, async () => {
     if (!auth.businessId) {
@@ -46,6 +69,13 @@ export async function POST(request: NextRequest) {
           { error: "AI API key is not configured. Please configure it in Settings." },
           { status: 400 }
         );
+      }
+
+      // Plan quota hard-stop (same response shape as
+      // /api/public/ai/generate) — checked after the provider-key
+      // check so an unconfigured business keeps its existing 400.
+      if (await checkMessageLimitExceeded(auth.businessId)) {
+        return NextResponse.json({ ok: false, error: "message_limit_reached" }, { status: 402 });
       }
 
       // Load all active knowledge entries
@@ -99,7 +129,7 @@ export async function POST(request: NextRequest) {
             { role: "user", content: question.trim() },
           ],
           model: settings?.aiModel || "gpt-4o-mini",
-          maxTokens: settings?.maxTokens || 2048,
+          maxTokens: Math.min(settings?.maxTokens || 2048, 1024),
           temperature: settings?.temperature ?? 0.7,
         },
         {
@@ -108,6 +138,10 @@ export async function POST(request: NextRequest) {
           label: "knowledge-test",
         }
       );
+
+      // Meter the spend against the business's plan quota
+      // (fire-and-forget, same contract as /api/public/ai/generate).
+      if (completion) void recordAiMessage(auth.businessId);
 
       const responseText = completion?.text || "";
 

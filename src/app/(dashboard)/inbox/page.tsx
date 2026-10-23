@@ -307,14 +307,70 @@ export default function InboxPage() {
   // the state write when nothing material changed, so an idle open
   // thread never re-renders (or yanks the scroll) every few seconds.
   const threadSigRef = useRef<string>("");
+  // Delta sync: newest message createdAt held for the open conversation
+  // (keyed by conversation id — a different id means a full first load),
+  // plus a mirror of the rendered thread for merging delta responses.
+  const threadDeltaRef = useRef<{ id: string; ts: string } | null>(null);
+  const threadRef = useRef<(InboxConversation & { messages: InboxMessage[] }) | null>(null);
+
+  useEffect(() => {
+    threadRef.current = thread;
+  }, [thread]);
 
   const fetchThread = useCallback(async (id: string, opts?: { silent?: boolean }) => {
     if (!opts?.silent) setDetailLoading(true);
     try {
-      const res = await fetch(`/api/conversations/${id}`);
+      const deltaTs =
+        threadDeltaRef.current?.id === id ? threadDeltaRef.current.ts : "";
+      const res = await fetch(
+        deltaTs
+          ? `/api/conversations/${id}?since=${encodeURIComponent(deltaTs)}`
+          : `/api/conversations/${id}`
+      );
       if (res.ok) {
         const data = await res.json();
-        const msgs = Array.isArray(data?.messages) ? data.messages : [];
+        const msgs: InboxMessage[] = Array.isArray(data?.messages) ? data.messages : [];
+        if (data?.delta) {
+          // Delta response: replace the conversation fields from the
+          // payload, append only messages not already held, in
+          // createdAt order.
+          const existing =
+            threadRef.current?.id === id ? threadRef.current.messages : [];
+          const existingIds = new Set(existing.map((m) => m.id));
+          const fresh = msgs.filter((m) => !existingIds.has(m.id));
+          const mergedMsgs = [...existing, ...fresh].sort(
+            (a, b) =>
+              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+          // Signature guard: skip the state write when the delta brings
+          // no new messages and the non-message fields are unchanged.
+          const sig = [
+            fresh.length,
+            fresh.length ? fresh[fresh.length - 1]?.id ?? "" : "",
+            data?.liveActivity?.kind ?? "",
+            data?.liveActivity?.at ?? "",
+            data?.aiEnabled,
+            data?.status,
+            data?._count?.messages ?? "",
+            JSON.stringify(data?.customer ?? null),
+            JSON.stringify(data?.tags ?? null),
+            JSON.stringify(data?.tickets ?? null),
+          ].join("|");
+          if (!opts?.silent || sig !== threadSigRef.current) {
+            threadSigRef.current = sig;
+            if (mergedMsgs.length) {
+              threadDeltaRef.current = {
+                id,
+                ts: mergedMsgs[mergedMsgs.length - 1].createdAt,
+              };
+            } else {
+              threadDeltaRef.current = { id, ts: deltaTs };
+            }
+            const { delta: _delta, ...rest } = data;
+            setThread({ ...rest, messages: mergedMsgs });
+          }
+          return;
+        }
         const sig = [
           msgs.length,
           msgs.length ? msgs[msgs.length - 1]?.id ?? "" : "",
@@ -326,6 +382,14 @@ export default function InboxPage() {
         if (!opts?.silent || sig !== threadSigRef.current) {
           threadSigRef.current = sig;
           setThread(data);
+        }
+        // Full response: (re)seed the delta cursor for this conversation.
+        if (msgs.length) {
+          let maxTs = msgs[0].createdAt;
+          for (const m of msgs) if (m.createdAt > maxTs) maxTs = m.createdAt;
+          threadDeltaRef.current = { id, ts: maxTs };
+        } else {
+          threadDeltaRef.current = null;
         }
       }
     } catch { /* ignore */ } finally {

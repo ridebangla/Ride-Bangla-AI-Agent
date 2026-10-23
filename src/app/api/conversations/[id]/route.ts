@@ -16,6 +16,47 @@ export async function GET(
     try {
       const { id } = await params;
 
+      // Optional delta poll: ?since=<ISO timestamp> returns the same
+      // conversation (relations stay fresh) but only messages newer
+      // than `since`, plus an additive `delta: true` marker. Absent or
+      // invalid `since` falls through to the exact full-thread response.
+      const sinceRaw = new URL(request.url).searchParams.get("since");
+      const sinceDate = sinceRaw ? new Date(sinceRaw) : null;
+      if (sinceDate && !Number.isNaN(sinceDate.getTime())) {
+        const conversation = await prisma.conversation.findUnique({
+          where: { id },
+          include: {
+            customer: true,
+            tags: {
+              include: { tag: true },
+            },
+            tickets: {
+              include: {
+                department: true,
+                assignedTo: true,
+              },
+            },
+            _count: {
+              select: { messages: true },
+            },
+          },
+        });
+
+        if (!conversation) {
+          return NextResponse.json(
+            { error: "Conversation not found" },
+            { status: 404 }
+          );
+        }
+
+        const messages = await prisma.message.findMany({
+          where: { conversationId: id, createdAt: { gt: sinceDate } },
+          orderBy: { createdAt: "asc" },
+        });
+
+        return NextResponse.json({ ...conversation, messages, delta: true });
+      }
+
       const conversation = await prisma.conversation.findUnique({
         where: { id },
         include: {

@@ -16,6 +16,7 @@ import {
   type CatalogProduct,
 } from "@/lib/catalog";
 import { logger } from "@/lib/logger";
+import { checkMessageLimitExceeded } from "@/lib/billing-usage";
 import { parseActivityToken, bindActivityToken } from "@/lib/ai/activity";
 
 /**
@@ -143,6 +144,10 @@ export async function POST(request: NextRequest) {
         `[billing] blocked vision upload for business ${business.id}: grant scope excludes chat`
       );
       return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
+    }
+
+    if (await checkMessageLimitExceeded(business.id)) {
+      return NextResponse.json({ error: "message_limit_reached" }, { status: 402 });
     }
 
     // Same identity rule as the widget chat route: "anonymous" is a

@@ -259,10 +259,24 @@ describe("pickSelectivePrefilter / flattenEqualityConditions", () => {
     ).toBe("activityToken");
   });
 
-  it("never picks enum/boolean fields (status / isActive are not selective)", () => {
-    expect(pickSelectivePrefilter({ status: "active" })).toBeNull();
+  it("picks the waste-audit appended fields (status / channel / customerKey) but never other enum/boolean fields", () => {
+    // Waste-audit 2026-10-23: channel / customerKey / status were appended
+    // LAST to SELECTIVE_PREFILTER_FIELDS (they only win when no earlier,
+    // genuinely selective field is present); other enum/boolean fields
+    // like isActive remain ineligible.
+    expect(pickSelectivePrefilter({ status: "active" })).toEqual({
+      field: "status",
+      value: "active",
+    });
     expect(pickSelectivePrefilter({ isActive: true })).toBeNull();
-    expect(pickSelectivePrefilter({ channel: "widget" })).toBeNull();
+    expect(pickSelectivePrefilter({ channel: "widget" })).toEqual({
+      field: "channel",
+      value: "widget",
+    });
+    expect(pickSelectivePrefilter({ customerKey: "cust-1" })).toEqual({
+      field: "customerKey",
+      value: "cust-1",
+    });
   });
 
   it("flattens equality-only wheres (incl. AND + bare equals)", () => {

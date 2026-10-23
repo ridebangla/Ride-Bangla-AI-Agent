@@ -99,8 +99,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ messages: [], aiEnabled: true });
     }
 
+    // Optional delta poll: ?since=<ISO timestamp> returns only messages
+    // newer than `since` (same shape, ordering and cap). Absent or
+    // invalid `since` keeps the exact full-thread query.
+    const sinceRaw = params.get("since");
+    const sinceDate = sinceRaw ? new Date(sinceRaw) : null;
     const rows = await prisma.message.findMany({
-      where: { conversationId: conversation.id },
+      where:
+        sinceDate && !Number.isNaN(sinceDate.getTime())
+          ? { conversationId: conversation.id, createdAt: { gt: sinceDate } }
+          : { conversationId: conversation.id },
       orderBy: { createdAt: "desc" },
       take: MAX_MESSAGES,
     });

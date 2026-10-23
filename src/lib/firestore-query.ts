@@ -345,10 +345,12 @@ export function pickEqualityPrefilter(
  * than the tenant's `businessId`, so when a where carries one it should
  * be the ONE server-side prefilter instead of businessId (the full
  * where, businessId included, is still applied in memory afterwards,
- * so results are identical — only billed reads change). Enum/boolean
- * fields (status, channel, isActive, …) are deliberately NOT in this
+ * so results are identical — only billed reads change). Other
+ * enum/boolean fields (isActive, …) are deliberately NOT in this
  * list: they match a large share of every tenant's rows and would make
- * the prefilter WORSE than businessId.
+ * the prefilter WORSE than businessId. (channel / customerKey / status
+ * sit at the very END of the list, below every selective field — see
+ * the note on those entries.)
  */
 export const SELECTIVE_PREFILTER_FIELDS: readonly string[] = [
   "activityToken",
@@ -367,6 +369,16 @@ export const SELECTIVE_PREFILTER_FIELDS: readonly string[] = [
   "webhookId",
   "scanId",
   "site",
+  // Appended LAST (waste-audit 2026-10-23): an equality prefilter is
+  // semantics-preserving — the full where still filters in memory, so
+  // results are identical and only billed reads change — and these
+  // fields only win when no earlier-listed field is present in the
+  // where. They turn reviewAsk-by-customerKey, inbox channel queries
+  // and open-ticket (status) queries from whole-business scans into
+  // prefiltered reads.
+  "channel",
+  "customerKey",
+  "status",
 ];
 
 /**

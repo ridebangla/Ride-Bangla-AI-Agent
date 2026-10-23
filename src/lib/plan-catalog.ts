@@ -454,10 +454,33 @@ export function bestOfferHit(
 // ---------------------------------------------------------------------------
 
 /**
- * The effective plan catalog: code order first (PLAN_META order), then
- * panel-created ids sorted. ANY error → the code catalog.
+ * In-process TTL cache for the two whole-collection reads below
+ * (60s + inflight dedupe, mirroring company-identity.ts). These reads
+ * run on every chat/voice/channel turn (via the message-limit check),
+ * yet plans and offers change only when a Super Admin edits them in
+ * the panel; 60s bounds panel-edit propagation to a minute per
+ * instance at one read per minute per instance. ONLY successful reads
+ * are cached: a failed read falls back exactly as before (code catalog
+ * / no offers) and is retried on the next call, never poisoned in.
  */
-export async function getPlanCatalog(): Promise<EffectivePlan[]> {
+const PLAN_CATALOG_TTL_MS = 60_000;
+
+let planCatalogCache: { at: number; value: EffectivePlan[] } | null = null;
+let planCatalogInflight: Promise<EffectivePlan[]> | null = null;
+let allOffersCache: { at: number; value: ParsedOffer[] } | null = null;
+let allOffersInflight: Promise<ParsedOffer[]> | null = null;
+
+/** Test seam (mirrors __resetCompanyIdentityCacheForTests). */
+export function __resetPlanCatalogCacheForTests(): void {
+  planCatalogCache = null;
+  planCatalogInflight = null;
+  allOffersCache = null;
+  allOffersInflight = null;
+}
+
+/** Uncached catalog read. Returns null on ANY error (the caller then
+ *  applies the historical fallback) so failures are never cached. */
+async function loadPlanCatalog(): Promise<EffectivePlan[] | null> {
   try {
     const snap = await getAdminDb().collection("ai_plans").get();
     const docs = new Map<string, unknown>();
@@ -480,8 +503,33 @@ export async function getPlanCatalog(): Promise<EffectivePlan[]> {
     logger.warn("[plan-catalog] ai_plans read failed — using code catalog", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return codeCatalog();
+    return null;
   }
+}
+
+/**
+ * The effective plan catalog: code order first (PLAN_META order), then
+ * panel-created ids sorted. ANY error → the code catalog.
+ */
+export async function getPlanCatalog(): Promise<EffectivePlan[]> {
+  if (
+    planCatalogCache &&
+    Date.now() - planCatalogCache.at < PLAN_CATALOG_TTL_MS
+  ) {
+    return planCatalogCache.value;
+  }
+  if (planCatalogInflight) return planCatalogInflight;
+  planCatalogInflight = (async () => {
+    try {
+      const value = await loadPlanCatalog();
+      if (value === null) return codeCatalog();
+      planCatalogCache = { at: Date.now(), value };
+      return value;
+    } finally {
+      planCatalogInflight = null;
+    }
+  })();
+  return planCatalogInflight;
 }
 
 /** One effective plan by id (active or not), or null when unknown. */
@@ -513,7 +561,9 @@ async function fetchOffersForPlan(planId: string): Promise<ParsedOffer[]> {
   }
 }
 
-async function fetchAllOffers(): Promise<ParsedOffer[]> {
+/** Uncached all-offers read. Returns null on ANY error (the caller
+ *  then applies the historical [] fallback) so failures are never cached. */
+async function loadAllOffers(): Promise<ParsedOffer[] | null> {
   try {
     const snap = await getAdminDb().collection("ai_offers").get();
     const out: ParsedOffer[] = [];
@@ -526,8 +576,29 @@ async function fetchAllOffers(): Promise<ParsedOffer[]> {
     logger.warn("[plan-catalog] ai_offers read failed — no offers applied", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return [];
+    return null;
   }
+}
+
+async function fetchAllOffers(): Promise<ParsedOffer[]> {
+  if (
+    allOffersCache &&
+    Date.now() - allOffersCache.at < PLAN_CATALOG_TTL_MS
+  ) {
+    return allOffersCache.value;
+  }
+  if (allOffersInflight) return allOffersInflight;
+  allOffersInflight = (async () => {
+    try {
+      const value = await loadAllOffers();
+      if (value === null) return [];
+      allOffersCache = { at: Date.now(), value };
+      return value;
+    } finally {
+      allOffersInflight = null;
+    }
+  })();
+  return allOffersInflight;
 }
 
 /** One offer doc by id (parsed), or null. Used by the fraud monitor to
