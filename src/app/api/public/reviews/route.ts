@@ -223,7 +223,10 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json(payload);
   } catch (e) {
-    logger.error("GET /api/public/reviews failed", { error: (e as Error).message });
+    // Pass the error itself (logger.error's 2nd param IS the error);
+    // the { error: ... } wrap logged "[object Object]" and hid the
+    // real cause (same defect as firebase-config, fixed 2026-10-23).
+    logger.error("GET /api/public/reviews failed", e);
     return NextResponse.json(
       { ok: false, error: "Could not load reviews right now." },
       { status: 500 }
@@ -348,9 +351,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    logger.error("POST /api/public/reviews failed", {
-      error: (e as Error).message,
-    });
+    logger.error("POST /api/public/reviews failed", e);
     return NextResponse.json(
       { ok: false, error: "Could not save your review right now." },
       { status: 500 }

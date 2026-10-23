@@ -66,9 +66,29 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ apiKey, authDomain, projectId });
   } catch (e) {
-    logger.error("GET /api/public/firebase-config failed", {
-      error: (e as Error).message,
-    });
+    // Pass the error itself: logger.error's 2nd parameter IS the error —
+    // wrapping it in { error: ... } made the logger String() the object,
+    // which is why production logs showed "[object Object]" and this
+    // failure's real cause stayed hidden (2026-10-23 root-cause round).
+    logger.error("GET /api/public/firebase-config failed", e);
+    // A dead data layer (Firestore quota / unavailability) is a
+    // transient 503, not a 500 "configuration" fault: the config values
+    // exist; the siteKey lookup behind them is what is unavailable.
+    // Sibling sites treat any non-200 alike (honest unavailable state),
+    // so this changes semantics only, never a success path.
+    const err = e as { code?: unknown; message?: unknown };
+    const msg = typeof err?.message === "string" ? err.message : "";
+    if (
+      err?.code === 8 ||
+      err?.code === 14 ||
+      msg.includes("RESOURCE_EXHAUSTED") ||
+      msg.includes("UNAVAILABLE")
+    ) {
+      return NextResponse.json(
+        { error: "Configuration is temporarily unavailable." },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
       { error: "Configuration is not available." },
       { status: 500 }
