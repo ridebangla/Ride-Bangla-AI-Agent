@@ -24,6 +24,22 @@ import { getUnscopedPrisma, enterBusinessContext } from "./prisma";
 export async function enterServerBusinessContext(searchParams?: {
   business?: string | string[];
 }): Promise<string | null> {
+  // Q-SIGNIN (2026-10-23): a data-store failure (quota wall) resolves
+  // to null — the caller's empty state — instead of throwing a 500
+  // through every dashboard page. Fail-closed: no business context is
+  // ever invented on an error, so no tenant data can leak through this
+  // path; pages simply render their no-business state under the
+  // layout's degraded notice.
+  try {
+    return await resolveServerBusinessContext(searchParams);
+  } catch {
+    return null;
+  }
+}
+
+async function resolveServerBusinessContext(searchParams?: {
+  business?: string | string[];
+}): Promise<string | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get("rbai-token")?.value;
   if (!token) return null;

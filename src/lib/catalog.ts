@@ -114,10 +114,54 @@ export async function recommendAlternatives(
   };
 }
 
+/**
+ * Q-QUOTA (2026-10-23): per-business in-process cache for the catalog
+ * brief. The engine asks for the brief on EVERY chat turn, and building
+ * it reads every category + every available product of the business —
+ * yet the catalog changes only when the owner edits it. 120 s TTL;
+ * the write helpers in this module (createCategory / createProduct /
+ * autoCategorizeProducts) invalidate the business's entry immediately,
+ * so dashboard catalog edits made through them are visible at once;
+ * edits made any other way (another instance, a direct data write)
+ * can lag at most the TTL. Keyed strictly by businessId — briefs are
+ * never shared across businesses. Failures are not cached.
+ */
+const CATALOG_BRIEF_TTL_MS = 120_000;
+const catalogBriefCache = new Map<
+  string,
+  { at: number; promise: Promise<string> }
+>();
+
+export function invalidateCatalogBrief(businessId?: string | null): void {
+  if (businessId) catalogBriefCache.delete(businessId);
+  else catalogBriefCache.clear();
+}
+
+/** Test-only: clear the catalog brief cache between cases. */
+export function __resetCatalogBriefCache(): void {
+  catalogBriefCache.clear();
+}
+
 /** Compact catalog brief injected into the agent's system prompt. */
 export async function getCatalogBrief(): Promise<string> {
   const businessId = getBusinessId();
   if (!businessId) throw new TenantContextError("product", "getCatalogBrief");
+  const hit = catalogBriefCache.get(businessId);
+  if (hit && Date.now() - hit.at < CATALOG_BRIEF_TTL_MS) {
+    return hit.promise;
+  }
+  const promise = buildCatalogBrief();
+  const entry = { at: Date.now(), promise };
+  catalogBriefCache.set(businessId, entry);
+  promise.catch(() => {
+    if (catalogBriefCache.get(businessId) === entry) {
+      catalogBriefCache.delete(businessId);
+    }
+  });
+  return promise;
+}
+
+async function buildCatalogBrief(): Promise<string> {
   const categories = await prisma.productCategory.findMany({
     include: {
       products: {
@@ -165,9 +209,13 @@ function toCatalogProduct(p: {
 
 /** Admin helper: create a category (used by /api/catalog). */
 export async function createCategory(name: string, description = "") {
-  return prisma.productCategory.create({
+  const businessId = getBusinessId();
+  invalidateCatalogBrief(businessId);
+  const created = await prisma.productCategory.create({
     data: withBusinessId({ name: name.trim(), description }),
   });
+  invalidateCatalogBrief(businessId);
+  return created;
 }
 
 /** Admin helper: create a product (used by /api/catalog). */
@@ -181,7 +229,9 @@ export async function createProduct(input: {
   categoryId?: string | null;
   isAvailable?: boolean;
 }) {
-  return prisma.product.create({
+  const businessId = getBusinessId();
+  invalidateCatalogBrief(businessId);
+  const created = await prisma.product.create({
     data: withBusinessId({
       name: input.name.trim(),
       description: input.description ?? "",
@@ -193,6 +243,8 @@ export async function createProduct(input: {
       isAvailable: input.isAvailable ?? true,
     }),
   });
+  invalidateCatalogBrief(businessId);
+  return created;
 }
 
 
@@ -685,6 +737,7 @@ export async function autoCategorizeProducts(opts?: {
   const businessId = getBusinessId();
   if (!businessId) throw new TenantContextError("product", "autoCategorizeProducts");
 
+  invalidateCatalogBrief(businessId);
   const mode = opts?.mode === "rebuild" ? "rebuild" : "fill";
 
   const allProducts = (await prisma.product.findMany({
@@ -749,5 +802,6 @@ export async function autoCategorizeProducts(opts?: {
     assigned += g.productIds.length;
   }
 
+  invalidateCatalogBrief(businessId);
   return { created, reused, assigned, groups };
 }

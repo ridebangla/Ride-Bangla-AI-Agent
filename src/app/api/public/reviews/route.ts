@@ -124,6 +124,45 @@ async function verifyCaller(
   }
 }
 
+/**
+ * Q-QUOTA (2026-10-23): brief in-process cache for the GET payload,
+ * keyed by site. This endpoint is hit on every public landing view and
+ * used to re-scan the site's reviews every time (on top of a full
+ * `businesses` scan for the siteKey, which Q-SIGNIN's equality
+ * prefilter + the tenant siteKey cache have since reduced to ≤1 read,
+ * 0 while warm). 60 s TTL — the same precedent as the brand record.
+ *
+ * Semantics preserved exactly: the payload still carries count +
+ * average over ALL published reviews of the site and the newest 20 —
+ * a `take`/limit on the query itself was rejected because it would
+ * silently cap the count and re-base the average on the newest 20.
+ * Only NON-EMPTY payloads are cached (a site's first review must
+ * appear without waiting out a TTL — the same positive-only policy as
+ * the siteKey cache), and a successful POST invalidates the site's
+ * entry at once. The payload is public data, identical for every
+ * viewer — nothing per-user is cached.
+ */
+const REVIEWS_CACHE_TTL_MS = 60_000;
+type ReviewsPayload = {
+  ok: true;
+  average: number;
+  count: number;
+  reviews: Array<{
+    name: string;
+    rating: number;
+    text: string;
+    createdAt: unknown;
+    photoURL: string;
+    verifiedGoogle: boolean;
+  }>;
+};
+const reviewsCache = new Map<string, { at: number; payload: ReviewsPayload }>();
+
+/** Test-only: clear the reviews payload cache between cases. */
+export function __resetReviewsCache(): void {
+  reviewsCache.clear();
+}
+
 // ---------------------------------------------------------------- GET ----
 export async function GET(request: NextRequest) {
   try {
@@ -154,6 +193,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const cached = reviewsCache.get(site as string);
+    if (cached && Date.now() - cached.at < REVIEWS_CACHE_TTL_MS) {
+      return NextResponse.json(cached.payload);
+    }
+
     const all = await getUnscopedPrisma().siteReview.findMany({
       where: { site, status: "published" },
       orderBy: { createdAt: "desc" },
@@ -173,7 +217,11 @@ export async function GET(request: NextRequest) {
       verifiedGoogle: r.verifiedGoogle === true,
     }));
 
-    return NextResponse.json({ ok: true, average, count, reviews });
+    const payload: ReviewsPayload = { ok: true, average, count, reviews };
+    if (count > 0) {
+      reviewsCache.set(site as string, { at: Date.now(), payload });
+    }
+    return NextResponse.json(payload);
   } catch (e) {
     logger.error("GET /api/public/reviews failed", { error: (e as Error).message });
     return NextResponse.json(
@@ -293,6 +341,10 @@ export async function POST(request: NextRequest) {
         createdAt: new Date(),
       },
     });
+
+    // Q-QUOTA: the new review must show on the next landing view —
+    // drop the site's cached GET payload (see the cache note above).
+    reviewsCache.delete(site as string);
 
     return NextResponse.json({ ok: true });
   } catch (e) {

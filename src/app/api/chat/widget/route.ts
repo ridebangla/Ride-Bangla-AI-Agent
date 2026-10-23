@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { chat } from "@/lib/ai/engine";
+import { chat, isPureGreeting, buildGreetingReply } from "@/lib/ai/engine";
 import { logger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getBusinessBySiteKey, enterBusinessContext } from "@/lib/tenant";
@@ -157,6 +157,22 @@ export function __resetWidgetSiteKeyCache(): void {
   businessBySiteKeyCache.clear();
 }
 
+/**
+ * AI-perfection round (2026-10-23), FIX-A support: stale-read accessor
+ * for the siteKey cache. Returns the cached business REGARDLESS of
+ * TTL — including a stale entry — or null when this instance never
+ * resolved the siteKey. Used ONLY by the turn-failure path to answer
+ * a pure greeting while the data layer is down; the live gate path
+ * keeps using getBusinessBySiteKeyCached with its TTL semantics
+ * unchanged.
+ */
+export function getStaleBusinessBySiteKey(
+  siteKey: string
+): SiteKeyBusiness | null {
+  const hit = businessBySiteKeyCache.get(siteKey);
+  return hit ? hit.business : null;
+}
+
 const GRACEFUL_TURN_TEXT = {
   bn: "দুঃখিত, এই মুহূর্তে আপনার বার্তাটির উত্তর দিতে একটু সমস্যা হচ্ছে। অনুগ্রহ করে একটু পরে আবার চেষ্টা করুন, অথবা জরুরি হলে আমাদের টিমের সঙ্গে সরাসরি যোগাযোগ করুন।",
   en: "I'm sorry, I'm having a little trouble answering your message right now. Please try again in a moment, or contact our team directly if it's urgent.",
@@ -176,6 +192,9 @@ export async function POST(request: NextRequest) {
   let failureText = "";
   let failureConversationId = "";
   let failureVisitorId = "";
+  // FIX-A: the siteKey, captured for the failure path's stale-cache
+  // greeting lookup (see the outer catch).
+  let failureSiteKey = "";
   try {
     const body = await request.json();
     const { siteKey, message, visitorId, conversationId, image } = body as {
@@ -207,6 +226,7 @@ export async function POST(request: NextRequest) {
     if (!siteKey || typeof siteKey !== "string") {
       return NextResponse.json({ error: "siteKey is required" }, { status: 401 });
     }
+    failureSiteKey = siteKey;
 
     // One shared deadline for every pre-engine data gate below (see
     // the Gate deadline note above): each gate races the same clock,
@@ -243,28 +263,58 @@ export async function POST(request: NextRequest) {
     // F5: the subscription and message-limit reads are independent —
     // they run concurrently; the decisions below keep the original
     // order and shapes.
-    const [sub, messageLimitExceeded] = await gated(
-      Promise.all([
-        getSubscription(business.id),
-        checkMessageLimitExceeded(business.id),
-      ])
-    );
-    if (!sub.isActive) {
-      logger.warn(
-        `[billing] blocked widget chat for business ${business.id}: subscription inactive`
+    // AI-perfection round (2026-10-23), FIX-D: billing-gate
+    // degradation. A billing read that FAILS (throw or
+    // GateDeadlineError — the data layer is down) is not a definitive
+    // state: it must not be indistinguishable from "inactive" or
+    // "limit reached", and it must not kill the turn either. The
+    // failure is caught separately, logged loudly, and the turn
+    // proceeds with the billing state UNKNOWN — the rate limiters
+    // below still apply (an unknown subscription is never treated
+    // as internal, so no exemption is granted on a guess), and the
+    // engine's own degradation decides what the turn can do.
+    // Definitive results are UNCHANGED: inactive -> 402
+    // subscription_paused, scope excludes chat -> 402
+    // subscription_paused, limit exceeded -> 402
+    // message_limit_reached.
+    let sub: Awaited<ReturnType<typeof getSubscription>> | null = null;
+    let messageLimitExceeded = false;
+    let billingGateKnown = true;
+    try {
+      [sub, messageLimitExceeded] = await gated(
+        Promise.all([
+          getSubscription(business.id),
+          checkMessageLimitExceeded(business.id),
+        ])
       );
-      return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
-    }
-    // Feature scope (B6): a grant scoped away from "chat" blocks with
-    // the same 402 shape. Unscoped accounts pass unchanged.
-    if (sub.scopeAllowsChat === false) {
+    } catch (err) {
+      billingGateKnown = false;
       logger.warn(
-        `[billing] blocked widget chat for business ${business.id}: grant scope excludes chat`
+        "[billing] gate state unknown (data-layer failure) — proceeding",
+        {
+          businessId: business.id,
+          reason: err instanceof Error ? err.message : String(err),
+        }
       );
-      return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
     }
-    if (messageLimitExceeded) {
-      return NextResponse.json({ error: "message_limit_reached" }, { status: 402 });
+    if (billingGateKnown && sub) {
+      if (!sub.isActive) {
+        logger.warn(
+          `[billing] blocked widget chat for business ${business.id}: subscription inactive`
+        );
+        return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
+      }
+      // Feature scope (B6): a grant scoped away from "chat" blocks with
+      // the same 402 shape. Unscoped accounts pass unchanged.
+      if (sub.scopeAllowsChat === false) {
+        logger.warn(
+          `[billing] blocked widget chat for business ${business.id}: grant scope excludes chat`
+        );
+        return NextResponse.json({ error: "subscription_paused" }, { status: 402 });
+      }
+      if (messageLimitExceeded) {
+        return NextResponse.json({ error: "message_limit_reached" }, { status: 402 });
+      }
     }
     enterBusinessContext(business.id);
 
@@ -294,11 +344,11 @@ export async function POST(request: NextRequest) {
     // subscription record for the business behind the siteKey, never
     // a client-supplied value. Non-internal traffic is unchanged.
     const rl: { allowed: boolean } =
-      sub.isInternal === true
+      sub?.isInternal === true
         ? { allowed: true }
         : checkRateLimit(`widget:${siteKey}:${visitor}`, WIDGET_RATE_LIMIT);
     const rlIp: { allowed: boolean } =
-      sub.isInternal === true
+      sub?.isInternal === true
         ? { allowed: true }
         : checkRateLimit(`widget-ip:${siteKey}:${clientIp}`, { maxRequests: 60, windowMs: 60 * 1000 });
     if (!rl.allowed || !rlIp.allowed) {
@@ -471,6 +521,36 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     logger.error("Widget chat failed:", error);
+    // AI-perfection round (2026-10-23), FIX-A: greetings survive a
+    // data-layer outage. If the incoming text is a PURE greeting and
+    // this instance's siteKey cache holds the business (a stale entry
+    // is enough), answer with the deterministic greeting instead of
+    // the failure text. Rationale: the greeting is deterministic and
+    // carries no business fact beyond the business's own name; the
+    // subscription state is unknowable while the data layer is down,
+    // and this reply spends no provider tokens and creates nothing
+    // (no conversationId is returned). The greeting builder's own
+    // script rule decides the language (the config language is
+    // unreadable right now, so it is passed as undefined). If either
+    // condition fails, the graceful text below answers, unchanged.
+    if (failureSiteKey && failureText && isPureGreeting(failureText)) {
+      const cachedBusiness = getStaleBusinessBySiteKey(failureSiteKey);
+      if (cachedBusiness) {
+        logger.warn(
+          "[widget] greeting served from siteKey cache during data-layer failure",
+          { siteKey: failureSiteKey, businessId: cachedBusiness.id }
+        );
+        return NextResponse.json({
+          response: buildGreetingReply(
+            failureText,
+            cachedBusiness.name,
+            undefined
+          ),
+          products: [],
+          silent: false,
+        });
+      }
+    }
     // Turn-failure guarantee (see the Defect-8 note above): the visitor
     // gets a COMPLETED turn with a graceful in-language reply — the raw
     // server error never surfaces, whatever stage threw (data-layer

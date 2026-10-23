@@ -20,65 +20,83 @@ import { enterServerBusinessContext } from "@/lib/server-context";
 // context from the session cookie.
 export const dynamic = "force-dynamic";
 
+const EMPTY_STATS = {
+  totalConversations: 0,
+  activeConversations: 0,
+  totalTickets: 0,
+  openTickets: 0,
+  totalMessages: 0,
+  recentConversations: [] as never[],
+  resolutionRate: 0,
+};
+
 async function getStats() {
-  const businessId = await enterServerBusinessContext();
-  if (!businessId) {
-    return {
-      totalConversations: 0,
-      activeConversations: 0,
-      totalTickets: 0,
-      openTickets: 0,
-      totalMessages: 0,
-      recentConversations: [],
-      resolutionRate: 0,
-    };
+  // Q-SIGNIN (2026-10-23): first-load reads degrade to the empty state
+  // instead of 500-ing the dashboard when the data store is down
+  // (quota wall) — the layout's degraded notice labels the state
+  // honestly. Counts below are also deduplicated: previously the
+  // conversations collection was scanned FOUR times (total / active /
+  // resolved counts + the recent list) and tickets twice; one id+status
+  // fetch per collection now feeds every count.
+  try {
+    const businessId = await enterServerBusinessContext();
+    if (!businessId) return EMPTY_STATS;
+    // TenantContextError fix: enterWith() inside enterServerBusinessContext()
+    // does not propagate across this await boundary, so scope the queries
+    // explicitly with runWithBusiness().
+    return await runWithBusiness(businessId, async () => {
+      // Q-QUOTA (2026-10-23): the Q-SIGNIN dedupe still fetched EVERY
+      // conversation + ticket row (id+status) to compute five numbers,
+      // and message.count() scanned every message. The data layer's
+      // count() now uses Firestore aggregation for equality wheres
+      // (billed per 1,000 docs), so each number below costs ~1–3 reads
+      // instead of a full tenant scan. The recent list is unchanged
+      // in shape: it is ordered + limited server-side in the data
+      // layer, its latest-message include is a bounded FK-prefiltered
+      // fetch per conversation, and its _count is aggregated.
+      const [
+        totalConversations,
+        activeConversations,
+        resolvedConversations,
+        totalTickets,
+        openTickets,
+        totalMessages,
+        recentConversations,
+      ] = await Promise.all([
+        prisma.conversation.count(),
+        prisma.conversation.count({ where: { status: "active" } }),
+        prisma.conversation.count({ where: { status: "resolved" } }),
+        prisma.ticket.count(),
+        prisma.ticket.count({ where: { status: "open" } }),
+        prisma.message.count(),
+        prisma.conversation.findMany({
+          take: 10,
+          orderBy: { updatedAt: "desc" },
+          include: {
+            messages: { take: 1, orderBy: { createdAt: "desc" } },
+            _count: { select: { messages: true } },
+          },
+        }),
+      ]);
+
+      const resolutionRate =
+        totalConversations > 0
+          ? Math.round((resolvedConversations / totalConversations) * 100)
+          : 0;
+
+      return {
+        totalConversations,
+        activeConversations,
+        totalTickets,
+        openTickets,
+        totalMessages,
+        resolutionRate,
+        recentConversations,
+      };
+    });
+  } catch {
+    return EMPTY_STATS;
   }
-  // TenantContextError fix: enterWith() inside enterServerBusinessContext()
-  // does not propagate across this await boundary, so scope the queries
-  // explicitly with runWithBusiness().
-  return runWithBusiness(businessId, async () => {
-  const [
-    totalConversations,
-    activeConversations,
-    totalTickets,
-    openTickets,
-    totalMessages,
-    recentConversations,
-  ] = await Promise.all([
-    prisma.conversation.count(),
-    prisma.conversation.count({ where: { status: "active" } }),
-    prisma.ticket.count(),
-    prisma.ticket.count({ where: { status: "open" } }),
-    prisma.message.count(),
-    prisma.conversation.findMany({
-      take: 10,
-      orderBy: { updatedAt: "desc" },
-      include: {
-        messages: { take: 1, orderBy: { createdAt: "desc" } },
-        _count: { select: { messages: true } },
-      },
-    }),
-  ]);
-
-  const resolvedConversations = await prisma.conversation.count({
-    where: { status: "resolved" },
-  });
-
-  const resolutionRate =
-    totalConversations > 0
-      ? Math.round((resolvedConversations / totalConversations) * 100)
-      : 0;
-
-  return {
-    totalConversations,
-    activeConversations,
-    totalTickets,
-    openTickets,
-    totalMessages,
-    resolutionRate,
-    recentConversations,
-  };
-  });
 }
 
 const channelIcons: Record<string, React.ElementType> = {

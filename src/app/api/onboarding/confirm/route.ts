@@ -3,6 +3,7 @@ import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { runWithBusiness } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { invalidateCatalogBrief } from "@/lib/catalog";
 
 // POST /api/onboarding/confirm — save the reviewed onboarding result into the
 // tenant's own collections: knowledgeEntries (+ a "General" category) and
@@ -175,6 +176,13 @@ export async function POST(request: NextRequest) {
 
       return { knowledgeCreated, productsCreated };
     });
+
+    // The writes above created productCategory/product rows directly,
+    // bypassing the catalog helpers — drop any catalog brief cached
+    // before onboarding so the tenant's first catalogue is not masked
+    // by a stale brief for the rest of its 120 s TTL. Post-write only:
+    // runWithBusiness has resolved, so the writes have succeeded.
+    invalidateCatalogBrief(auth.businessId);
 
     logger.warn(
       `[Onboarding] saved for business ${auth.businessId}: ` +

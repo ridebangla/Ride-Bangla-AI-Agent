@@ -7,6 +7,7 @@ import {
   generateRefreshToken,
   generateToken,
   getRefreshCookieName,
+  isDatastoreQuotaError,
   revokeToken,
   setSessionCookies,
   verifyRefreshToken,
@@ -110,6 +111,21 @@ export async function GET(request: NextRequest) {
     setSessionCookies(response, token, newRefreshToken);
     return noStore(response);
   } catch (err) {
+    // Q-SIGNIN (2026-10-23): a QUOTA failure is not a dead session —
+    // the data store rejected the read, so nothing about the refresh
+    // token was actually proven either way. Send the user to /login
+    // WITHOUT clearing the cookies: clearing them would destroy the
+    // 30-day chain for the whole outage and force a full sign-in
+    // (which itself faces the quota wall) once the store recovers.
+    // The preserved cookie pair lets the very next load restore
+    // silently as soon as reads succeed again. No session is minted
+    // here — entry stays fail-closed, only the chain survives.
+    if (isDatastoreQuotaError(err)) {
+      logger.warn(
+        `[Auth] Session restore deferred (data store quota-exhausted) — cookies preserved`
+      );
+      return noStore(NextResponse.redirect(new URL("/login", request.url)));
+    }
     // Fail closed: a restore that cannot complete is a login, never a
     // half-session. (DB hiccup => the user signs in once; the next
     // successful login re-establishes the 30-day chain.)

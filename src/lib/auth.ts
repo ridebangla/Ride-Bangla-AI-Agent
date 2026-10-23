@@ -184,6 +184,68 @@ export async function revokeToken(jti: string, expiresAt: Date): Promise<void> {
   });
 }
 
+/**
+ * True when an error is the data store's quota wall (Firestore
+ * RESOURCE_EXHAUSTED, gRPC code 8) — Q-SIGNIN (2026-10-23). This is the
+ * ONE detection the sign-in routes share; the widget route's FIX-A..D
+ * degradation used the same signature in production logs
+ * (`8 RESOURCE_EXHAUSTED: Quota exceeded.`). A quota error is an
+ * INFRASTRUCTURE failure: per the owner's LIMIT-UX doctrine it must
+ * never be reported as a credential failure and never block ENTRY —
+ * it may only gate a read that is truly indispensable (named in
+ * docs: the admins-by-email identity resolution on the sign-in POSTs).
+ */
+export function isDatastoreQuotaError(err: unknown): boolean {
+  const errCode =
+    typeof err === "object" && err !== null && "code" in err
+      ? String((err as { code: unknown }).code)
+      : "";
+  const errMessage = err instanceof Error ? err.message : String(err ?? "");
+  return (
+    errCode === "8" ||
+    errCode === "resource-exhausted" ||
+    /RESOURCE_EXHAUSTED|quota exceeded/i.test(errMessage)
+  );
+}
+
+/**
+ * Entry-only session verification (Q-SIGNIN, 2026-10-23).
+ *
+ * `verifySessionToken` is the strict check every API route keeps using:
+ * signature + type + revocation, with data-layer errors propagating.
+ * ENTRY surfaces (dashboard layout, root page, GET /api/auth) use this
+ * variant instead: when — and only when — the revocation READ fails
+ * (the data store is down / quota-exhausted), entry falls back to the
+ * cryptographic check alone (signature + type + expiry, exactly what
+ * middleware's edge verify already trusts to route the request) and
+ * reports `degraded: true`. The caller must render a degraded,
+ * notice-carrying shell in that case and must NOT treat the session as
+ * fully proven: no privilege is granted by this fallback — role-gated
+ * DATA still resolves through the strict per-route checks
+ * (requireAuth), which keep failing closed while the store is down.
+ * A token that is definitively revoked / invalid / expired returns
+ * `payload: null, degraded: false` exactly as the strict check does.
+ */
+export async function verifySessionTokenForEntry(
+  token: string
+): Promise<{ payload: JwtPayload | null; degraded: boolean }> {
+  try {
+    const payload = await verifySessionToken(token);
+    return { payload, degraded: false };
+  } catch (err) {
+    const payload = verifyToken(token);
+    if (payload && payload.type === "access") {
+      logger.warn(
+        `[Auth] Entry session check degraded (revocation read failed: ${
+          err instanceof Error ? err.message : "unknown"
+        }) — signature-only entry, no privileges granted by the fallback`
+      );
+      return { payload, degraded: true };
+    }
+    return { payload: null, degraded: false };
+  }
+}
+
 export async function getCurrentUser() {
   const cookieStore = await cookies();
   const token = cookieStore.get(TOKEN_NAME)?.value;
@@ -200,9 +262,91 @@ export async function getCurrentUser() {
   return admin;
 }
 
-export async function isSetupComplete(): Promise<boolean> {
-  const adminCount = await getUnscopedPrisma().admin.count();
-  return adminCount > 0;
+/**
+ * getCurrentUser for ENTRY surfaces (Q-SIGNIN, 2026-10-23): when the
+ * data-layer reads behind getCurrentUser throw (quota wall), a
+ * signature-valid access token still proves ENTRY — return the minimal
+ * identity the token itself carries (id + role) with `degraded: true`
+ * so the caller can label the state honestly. Profile fields the token
+ * does not carry come back empty — never invented. Definitive outcomes
+ * (no token, bad token, revoked, admin gone) are unchanged: user null,
+ * degraded false.
+ */
+export async function getCurrentUserForEntry(): Promise<{
+  user: {
+    id: string;
+    username: string;
+    name: string;
+    role: string;
+  } | null;
+  degraded: boolean;
+}> {
+  try {
+    const user = await getCurrentUser();
+    return { user, degraded: false };
+  } catch (err) {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(TOKEN_NAME)?.value;
+    const payload = token ? verifyToken(token) : null;
+    if (payload && payload.type === "access") {
+      logger.warn(
+        `[Auth] getCurrentUser degraded (data read failed: ${
+          err instanceof Error ? err.message : "unknown"
+        }) — token-carried identity only`
+      );
+      return {
+        user: {
+          id: payload.userId,
+          username: "",
+          name: "",
+          role: payload.role,
+        },
+        degraded: true,
+      };
+    }
+    return { user: null, degraded: false };
+  }
+}
+
+// Setup-state cache (Q-SIGNIN read-burn fix, 2026-10-23): isSetupComplete
+// used to run admin.count() — a FULL admins-collection scan — on every
+// GET /api/auth (login-page check on every load, SessionKeeper every
+// 5 minutes per open tab). Two changes: (1) the probe is now an
+// existence findFirst (with the data layer's bounded fetch it costs a
+// single read), and (2) the answer is cached in-process — a POSITIVE
+// answer for the process lifetime (an existing admin cannot un-exist
+// short of a database wipe, and the setup ENDPOINT re-checks with
+// `fresh: true` before creating anything), a negative answer for 30s
+// (fresh installs still see setup promptly). On a read error the last
+// known answer is served when one exists; with no cached answer the
+// error propagates and the ENTRY caller degrades (see GET /api/auth).
+let setupCompleteCache: { value: boolean; at: number } | null = null;
+const SETUP_NEGATIVE_TTL_MS = 30_000;
+
+export async function isSetupComplete(
+  opts?: { fresh?: boolean }
+): Promise<boolean> {
+  const now = Date.now();
+  if (!opts?.fresh && setupCompleteCache) {
+    if (setupCompleteCache.value) return true;
+    if (now - setupCompleteCache.at < SETUP_NEGATIVE_TTL_MS) return false;
+  }
+  try {
+    const first = await getUnscopedPrisma().admin.findFirst({
+      select: { id: true },
+    });
+    const value = first !== null && first !== undefined;
+    setupCompleteCache = { value, at: now };
+    return value;
+  } catch (err) {
+    if (setupCompleteCache) return setupCompleteCache.value;
+    throw err;
+  }
+}
+
+/** Test seam (mirrors __resetCompanyIdentityCacheForTests). */
+export function __resetSetupCompleteCacheForTests(): void {
+  setupCompleteCache = null;
 }
 
 /**

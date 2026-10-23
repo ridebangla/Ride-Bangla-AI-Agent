@@ -371,6 +371,44 @@ async function getKnowledgeBase(): Promise<KnowledgeItem[]> {
   }));
 }
 
+/**
+ * AI-perfection round (2026-10-23), FIX-B: the fallback config used
+ * ONLY when getAIConfig() itself fails (data-layer outage). The field
+ * set mirrors getAIConfig()'s return exactly, and the values are the
+ * platform settings defaults the data layer applies when a settings
+ * doc is created empty (src/lib/firestore.ts, settings defaults:
+ * businessName "My Business", aiProvider "openai", aiModel
+ * "gpt-4o-mini", maxTokens 2048, temperature 0.7, tone "friendly",
+ * language "auto", welcomeMessage "Hello! How can I help you
+ * today?"). aiEnabled is true here for the same reason the real path
+ * uses `settings.aiEnabled !== false`: absence of a readable
+ * kill-switch value is not a kill signal. No business fact beyond
+ * these platform defaults is claimed — the business NAME in
+ * particular falls back to the generic default, never to a guess.
+ */
+function defaultAIConfig(): AIConfig &
+  ConversationContext & { behaviour: BehaviourSettings } {
+  return {
+    provider: "openai",
+    model: "gpt-4o-mini",
+    apiKey: "",
+    maxTokens: 2048,
+    temperature: 0.7,
+    aiEnabled: true,
+    businessName: "My Business",
+    businessDesc: "",
+    welcomeMessage: "Hello! How can I help you today?",
+    tone: "friendly",
+    language: "auto",
+    agentBehavior: "",
+    behaviour: getBehaviourSettings(null),
+    knowledgeBase: [],
+    customerName: "",
+    customerHistory: [],
+    channel: "",
+  };
+}
+
 /** Exported for the Phase 3 media endpoints (/api/chat/vision, /api/chat/voice). */
 export async function getAIConfig(): Promise<
   AIConfig & ConversationContext & { behaviour: BehaviourSettings }
@@ -627,15 +665,70 @@ export async function chat(
   // instead of sequentially, and span the block so the prep stage is
   // measurable in production logs from now on.
   const prepStartedAt = Date.now();
+  // AI-perfection round (2026-10-23), FIX-B: prep-read degradation.
+  // Each prep read now degrades INDIVIDUALLY instead of the whole
+  // Promise.all rejecting into the caller's failure path:
+  //  - config read fails -> defaultAIConfig() (platform defaults).
+  //  - conversation read fails -> an EPHEMERAL conversation and the
+  //    `ephemeral` flag below: persistence on this turn is skipped
+  //    or fail-soft, and emitNewMessage never fires for an unsaved
+  //    message.
+  //  - key resolution fails -> an empty key set, so brainOnline is
+  //    false and the EXISTING honest not-connected fallback answers;
+  //    no reply is ever faked.
+  // Trade-off, stated plainly: ephemeral mode is entered ONLY when
+  // the conversation read FAILED — the takeover/kill-switch state is
+  // then genuinely unknown, and this turn proceeds as if AI were
+  // enabled rather than stranding the visitor on a dead turn. If the
+  // read SUCCEEDED, every check below runs exactly as before
+  // (byte-identical semantics), so human-takeover and the global
+  // kill-switch are NOT weakened for any state that was readable.
+  let ephemeral = false;
   const [config, conversation, keys] = await Promise.all([
-    getAIConfig(),
-    prisma.conversation.findUnique({
-      where: { id: conversationId },
-      include: {
-        messages: { orderBy: { createdAt: "asc" }, take: 50 },
-      },
+    getAIConfig().catch((err) => {
+      logger.warn("[brain] getAIConfig failed; using default config", {
+        conversationId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      return defaultAIConfig();
     }),
-    resolveSiteKeys(),
+    prisma.conversation
+      .findUnique({
+        where: { id: conversationId },
+        include: {
+          messages: { orderBy: { createdAt: "asc" }, take: 50 },
+        },
+      })
+      .catch((err) => {
+        ephemeral = true;
+        logger.warn(
+          "[brain] conversation read failed; continuing with an ephemeral conversation (persistence skipped or fail-soft this turn)",
+          {
+            conversationId,
+            reason: err instanceof Error ? err.message : String(err),
+          }
+        );
+        return {
+          id: conversationId,
+          aiEnabled: true,
+          messages: [],
+          // Remaining fields mirror the data layer's conversation
+          // defaults (src/lib/firestore.ts): name "Unknown", no
+          // contact, status "active", empty metadata.
+          customerName: "Unknown",
+          customerContact: "",
+          channel: "",
+          status: "active",
+          metadata: {},
+        };
+      }),
+    resolveSiteKeys().catch((err) => {
+      logger.warn("[brain] resolveSiteKeys failed; treating as no keys configured", {
+        conversationId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      return {} as ProviderKeys;
+    }),
   ]);
   logLatencySpan("prep.reads", prepStartedAt, { conversationId });
 
@@ -657,17 +750,28 @@ export async function chat(
   // checked first — when the owner kills AI globally, EVERY conversation
   // goes silent regardless of its own switch.
   if (config.aiEnabled === false || conversation.aiEnabled === false) {
-    await prisma.message.create({
-      data: withBusinessId({
-        conversationId,
-        role: "customer",
-        content: userMessage,
-      }),
-    });
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { updatedAt: new Date() },
-    });
+    // FIX-B: in ephemeral mode the conversation record could not be
+    // read, so its persistence calls are skipped (the silent return
+    // below is unchanged). Non-ephemeral turns persist exactly as
+    // before.
+    if (ephemeral) {
+      logger.warn(
+        "[brain] ephemeral conversation: takeover message not persisted",
+        { conversationId }
+      );
+    } else {
+      await prisma.message.create({
+        data: withBusinessId({
+          conversationId,
+          role: "customer",
+          content: userMessage,
+        }),
+      });
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { updatedAt: new Date() },
+      });
+    }
     logger.info(
       `[brain] human takeover: stored customer message silently for conversation ${conversationId}` +
         (config.aiEnabled === false ? " (global kill-switch)" : "")
@@ -731,13 +835,24 @@ export async function chat(
 
   // Save user message — always. The dashboard (and a human who took over)
   // must see what the customer said even when the AI brain is offline.
-  await prisma.message.create({
-    data: withBusinessId({
-      conversationId,
-      role: "customer",
-      content: effectiveMessage,
-    }),
-  });
+  // FIX-B exception: in ephemeral mode (the conversation READ failed —
+  // the data layer is down) the save is skipped with a loud warn
+  // instead of killing the turn; a failed write here must not strand
+  // a visitor whose greeting/question can still be answered.
+  if (ephemeral) {
+    logger.warn(
+      "[brain] ephemeral conversation: user message not persisted",
+      { conversationId }
+    );
+  } else {
+    await prisma.message.create({
+      data: withBusinessId({
+        conversationId,
+        role: "customer",
+        content: effectiveMessage,
+      }),
+    });
+  }
 
   // ---- Human handoff (owner addition 2026-10-21) ----
   // A serious problem, or an explicit ask for a human / a support
@@ -920,10 +1035,33 @@ export async function chat(
   // F4: knowledge base + catalog brief are independent reads —
   // fetch them concurrently (they used to run one after the other).
   const knowledgeStartedAt = Date.now();
-  const [knowledgeBase, catalogBrief] = await Promise.all([
-    getKnowledgeBase(),
-    getCatalogBrief().catch(() => ""),
-  ]);
+  // AI-perfection round (2026-10-23), FIX-C: knowledge-read
+  // degradation. A failing knowledge/catalog read degrades to ZERO
+  // knowledge instead of killing the turn: knowledgeBase=[] makes
+  // buildSystemPrompt emit its zero-knowledge honesty block (no
+  // verified business facts — say so plainly for business specifics,
+  // answer ordinary conversation normally), and catalogBrief uses
+  // its existing empty shape "" (the same value getCatalogBrief's
+  // own .catch already produced; buildSystemPrompt treats "" as
+  // no catalog section).
+  let knowledgeBase: KnowledgeItem[] = [];
+  let catalogBrief = "";
+  try {
+    [knowledgeBase, catalogBrief] = await Promise.all([
+      getKnowledgeBase(),
+      getCatalogBrief().catch(() => ""),
+    ]);
+  } catch (err) {
+    logger.warn(
+      "[brain] knowledge/catalog read failed; continuing with zero knowledge",
+      {
+        conversationId,
+        reason: err instanceof Error ? err.message : String(err),
+      }
+    );
+    knowledgeBase = [];
+    catalogBrief = "";
+  }
   logLatencySpan("prep.knowledge", knowledgeStartedAt, { conversationId });
 
   // ---- Intent understanding: shape the answer for THIS question ----
@@ -964,17 +1102,27 @@ export async function chat(
     const sentiment = analyzeSentiment(effectiveMessage);
     const intent = detectIntent(effectiveMessage);
 
-    // Store metadata for dashboard visibility
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        metadata: {
-          escalationReason: approval.reason,
-          sentiment: sentiment.sentiment,
-          intent: intent.intent,
+    // Store metadata for dashboard visibility. FIX-B: skipped in
+    // ephemeral mode — this update is not fail-soft today, and a
+    // data-layer failure here must not kill a turn that can still
+    // be answered.
+    if (ephemeral) {
+      logger.warn(
+        "[brain] ephemeral conversation: escalation metadata not persisted",
+        { conversationId }
+      );
+    } else {
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: {
+          metadata: {
+            escalationReason: approval.reason,
+            sentiment: sentiment.sentiment,
+            intent: intent.intent,
+          },
         },
-      },
-    });
+      });
+    }
   }
 
   // Call AI (collects show_products tool cards along the way). When the

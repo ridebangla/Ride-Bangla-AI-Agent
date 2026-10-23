@@ -39,6 +39,11 @@ vi.mock("@/lib/ai/engine", () => ({
       // A turn that never settles on its own (wedged downstream).
       new Promise(() => {})
   ),
+  // AI-perfection FIX-A: the route's failure catch consults the
+  // greeting helpers; this suite's message is not a greeting, so the
+  // detector stub answers false and the graceful text stands.
+  isPureGreeting: vi.fn(() => false),
+  buildGreetingReply: vi.fn(() => ""),
 }));
 
 vi.mock("@/lib/ai/activity", () => ({

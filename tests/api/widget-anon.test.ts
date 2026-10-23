@@ -30,6 +30,11 @@ vi.mock("@/lib/ai/engine", () => ({
     silent: false,
     aiConfigured: true,
   })),
+  // AI-perfection FIX-A: the route imports the greeting helpers from
+  // the engine; this suite never reaches the failure catch, so inert
+  // stubs keep the mock complete.
+  isPureGreeting: vi.fn(() => false),
+  buildGreetingReply: vi.fn(() => ""),
 }));
 
 vi.mock("@/lib/ai/activity", () => ({

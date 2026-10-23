@@ -28,6 +28,7 @@
  * plus rows read from the database.
  */
 import type { Admin, Business } from "@/lib/models";
+import { isDatastoreQuotaError } from "@/lib/auth";
 import { logger } from "@/lib/logger";
 
 type Db = {
@@ -119,4 +120,102 @@ export async function pickSignInAdmin(
   }
 
   return sorted[0];
+}
+
+// ---------------------------------------------------------------------------
+// Q-SIGNIN (2026-10-23): quota-outage sign-in fallback.
+//
+// The admins-by-email read is the ONE indispensable Firestore read on
+// the sign-in path: the session JWT carries the admin doc's id + role,
+// which exist nowhere else — minting a session without them would mean
+// FABRICATING a role (fail-closed forbids it). So when that read fails
+// with RESOURCE_EXHAUSTED and this instance has never resolved the
+// account, sign-in still answers the honest 503.
+//
+// But when this instance HAS resolved the exact (email, firebaseUid)
+// pair before, the proven record is remembered (process memory only)
+// and a quota failure falls back to it: sign-in completes with EXACTLY
+// the id/role that were proven against the database — never elevated,
+// never invented, and never for an (email, uid) pair that was not
+// itself resolved. The normal path NEVER reads the cache: every
+// successful data-layer read re-resolves fresh and refreshes the
+// memory. The fallback can only engage while Firestore is rejecting
+// operations — a window in which platform writes (role changes,
+// revocations recorded in the data store) cannot land either.
+// ---------------------------------------------------------------------------
+
+export const SIGNIN_RESOLUTION_FALLBACK_TTL_MS = 2 * 60 * 60 * 1000;
+
+const signInResolutionMemory = new Map<
+  string,
+  { admin: Admin; at: number }
+>();
+
+function signInResolutionKey(email: string, firebaseUid?: string | null): string {
+  return `${email}|${firebaseUid ?? ""}`;
+}
+
+/** Remember a resolution that was just proven against the database. */
+export function rememberSignInResolution(
+  email: string,
+  firebaseUid: string | null | undefined,
+  admin: Admin
+): void {
+  signInResolutionMemory.set(signInResolutionKey(email, firebaseUid), {
+    admin,
+    at: Date.now(),
+  });
+}
+
+/** The remembered resolution for this exact (email, uid) pair, if fresh. */
+export function recallSignInResolution(
+  email: string,
+  firebaseUid: string | null | undefined,
+  nowMs: number = Date.now()
+): Admin | null {
+  const hit = signInResolutionMemory.get(signInResolutionKey(email, firebaseUid));
+  if (!hit) return null;
+  if (nowMs - hit.at > SIGNIN_RESOLUTION_FALLBACK_TTL_MS) return null;
+  return hit.admin;
+}
+
+/** Test seam (mirrors __resetCompanyIdentityCacheForTests). */
+export function __resetSignInResolutionMemoryForTests(): void {
+  signInResolutionMemory.clear();
+}
+
+/**
+ * The sign-in routes' resolution entry point: fresh database resolution
+ * first (findAdminsByEmail + pickSignInAdmin, unchanged semantics); on a
+ * QUOTA failure only, fall back to the remembered proven resolution for
+ * the same (email, uid) and report `degraded: true`. Any other error —
+ * and a quota failure with nothing remembered — propagates to the
+ * caller, whose existing honest-503 mapping handles it.
+ */
+export async function resolveSignInAdmin(
+  db: Db,
+  email: string,
+  firebaseUid?: string | null
+): Promise<{ admin: Admin | null; degraded: boolean }> {
+  try {
+    const candidates = await findAdminsByEmail(db, email);
+    const admin =
+      candidates.length > 0
+        ? await pickSignInAdmin(db, candidates, firebaseUid)
+        : null;
+    if (admin) rememberSignInResolution(email, firebaseUid, admin);
+    return { admin, degraded: false };
+  } catch (err) {
+    if (isDatastoreQuotaError(err)) {
+      const remembered = recallSignInResolution(email, firebaseUid);
+      if (remembered) {
+        logger.warn(
+          `[Auth] Sign-in resolution degraded: data store quota-exhausted; ` +
+            `using the proven resolution for ${email} from this instance's memory`
+        );
+        return { admin: remembered, degraded: true };
+      }
+    }
+    throw err;
+  }
 }

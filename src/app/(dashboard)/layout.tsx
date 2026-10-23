@@ -6,7 +6,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { SessionKeeper } from "@/components/auth/session-keeper";
 import {
   getRefreshCookieName,
-  verifySessionToken,
+  verifySessionTokenForEntry,
   verifyToken,
 } from "@/lib/auth";
 import { getUnscopedPrisma } from "@/lib/prisma";
@@ -42,7 +42,17 @@ export default async function DashboardLayout({
 }) {
   const cookieStore = await cookies();
   const token = cookieStore.get("rbai-token")?.value;
-  const payload = token ? await verifySessionToken(token) : null;
+  // Q-SIGNIN (2026-10-23): ENTRY uses the degraded-aware verify. When
+  // the data store's revocation read fails (quota wall), a
+  // signature-valid token still proves ENTRY and the layout renders a
+  // degraded shell with an honest notice — the session is NOT treated
+  // as fully proven (degraded sessions skip every business/billing
+  // read and redirect below; API routes keep their strict checks).
+  // A definitively invalid/revoked/expired token is unchanged: payload
+  // null, degraded false, the fail-closed backstop below runs.
+  const { payload, degraded: sessionDegraded } = token
+    ? await verifySessionTokenForEntry(token)
+    : { payload: null, degraded: false };
   // Fail-closed: no valid session -> login (middleware normally redirects
   // first; this is the backstop).
   if (!payload) {
@@ -61,15 +71,34 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  const admin = await getUnscopedPrisma().admin.findUnique({
-    where: { id: payload.userId },
-    select: { businessId: true },
-  });
-  if (!admin) redirect("/login");
+  // Q-SIGNIN: profile/business reads no longer GATE entry. A read that
+  // throws (quota wall) degrades the shell instead of 500-ing the whole
+  // dashboard; only a DEFINITIVE answer gates — admin record gone →
+  // /login, subscription read successfully AND inactive → /billing
+  // (trial semantics preserved exactly). A degraded session never
+  // redirects to /billing: its state is unknown, not inactive.
+  let degraded = sessionDegraded;
+  let admin: { businessId: string | null } | null = null;
+  try {
+    admin = await getUnscopedPrisma().admin.findUnique({
+      where: { id: payload.userId },
+      select: { businessId: true },
+    });
+  } catch {
+    degraded = true;
+  }
+  if (!admin && !degraded) redirect("/login");
 
-  if (admin.businessId) {
-    const sub = await getSubscription(admin.businessId);
-    if (!sub.isActive) redirect("/billing");
+  if (admin?.businessId && !sessionDegraded) {
+    let subInactive = false;
+    try {
+      const sub = await getSubscription(admin.businessId);
+      subInactive = !sub.isActive;
+    } catch {
+      // Read failed (quota wall): state unknown — degrade, never redirect.
+      degraded = true;
+    }
+    if (subInactive) redirect("/billing");
   }
 
   // Billing Phase 2: countdown banner — shown ONLY when a warning threshold
@@ -80,12 +109,17 @@ export default async function DashboardLayout({
   // key off businessId only) — run them CONCURRENTLY instead of serially
   // so a dashboard load pays one round-trip window for the pair, not two.
   // Results and all downstream behaviour are unchanged.
-  const [countdown, limitState] = admin.businessId
-    ? await Promise.all([
-        getBillingCountdown(admin.businessId),
-        getLimitExhaustedState(admin.businessId),
-      ])
-    : [null, null];
+  // Q-SIGNIN: in degraded mode these billing reads are skipped entirely
+  // (they would only re-hit the down data store); the shell renders
+  // with the honest notice below and no limit UX — the spend gates in
+  // the API routes remain the enforcement point once the store is back.
+  const [countdown, limitState] =
+    admin?.businessId && !degraded
+      ? await Promise.all([
+          getBillingCountdown(admin.businessId),
+          getLimitExhaustedState(admin.businessId),
+        ])
+      : [null, null];
 
   // Limit-exhausted UX (owner directive 2026-10-22): when the tenant's
   // product limit is finished, the dashboard still renders fully — a
@@ -95,7 +129,7 @@ export default async function DashboardLayout({
   // returns null for them); the Super Admin (businessId null) never
   // has a limit. The auth/session path above is untouched.
   const limitPlans =
-    limitState && admin.businessId
+    limitState && admin?.businessId
       ? (await getCatalogView(new Date(), admin.businessId)).filter(
           (p) => p.active
         )
@@ -115,6 +149,23 @@ export default async function DashboardLayout({
   return (
     <LimitUxProvider exhausted={!!limitState}>
       <SessionKeeper />
+      {degraded && (
+        <div
+          role="status"
+          className="bg-amber-50 border-b border-amber-200 px-4 py-2.5"
+        >
+          <div className="max-w-5xl mx-auto text-sm text-amber-900">
+            <span className="font-medium">
+              You are signed in, but account data is temporarily
+              unavailable.
+            </span>{" "}
+            Our data store has reached its temporary limit, so business
+            information and usage state cannot be loaded right now. Some
+            actions may be paused until it recovers — please check back
+            shortly.
+          </div>
+        </div>
+      )}
       {limitState && <LimitExhaustedBar reset={limitState.reset} />}
       {limitState && (
         <LimitExhaustedPopup

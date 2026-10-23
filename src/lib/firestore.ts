@@ -38,6 +38,9 @@ import {
   stripUndefined,
   applyFieldUpdate,
   extractEquality,
+  pickEqualityPrefilter,
+  pickSelectivePrefilter,
+  flattenEqualityConditions,
 } from "./firestore-query";
 import type {
   Business,
@@ -691,12 +694,134 @@ function normalizeWhere(model: string, where: Where): Where {
 // Raw (unscoped) model queries — the tenant proxy wraps these
 // ---------------------------------------------------------------------------
 
-type Ctx = { businessId?: string | null };
+type Ctx = {
+  businessId?: string | null;
+  /**
+   * Q-SIGNIN read-burn hint (2026-10-23): a where field the caller knows
+   * is at least as selective as businessId (loadRelated passes the FK,
+   * whose value is a globally-unique document id). When set and present
+   * as a string equality in the where, it becomes the ONE server-side
+   * prefilter instead of businessId. The full where — businessId
+   * included — is still applied in memory by every caller, so results
+   * are identical; only the number of documents Firestore returns (and
+   * bills) changes.
+   */
+  prefilterField?: string;
+};
+
+/** Server-side order+limit pushdown hint (see fetchCandidates). */
+type OrderLimitHint = { field: string; dir: "asc" | "desc"; limit: number };
+
+/** Parse a Prisma orderBy into a single scalar {field, dir}, or null. */
+function singleScalarOrderBy(
+  orderBy: unknown
+): { field: string; dir: "asc" | "desc" } | null {
+  if (!orderBy || typeof orderBy !== "object") return null;
+  const specs = (Array.isArray(orderBy) ? orderBy : [orderBy]) as Record<
+    string,
+    unknown
+  >[];
+  if (specs.length !== 1) return null;
+  const entries = Object.entries(specs[0] ?? {});
+  if (entries.length !== 1) return null;
+  const [field, dir] = entries[0];
+  if (dir !== "asc" && dir !== "desc") return null;
+  return { field, dir };
+}
+
+// ---------------------------------------------------------------------------
+// Q-QUOTA hot read caches (2026-10-23) — in-process, per-business, short TTL
+// ---------------------------------------------------------------------------
+// The engine re-read the SAME near-static rows on every chat turn:
+// the business's settings doc (read twice per turn — once by
+// getAIConfig, once by resolveSiteKeys) and its active knowledge
+// entries. These candidate fetches are now shared through a small
+// in-process cache:
+//
+//  - settings:      30 s TTL (provider keys / AI config change rarely)
+//  - knowledgeEntry: 60 s TTL (dashboard-managed content)
+//
+// Safety properties:
+//  - Keyed by model + businessId + the full where, so no data is ever
+//    shared across businesses; the full where is still applied in
+//    memory by callers exactly as before.
+//  - The cached value is the fetch PROMISE, so concurrent identical
+//    reads (the engine's parallel prep reads) share ONE Firestore
+//    fetch — that is what makes the settings doc read once per turn.
+//  - Any create/update/delete on the model through this data layer
+//    invalidates its entries immediately (see invalidateReadCaches
+//    calls in the mutation paths), so dashboard writes made through
+//    the app are visible at once; only writes from ANOTHER instance
+//    can be stale, and only within the TTL.
+//  - Rejected fetches are evicted at once — failures are never cached.
+//  - The cached set is always the FULL candidate set for its where:
+//    a truncated fetch is never cached, and bounded callers slice the
+//    full set in memory exactly as they would a bounded fetch.
+const HOT_READ_TTL_MS: Record<string, number> = {
+  settings: 30_000,
+  knowledgeEntry: 60_000,
+};
+const hotReadCache = new Map<
+  string,
+  { at: number; promise: Promise<Row[]> }
+>();
+
+/** Taxonomy docs (category / productCategory) loaded one-by-one as
+ *  relation targets are cached the same way (60 s): a knowledge base
+ *  of K entries over a handful of categories otherwise pays one doc
+ *  get PER ENTRY on every engine turn. Invalidated on writes to the
+ *  taxonomy models, like the hot caches above. */
+const DOC_CACHE_TTL_MS = 60_000;
+const DOC_CACHE_MODELS = new Set(["category", "productCategory"]);
+const docReadCache = new Map<
+  string,
+  { at: number; promise: Promise<Row[]> }
+>();
+
+/** Drop cached hot reads for one model (or all when omitted). Called
+ *  by every mutation path in this layer. */
+export function invalidateReadCaches(model?: string): void {
+  if (!model) {
+    hotReadCache.clear();
+    docReadCache.clear();
+    return;
+  }
+  if (model in HOT_READ_TTL_MS) {
+    for (const k of [...hotReadCache.keys()]) {
+      if (k.startsWith(`${model}:`)) hotReadCache.delete(k);
+    }
+  }
+  if (DOC_CACHE_MODELS.has(model)) {
+    for (const k of [...docReadCache.keys()]) {
+      if (k.startsWith(`${model}:`)) docReadCache.delete(k);
+    }
+  }
+}
+
+/** Test-only: clear the Q-QUOTA read caches between cases. */
+export function __resetReadCaches(): void {
+  invalidateReadCaches();
+}
+
+/** Deterministic stringify (sorted object keys) for cache keys. */
+function stableStringify(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "";
+  if (v instanceof Date) return `Date(${v.getTime()})`;
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
+  const entries = Object.entries(v as Record<string, unknown>).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0
+  );
+  return `{${entries
+    .map(([k, val]) => `${JSON.stringify(k)}:${stableStringify(val)}`)
+    .join(",")}}`;
+}
 
 async function fetchCandidates(
   model: string,
   where: Where,
-  ctx: Ctx
+  ctx: Ctx,
+  limitHint?: number,
+  orderLimit?: OrderLimitHint
 ): Promise<Row[]> {
   const meta = MODEL_META[model];
   const db = getDb();
@@ -710,17 +835,157 @@ async function fetchCandidates(
     return [decodeDoc(snap)];
   }
 
+  // Q-QUOTA hot read cache (see the block above), keyed per business
+  // + where. The cached fetch is always the FULL candidate set for the
+  // where (these models hold a handful of rows per business): a caller
+  // asking for a bounded slice (findFirst's take:1, an ordered take)
+  // still slices in memory afterwards, so serving the full set is
+  // exact — and it is what lets the engine's parallel findFirst prep
+  // reads share one fetch instead of each paying its own.
+  const hotTtl = HOT_READ_TTL_MS[model];
+  let hotKey: string | null = null;
+  if (hotTtl) {
+    const bizEq = extractEquality(where, "businessId") ?? ctx.businessId;
+    if (typeof bizEq === "string" && bizEq) {
+      hotKey = `${model}:${bizEq}:${stableStringify(where ?? {})}`;
+      const hit = hotReadCache.get(hotKey);
+      if (hit && Date.now() - hit.at < hotTtl) {
+        return [...(await hit.promise)];
+      }
+    }
+  }
+
+  const promise = hotKey
+    ? fetchCandidatesUncached(model, where, ctx, undefined, undefined)
+    : fetchCandidatesUncached(model, where, ctx, limitHint, orderLimit);
+  if (hotKey) {
+    const entry = { at: Date.now(), promise };
+    hotReadCache.set(hotKey, entry);
+    promise.catch(() => {
+      if (hotReadCache.get(hotKey) === entry) hotReadCache.delete(hotKey);
+    });
+    return [...(await promise)];
+  }
+  return promise;
+}
+
+async function fetchCandidatesUncached(
+  model: string,
+  where: Where,
+  ctx: Ctx,
+  limitHint?: number,
+  orderLimit?: OrderLimitHint
+): Promise<Row[]> {
+  const meta = MODEL_META[model];
+  const db = getDb();
+  const collection = db.collection(meta.collection);
+
+  // Server-side prefiltering (Q-SIGNIN read-burn fix, 2026-10-23).
+  // Before this, any query without an id/businessId equality downloaded
+  // the ENTIRE collection and filtered in memory — every sign-in scanned
+  // all `admins` (find-by-email), every session check scanned all
+  // `revokedTokens` (find-by-jti), every business-by-slug lookup scanned
+  // all `businesses`. Now exactly ONE single-field equality (no composite
+  // index required) prefilters server-side; the full where is still
+  // evaluated in memory by callers, so result sets are unchanged — only
+  // the billed read count drops (collection size → matching docs).
   let q: admin.firestore.Query = collection;
+  let prefiltered = false;
   if (meta.tenantScoped) {
     const bEq = extractEquality(where, "businessId");
     const businessId = bEq !== undefined ? bEq : ctx.businessId;
     if (typeof businessId === "string" && businessId) {
-      // Single-field equality: no composite index required.
-      q = q.where("businessId", "==", businessId);
+      const fkField = ctx.prefilterField;
+      const fkVal = fkField ? extractEquality(where, fkField) : undefined;
+      if (fkField && typeof fkVal === "string" && fkVal) {
+        q = q.where(fkField, "==", fkVal);
+      } else {
+        // Q-QUOTA (2026-10-23): prefer a SELECTIVE equality from the
+        // where (an FK / token / key — e.g. conversationId on a
+        // message query, activityToken on a conversation lookup) over
+        // businessId: it narrows the billed result from the whole
+        // business to the handful of rows the caller actually wants.
+        // The full where (businessId included) is still evaluated in
+        // memory by callers, so results are identical.
+        const sel = pickSelectivePrefilter(where);
+        if (sel) {
+          q = q.where(sel.field, "==", sel.value);
+        } else {
+          // Single-field equality: no composite index required.
+          q = q.where("businessId", "==", businessId);
+        }
+      }
+      prefiltered = true;
     }
+  }
+  if (!prefiltered) {
+    const pf =
+      pickSelectivePrefilter(where) ??
+      pickEqualityPrefilter(where, ["id", "businessId"]);
+    if (pf) q = q.where(pf.field, "==", pf.value);
+  }
+  // Server-side order+limit pushdown (Q-QUOTA): callers set this ONLY
+  // when every where condition is an equality on the prefilter field /
+  // businessId / id (or there are no conditions at all), which makes
+  // the server's ordered top-N exactly the set the in-memory
+  // sort+slice would have produced. An equality + orderBy on another
+  // field can require a composite index; if Firestore rejects the
+  // ordered query (missing index), fall back to the plain prefiltered
+  // fetch — same results, today's cost — instead of failing the read.
+  if (orderLimit) {
+    try {
+      const snap = await q
+        .orderBy(orderLimit.field, orderLimit.dir)
+        .limit(orderLimit.limit)
+        .get();
+      return snap.docs.map(decodeDoc);
+    } catch {
+      console.warn(
+        `[firestore] ordered fetch for ${model} failed (missing composite index?); falling back to unbounded fetch`
+      );
+    }
+  }
+  // Bounded fetch: only when the caller will slice to `take` anyway and
+  // nothing (orderBy / skip / distinct / relation filters) needs the
+  // full candidate set first — see findManyRaw for the guard conditions.
+  if (typeof limitHint === "number" && limitHint > 0) {
+    q = q.limit(limitHint);
   }
   const snap = await q.get();
   return snap.docs.map(decodeDoc);
+}
+
+/**
+ * Firestore count() aggregation over equality conditions (Q-QUOTA).
+ * Billed per 1,000 docs scanned instead of per doc. Returns null when
+ * the SDK/fake has no count() or the aggregation errors — callers
+ * fall back to the historical scan count, so results are identical.
+ */
+async function aggregationCount(
+  collectionName: string,
+  eqs: Array<{ field: string; value: string | number | boolean }>
+): Promise<number | null> {
+  try {
+    let q: admin.firestore.Query = getDb().collection(collectionName);
+    const seen = new Set<string>();
+    for (const e of eqs) {
+      const k = `${e.field}=${JSON.stringify(e.value)}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      q = q.where(e.field, "==", e.value);
+    }
+    const counter = (
+      q as unknown as {
+        count?: () => { get: () => Promise<{ data: () => { count: number } }> };
+      }
+    ).count;
+    if (typeof counter !== "function") return null;
+    const snap = await counter.call(q).get();
+    const n = snap.data().count;
+    return typeof n === "number" ? n : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Relation-filter keys ({ some, none, every }) present in a where clause. */
@@ -743,7 +1008,8 @@ async function loadRelated(
   parentModel: string,
   relName: string,
   parent: Row,
-  ctx: Ctx
+  ctx: Ctx,
+  fetchOpts?: { orderBy?: unknown; take?: number }
 ): Promise<Row[]> {
   const rel = RELATIONS[parentModel]?.[relName];
   if (!rel) return [];
@@ -753,10 +1019,39 @@ async function loadRelated(
       childMeta.tenantScoped && typeof parent.businessId === "string"
         ? parent.businessId
         : ctx.businessId;
+    // Q-QUOTA bounded include fetch: when the include spec carries a
+    // `take` + single-field orderBy and NO extra where/skip (the
+    // caller in resolveInclude guarantees this), the FK-prefiltered
+    // query can be ordered + limited server-side — the FK equality is
+    // the only filter, so the server's top-N is exactly the in-memory
+    // sort+slice result. fetchCandidates falls back to the unbounded
+    // fetch if Firestore rejects the ordered query (missing index).
+    // Only timestamp fields are pushed down: createRaw stamps
+    // `createdAt` on every row of every model, and `updatedAt` on
+    // every row of a hasUpdatedAt model (create + update paths), so
+    // the ordered field always exists on the child rows.
+    let orderLimit: OrderLimitHint | undefined;
+    if (fetchOpts && typeof fetchOpts.take === "number" && fetchOpts.take > 0) {
+      const ob = singleScalarOrderBy(fetchOpts.orderBy);
+      if (
+        ob &&
+        (ob.field === "createdAt" ||
+          (ob.field === "updatedAt" && childMeta.hasUpdatedAt))
+      ) {
+        orderLimit = { field: ob.field, dir: ob.dir, limit: fetchOpts.take };
+      }
+    }
     const rows = await fetchCandidates(
       rel.model,
       { [rel.fk]: parent.id } as Where,
-      { businessId: childBusinessId ?? undefined }
+      {
+        businessId: childBusinessId ?? undefined,
+        // The FK value is one parent's globally-unique id — far more
+        // selective than the whole business (Q-SIGNIN read-burn fix).
+        prefilterField: rel.fk,
+      },
+      undefined,
+      orderLimit
     );
     // fetchCandidates only prefilters businessId server-side; the FK filter
     // must be applied in memory (Phase 3 fix: without this, "many" includes
@@ -772,7 +1067,31 @@ async function loadRelated(
   }
   const fkVal = parent[rel.fk];
   if (typeof fkVal !== "string" || !fkVal) return [];
-  const rows = await fetchCandidates(rel.model, { id: fkVal } as Where, ctx);
+  // Q-QUOTA taxonomy doc cache (see DOC_CACHE_TTL_MS above): the same
+  // category doc was re-fetched once per knowledge entry / product on
+  // every engine turn.
+  let rows: Row[];
+  if (DOC_CACHE_MODELS.has(rel.model)) {
+    const key = `${rel.model}:${fkVal}:${
+      typeof parent.businessId === "string"
+        ? parent.businessId
+        : ctx.businessId ?? ""
+    }`;
+    const hit = docReadCache.get(key);
+    if (hit && Date.now() - hit.at < DOC_CACHE_TTL_MS) {
+      rows = await hit.promise;
+    } else {
+      const promise = fetchCandidates(rel.model, { id: fkVal } as Where, ctx);
+      const entry = { at: Date.now(), promise };
+      docReadCache.set(key, entry);
+      promise.catch(() => {
+        if (docReadCache.get(key) === entry) docReadCache.delete(key);
+      });
+      rows = await promise;
+    }
+  } else {
+    rows = await fetchCandidates(rel.model, { id: fkVal } as Where, ctx);
+  }
   const row = rows[0];
   if (!row) return [];
   if (
@@ -821,15 +1140,44 @@ async function applyRelationFilters(
   return out;
 }
 
-/** Count children for relation-count orderBy / _count resolution. */
+/** Count children for relation-count orderBy / _count resolution.
+ *  `loader` lets resolveInclude share ONE fetch between a relation
+ *  include and its `_count` for the same parent row (Q-QUOTA dedupe:
+ *  dashboard + inbox rows previously paid the child scan twice). */
 async function countRelated(
   parentModel: string,
   relName: string,
   parent: Row,
   relWhere: Where,
-  ctx: Ctx
+  ctx: Ctx,
+  loader?: (relName: string) => Promise<Row[]>
 ): Promise<number> {
-  const related = await loadRelated(parentModel, relName, parent, ctx);
+  // Q-QUOTA: an unfiltered relation count is an equality-only count
+  // (FK + business) — answer it with Firestore aggregation (~1 read)
+  // instead of fetching every child doc. Filtered counts (relWhere)
+  // and any aggregation failure fall back to the fetch path (which
+  // resolveInclude may already have shared with the include itself).
+  if (!relWhere) {
+    const rel = RELATIONS[parentModel]?.[relName];
+    if (rel && rel.kind === "many" && typeof parent.id === "string") {
+      const childMeta = MODEL_META[rel.model];
+      const eqs: Array<{ field: string; value: string }> = [
+        { field: rel.fk, value: parent.id },
+      ];
+      const biz =
+        childMeta.tenantScoped && typeof parent.businessId === "string"
+          ? parent.businessId
+          : ctx.businessId;
+      if (childMeta.tenantScoped && typeof biz === "string" && biz) {
+        eqs.push({ field: "businessId", value: biz });
+      }
+      const agg = await aggregationCount(childMeta.collection, eqs);
+      if (agg !== null) return agg;
+    }
+  }
+  const related = loader
+    ? await loader(relName)
+    : await loadRelated(parentModel, relName, parent, ctx);
   if (!relWhere) return related.length;
   return related.filter((r) => matchesScalarWhere(r, relWhere)).length;
 }
@@ -838,7 +1186,8 @@ async function resolveCount(
   model: string,
   row: Row,
   countSpec: unknown,
-  ctx: Ctx
+  ctx: Ctx,
+  loader?: (relName: string) => Promise<Row[]>
 ): Promise<Row> {
   const out: Row = {};
   const select =
@@ -851,7 +1200,7 @@ async function resolveCount(
       typeof relArg === "object" && relArg !== null
         ? ((relArg as Record<string, unknown>).where as Where)
         : undefined;
-    out[relName] = await countRelated(model, relName, row, relWhere, ctx);
+    out[relName] = await countRelated(model, relName, row, relWhere, ctx, loader);
   }
   return out;
 }
@@ -863,9 +1212,31 @@ async function resolveInclude(
   ctx: Ctx
 ): Promise<Row> {
   const out: Row = { ...row };
+  // Q-QUOTA dedupe: one UNBOUNDED child fetch per relation per parent
+  // row, shared between the include and `_count` below. Bounded
+  // fetches (an include's take/orderBy pushdown) are never cached
+  // here — a `_count` must always see the full child set.
+  const relCache = new Map<string, Row[]>();
+  const loadManyShared = async (
+    relName: string,
+    fetchOpts?: { orderBy?: unknown; take?: number }
+  ): Promise<Row[]> => {
+    // A cached UNBOUNDED set serves every later consumer (the caller
+    // still applies its own where/sort/slice in memory).
+    const hit = relCache.get(relName);
+    if (hit) return hit;
+    if (!fetchOpts) {
+      const rows = await loadRelated(model, relName, row, ctx);
+      relCache.set(relName, rows);
+      return rows;
+    }
+    return loadRelated(model, relName, row, ctx, fetchOpts);
+  };
   for (const [relName, rawSpec] of Object.entries(include)) {
     if (relName === "_count") {
-      out._count = await resolveCount(model, row, rawSpec, ctx);
+      out._count = await resolveCount(model, row, rawSpec, ctx, (rn) =>
+        loadManyShared(rn)
+      );
       continue;
     }
     const rel = RELATIONS[model]?.[relName];
@@ -873,7 +1244,15 @@ async function resolveInclude(
     const args =
       rawSpec === true ? {} : ((rawSpec ?? {}) as Record<string, unknown>);
     if (rel.kind === "many") {
-      let children = await loadRelated(model, relName, row, ctx);
+      // Bounded pushdown is only exact when nothing filters or skips
+      // the child set before the slice (see loadRelated).
+      const fetchOpts =
+        !args.where &&
+        typeof args.skip !== "number" &&
+        typeof args.take === "number"
+          ? { orderBy: args.orderBy, take: args.take as number }
+          : undefined;
+      let children = await loadManyShared(relName, fetchOpts);
       if (args.where) {
         children = children.filter((r) =>
           matchesScalarWhere(r, args.where as Where)
@@ -1103,7 +1482,68 @@ function makeDelegate(model: string): ModelDelegate {
 
   async function findManyRaw(args: Record<string, unknown> = {}): Promise<Row[]> {
     const where = normalizeWhere(model, (args.where as Where) ?? undefined);
-    let rows = await fetchCandidates(model, where, ctx);
+    // Bounded-fetch hint (Q-SIGNIN read-burn fix, 2026-10-23): when the
+    // caller slices to `take` with no ordering, offset, distinct or
+    // relation filtering, the first `take` candidates are all that can
+    // ever surface — fetch no more. (findFirst benefits automatically:
+    // an existence probe now costs 1 read instead of a collection scan.)
+    const limitHint =
+      typeof args.take === "number" &&
+      args.take > 0 &&
+      !args.skip &&
+      !args.orderBy &&
+      !args.distinct &&
+      relationFilterKeys(where).length === 0
+        ? args.take
+        : undefined;
+    // Q-QUOTA server-side order+limit pushdown: exact ONLY when the
+    // caller orders by a create-stamped timestamp (createdAt, or
+    // updatedAt on hasUpdatedAt models),
+    // slices with a positive take and no skip/distinct/relation
+    // filters, and EVERY where condition is an equality on the field
+    // the server will prefilter by (or businessId / id) — then the
+    // server's ordered top-N is precisely the in-memory sort+slice
+    // result. Anything else keeps the unbounded fetch + in-memory
+    // pipeline, unchanged.
+    let orderLimit: OrderLimitHint | undefined;
+    if (
+      typeof args.take === "number" &&
+      args.take > 0 &&
+      !args.skip &&
+      !args.distinct &&
+      relationFilterKeys(where).length === 0
+    ) {
+      const ob = singleScalarOrderBy(args.orderBy);
+      if (
+        ob &&
+        (ob.field === "createdAt" ||
+          (ob.field === "updatedAt" && MODEL_META[model].hasUpdatedAt))
+      ) {
+        const eqs = flattenEqualityConditions(where);
+        if (eqs !== null) {
+          const sel = pickSelectivePrefilter(where);
+          const bizEq = extractEquality(where, "businessId") ?? ctx.businessId;
+          const chosen =
+            sel?.field ??
+            (MODEL_META[model].tenantScoped &&
+            typeof bizEq === "string" &&
+            bizEq
+              ? "businessId"
+              : pickEqualityPrefilter(where, ["id", "businessId"])?.field ??
+                null);
+          const eligible =
+            eqs.length === 0 ||
+            eqs.every(
+              (e) =>
+                e.field === chosen || e.field === "businessId" || e.field === "id"
+            );
+          if (eligible) {
+            orderLimit = { field: ob.field, dir: ob.dir, limit: args.take };
+          }
+        }
+      }
+    }
+    let rows = await fetchCandidates(model, where, ctx, limitHint, orderLimit);
     rows = rows.filter((r) => matchesScalarWhere(r, where));
     rows = await applyRelationFilters(model, rows, where, ctx);
     rows = await applyRelationCountOrder(model, rows, args.orderBy, ctx);
@@ -1135,6 +1575,7 @@ function makeDelegate(model: string): ModelDelegate {
   }
 
   async function createRaw(args: Record<string, unknown>): Promise<Row> {
+    invalidateReadCaches(model); // Q-QUOTA: writes invalidate hot reads
     const db = getDb();
     const data = stripUndefined((args.data ?? {}) as Row);
     const now = new Date();
@@ -1155,12 +1596,14 @@ function makeDelegate(model: string): ModelDelegate {
       await checkUniques(model, row, tx, db);
       tx.set(ref, encodeValues(row) as Record<string, unknown>);
     });
+    invalidateReadCaches(model); // Q-QUOTA: post-write, before the re-read
     const created = await findFirstRaw({ where: { id: row.id } });
     if (!created) throw p2025(model);
     return applySelectInclude(model, created, args, ctx);
   }
 
   async function updateRaw(args: Record<string, unknown>): Promise<Row> {
+    invalidateReadCaches(model); // Q-QUOTA: writes invalidate hot reads
     const db = getDb();
     const where = normalizeWhere(model, (args.where as Where) ?? undefined);
     const data = stripUndefined((args.data ?? {}) as Row);
@@ -1192,12 +1635,14 @@ function makeDelegate(model: string): ModelDelegate {
       await checkUniques(model, merged, tx, db, targetId as string);
       tx.set(ref, encodeValues(merged) as Record<string, unknown>);
     });
+    invalidateReadCaches(model); // Q-QUOTA: post-write, before the re-read
     const updated = await findFirstRaw({ where: { id: targetId } });
     if (!updated) throw p2025(model);
     return applySelectInclude(model, updated, args, ctx);
   }
 
   async function deleteRaw(args: Record<string, unknown>): Promise<Row> {
+    invalidateReadCaches(model); // Q-QUOTA: writes invalidate hot reads
     const db = getDb();
     const where = normalizeWhere(model, (args.where as Where) ?? undefined);
     const idEq = extractEquality(where, "id");
@@ -1216,10 +1661,12 @@ function makeDelegate(model: string): ModelDelegate {
       tx.delete(ref);
       return current;
     });
+    invalidateReadCaches(model); // Q-QUOTA: post-delete invalidation
     return applySelectInclude(model, deleted, args, ctx);
   }
 
   async function updateManyRaw(args: Record<string, unknown>): Promise<{ count: number }> {
+    invalidateReadCaches(model); // Q-QUOTA: writes invalidate hot reads
     const where = normalizeWhere(model, (args.where as Where) ?? undefined);
     const data = stripUndefined((args.data ?? {}) as Row);
     const rows = await findManyRaw({ where, select: { id: true } });
@@ -1232,6 +1679,7 @@ function makeDelegate(model: string): ModelDelegate {
   }
 
   async function deleteManyRaw(args: Record<string, unknown> = {}): Promise<{ count: number }> {
+    invalidateReadCaches(model); // Q-QUOTA: writes invalidate hot reads
     const db = getDb();
     const where = normalizeWhere(model, (args.where as Where) ?? undefined);
     const rows = await findManyRaw({ where, select: { id: true } });
@@ -1245,6 +1693,21 @@ function makeDelegate(model: string): ModelDelegate {
       await batch.commit();
     }
     return { count: n };
+  }
+
+  /**
+   * Firestore count() aggregation for equality-only wheres (Q-QUOTA).
+   * Returns null whenever the aggregation cannot be used — non-equality
+   * conditions, an SDK/fake without count(), or any aggregation error —
+   * so the caller falls back to the historical scan count.
+   */
+  async function tryAggregationCount(
+    countModel: string,
+    where: Where
+  ): Promise<number | null> {
+    const eqs = flattenEqualityConditions(where);
+    if (eqs === null) return null;
+    return aggregationCount(MODEL_META[countModel].collection, eqs);
   }
 
   return {
@@ -1295,6 +1758,17 @@ function makeDelegate(model: string): ModelDelegate {
     deleteMany: (args = {}) => deleteManyRaw(args),
 
     count: async (args = {}) => {
+      // Q-QUOTA: a count used to read EVERY matching doc just to
+      // count it (dashboard stats paid full collection scans for six
+      // numbers). When the where is equality-only, Firestore's count
+      // aggregation answers exactly (billed per 1,000 docs scanned,
+      // not per doc). Any other where — or an SDK without count(), or
+      // an aggregation error — falls back to the scan, unchanged.
+      const agg = await tryAggregationCount(
+        model,
+        normalizeWhere(model, (args.where as Where) ?? undefined)
+      );
+      if (agg !== null) return agg;
       const rows = await findManyRaw({ where: args.where, select: { id: true } });
       return rows.length;
     },

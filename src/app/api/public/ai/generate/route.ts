@@ -100,6 +100,11 @@ export async function POST(request: NextRequest) {
   if (!siteKey || typeof siteKey !== "string") {
     return NextResponse.json({ ok: false, error: "siteKey is required" }, { status: 401 });
   }
+  // Q-QUOTA (2026-10-23): getBusinessBySiteKey resolves through the
+  // tenant layer's 60 s in-process cache + Q-SIGNIN's equality
+  // prefilter — ≤1 read cold, 0 warm (was: a full businesses scan per
+  // call before Q-SIGNIN). Subscription/limit state below is NOT
+  // cached and still reads fresh on every call.
   const business = await getBusinessBySiteKey(siteKey);
   if (!business) {
     return NextResponse.json({ ok: false, error: "Invalid site key" }, { status: 401 });

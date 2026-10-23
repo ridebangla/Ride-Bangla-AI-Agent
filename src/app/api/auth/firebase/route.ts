@@ -4,12 +4,10 @@ import { getUnscopedPrisma } from "@/lib/prisma";
 import {
   generateRefreshToken,
   generateToken,
+  isDatastoreQuotaError,
   setSessionCookies,
 } from "@/lib/auth";
-import {
-  findAdminsByEmail,
-  pickSignInAdmin,
-} from "@/lib/admin-resolution";
+import { resolveSignInAdmin } from "@/lib/admin-resolution";
 import { logger } from "@/lib/logger";
 
 function getFirebaseAdminAuth(): admin.auth.Auth {
@@ -73,16 +71,34 @@ export async function POST(request: NextRequest) {
     }
 
     const db = getUnscopedPrisma();
-    const emailAdmins = await findAdminsByEmail(db, email);
-    let agentAdmin =
-      emailAdmins.length > 0
-        ? await pickSignInAdmin(db, emailAdmins, decoded.uid)
-        : null;
+    // Q-SIGNIN (2026-10-23): this resolution is the ONE indispensable
+    // Firestore read on the sign-in path — the session JWT carries the
+    // admin doc's id + role, which exist nowhere else, so they can
+    // never be fabricated from the Firebase token alone. Inside
+    // resolveSignInAdmin, a quota failure falls back to this instance's
+    // remembered PROVEN resolution for the same (email, uid) when one
+    // exists (degraded sign-in, privileges exactly as last proven); a
+    // quota failure with nothing remembered propagates to the honest
+    // 503 in the catch below.
+    const resolved = await resolveSignInAdmin(db, email, decoded.uid);
+    let agentAdmin = resolved.admin;
+    if (resolved.degraded) {
+      logger.warn(
+        `[Auth] Firebase sign-in completed in degraded mode for ${email} (data store quota-exhausted; proven resolution reused)`
+      );
+    }
 
     if (!agentAdmin) {
       // Bootstrap: no agent admin carries an email yet (e.g. fresh install
       // or migration from the old username/password seed) -> the first
       // Firebase sign-in becomes Super Admin.
+      // Q-SIGNIN note: this full-population check is the second named
+      // gating read, and it gates ONLY this no-match path (an unknown
+      // email, or a true first install) — distinguishing "first-ever
+      // sign-in" (create the Super Admin) from "unknown email on a
+      // populated install" (403, fail-closed) inherently requires
+      // knowing whether ANY admin carries an email. It never runs for a
+      // recognised account.
       const allAdmins = await db.admin.findMany({});
       const hasEmailAdmin = allAdmins.some(
         (a) => typeof a.email === "string" && a.email
@@ -119,6 +135,9 @@ export async function POST(request: NextRequest) {
 
     const response = NextResponse.json({
       success: true,
+      // Present only on a quota-degraded sign-in (see above) so the
+      // client/session state can label it honestly; absent normally.
+      ...(resolved.degraded ? { degraded: true } : {}),
       user: {
         id: agentAdmin.id,
         email,
@@ -135,17 +154,11 @@ export async function POST(request: NextRequest) {
     // A quota-exhausted account store (Firestore RESOURCE_EXHAUSTED) is
     // not a credential failure, and retrying immediately cannot succeed
     // while it lasts - answer honestly instead of implying the visitor's
-    // sign-in itself was wrong.
-    const errCode =
-      typeof err === "object" && err !== null && "code" in err
-        ? String((err as { code: unknown }).code)
-        : "";
-    const errMessage = err instanceof Error ? err.message : "";
-    if (
-      errCode === "8" ||
-      errCode === "resource-exhausted" ||
-      /RESOURCE_EXHAUSTED|quota exceeded/i.test(errMessage)
-    ) {
+    // sign-in itself was wrong. Q-SIGNIN: this 503 now fires ONLY when
+    // the one indispensable read (identity resolution, above) failed
+    // with quota AND no proven resolution was remembered — every other
+    // read on this path is fail-soft or deferred.
+    if (isDatastoreQuotaError(err)) {
       return NextResponse.json(
         {
           error:

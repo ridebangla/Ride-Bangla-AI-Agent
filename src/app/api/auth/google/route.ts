@@ -38,12 +38,12 @@ import { getUnscopedPrisma } from "@/lib/prisma";
 import {
   generateRefreshToken,
   generateToken,
+  isDatastoreQuotaError,
   setSessionCookies,
 } from "@/lib/auth";
 import {
-  findAdminsByEmail,
   isInternalAdmin,
-  pickSignInAdmin,
+  resolveSignInAdmin,
 } from "@/lib/admin-resolution";
 import { TRIAL_MS, TRIAL_DAYS } from "@/lib/subscription";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -134,19 +134,19 @@ export async function POST(request: NextRequest) {
 
     const db = getUnscopedPrisma();
 
-    const existing = await findAdminsByEmail(db, email);
+    // Q-SIGNIN (2026-10-23): same contract as /api/auth/firebase — the
+    // admins-by-email resolution is the one indispensable read for a
+    // RETURNING account; on a quota failure it falls back to the proven
+    // remembered resolution for this (email, uid) when one exists, and
+    // otherwise propagates to the honest 503 in the outer catch.
+    const resolved = await resolveSignInAdmin(db, email, decoded.uid);
+    const existingAdmin = resolved.admin;
 
-    if (existing.length > 0) {
-      // Returning account — resolve WHICH record this sign-in belongs to
-      // (uid binding → internal owner business → earliest), never just
-      // the first row the datastore happens to return.
-      const agentAdmin = await pickSignInAdmin(db, existing, decoded.uid);
-      if (!agentAdmin) {
-        return NextResponse.json(
-          { error: "Google sign-in failed. Please try again." },
-          { status: 500 }
-        );
-      }
+    if (existingAdmin) {
+      // Returning account — resolved to WHICH record this sign-in
+      // belongs to (uid binding → internal owner business → earliest),
+      // never just the first row the datastore happens to return.
+      const agentAdmin = existingAdmin;
       if (!emailVerified) {
         // Google sign-in should present a verified email. The ONLY
         // exception is the holder account (owner rule 2026-10-21): a
@@ -171,6 +171,9 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json({
         success: true,
         isNew: false,
+        // Present only on a quota-degraded sign-in (proven resolution
+        // reused while the data store is quota-exhausted).
+        ...(resolved.degraded ? { degraded: true } : {}),
         email,
         name: agentAdmin.name,
       });
@@ -280,6 +283,22 @@ export async function POST(request: NextRequest) {
     logger.warn(
       `[Auth] Google sign-in failed: ${err instanceof Error ? err.message : "unknown"}`
     );
+    // Q-SIGNIN (2026-10-23): a quota-exhausted data store is not a
+    // sign-in failure — answer with the same honest 503 copy as
+    // /api/auth/firebase. This fires when the indispensable resolution
+    // read failed with nothing remembered, or when a NEW account's
+    // creation writes (business + admin + settings + channels — named
+    // indispensable for a first sign-up: an account cannot be
+    // half-created and entered later) could not land.
+    if (isDatastoreQuotaError(err)) {
+      return NextResponse.json(
+        {
+          error:
+            "Sign-in is temporarily unavailable. Please try again later.",
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
       { error: "Google sign-in failed. Please try again." },
       { status: 500 }

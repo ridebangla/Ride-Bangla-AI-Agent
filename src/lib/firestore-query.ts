@@ -294,6 +294,161 @@ export function applyFieldUpdate(current: unknown, update: unknown): unknown {
  * Extract a top-level equality value for `field` from a (possibly
  * AND-nested) where clause. Used to pick Firestore server-side prefilters.
  */
+/**
+ * Pick ONE server-side equality prefilter for a where clause
+ * (Q-SIGNIN read-burn fix, 2026-10-23).
+ *
+ * Returns the first field — top-level, then AND-nested — whose condition
+ * is a plain scalar equality (string / number / boolean, or an
+ * `{ equals: <scalar> }` operator object) with a non-null value, skipping
+ * the fields in `exclude` and any relation-filter / range / pattern
+ * condition. Returns null when nothing is safely prefilterable.
+ *
+ * Safety: the caller still applies the FULL where in memory afterwards,
+ * so a prefilter can only ever narrow the server result to a superset of
+ * the true matches — never change the result set. Null is excluded
+ * because Firestore `== null` does not match docs where the field is
+ * absent, while the in-memory matcher treats absent as null.
+ */
+export function pickEqualityPrefilter(
+  where: Where,
+  exclude: string[]
+): { field: string; value: string | number | boolean } | null {
+  if (!where) return null;
+  for (const key of Object.keys(where)) {
+    if (key === "AND" || key === "OR" || key === "NOT") continue;
+    if (exclude.includes(key)) continue;
+    const v = extractEquality(where, key);
+    if (
+      (typeof v === "string" && v !== "") ||
+      typeof v === "number" ||
+      typeof v === "boolean"
+    ) {
+      return { field: key, value: v };
+    }
+  }
+  const and = where.AND;
+  if (and) {
+    const parts = (Array.isArray(and) ? and : [and]) as Where[];
+    for (const p of parts) {
+      const hit = pickEqualityPrefilter(p, exclude);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+/**
+ * Fields whose equality values are (near-)unique identifiers — foreign
+ * keys, tokens and public keys (Q-QUOTA read-burn fix, 2026-10-23).
+ * An equality on one of these is orders of magnitude more selective
+ * than the tenant's `businessId`, so when a where carries one it should
+ * be the ONE server-side prefilter instead of businessId (the full
+ * where, businessId included, is still applied in memory afterwards,
+ * so results are identical — only billed reads change). Enum/boolean
+ * fields (status, channel, isActive, …) are deliberately NOT in this
+ * list: they match a large share of every tenant's rows and would make
+ * the prefilter WORSE than businessId.
+ */
+export const SELECTIVE_PREFILTER_FIELDS: readonly string[] = [
+  "activityToken",
+  "siteKey",
+  "keyHash",
+  "jti",
+  "email",
+  "slug",
+  "uid",
+  "conversationId",
+  "categoryId",
+  "customerId",
+  "tagId",
+  "departmentId",
+  "assignedToId",
+  "webhookId",
+  "scanId",
+  "site",
+];
+
+/**
+ * Pick the most selective equality prefilter in a where clause: the
+ * first SELECTIVE_PREFILTER_FIELDS field (priority order above) that
+ * carries a plain scalar equality, top-level or AND-nested. Returns
+ * null when the where has no selective equality.
+ */
+export function pickSelectivePrefilter(
+  where: Where
+): { field: string; value: string | number | boolean } | null {
+  if (!where) return null;
+  for (const field of SELECTIVE_PREFILTER_FIELDS) {
+    const v = extractEquality(where, field);
+    if (
+      (typeof v === "string" && v !== "") ||
+      typeof v === "number" ||
+      typeof v === "boolean"
+    ) {
+      return { field, value: v };
+    }
+  }
+  return null;
+}
+
+/**
+ * Flatten a where clause into its equality conditions, or return null
+ * when ANY condition is not a plain scalar equality (range / pattern /
+ * `in` / OR / NOT / relation filter / null equality / insensitive
+ * equals). Used to decide when a query's ENTIRE filter can be pushed
+ * server-side (count aggregation, server order+limit): in that case —
+ * and only that case — server-side counting/limiting is exactly the
+ * in-memory result.
+ */
+export function flattenEqualityConditions(
+  where: Where
+): Array<{ field: string; value: string | number | boolean }> | null {
+  if (!where) return [];
+  const out: Array<{ field: string; value: string | number | boolean }> = [];
+  for (const [key, cond] of Object.entries(where)) {
+    if (key === "AND") {
+      const parts = (Array.isArray(cond) ? cond : [cond]) as Where[];
+      for (const p of parts) {
+        const sub = flattenEqualityConditions(p);
+        if (sub === null) return null;
+        out.push(...sub);
+      }
+      continue;
+    }
+    if (key === "OR" || key === "NOT") return null;
+    if (cond === undefined) continue;
+    if (isOperatorObject(cond)) {
+      const ops = cond as Record<string, unknown>;
+      // Only a bare `{ equals: <scalar> }` (no mode / extra operators).
+      if (
+        Object.keys(ops).length === 1 &&
+        "equals" in ops &&
+        ((typeof ops.equals === "string" && ops.equals !== "") ||
+          typeof ops.equals === "number" ||
+          typeof ops.equals === "boolean")
+      ) {
+        out.push({
+          field: key,
+          value: ops.equals as string | number | boolean,
+        });
+        continue;
+      }
+      return null;
+    }
+    if (
+      (typeof cond === "string" && cond !== "") ||
+      typeof cond === "number" ||
+      typeof cond === "boolean"
+    ) {
+      out.push({ field: key, value: cond });
+      continue;
+    }
+    return null;
+  }
+  return out;
+}
+
 export function extractEquality(where: Where, field: string): unknown {
   if (!where) return undefined;
   if (

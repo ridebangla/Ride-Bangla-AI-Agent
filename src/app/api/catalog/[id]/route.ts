@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma, runWithBusiness } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
+import { invalidateCatalogBrief } from "@/lib/catalog";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -20,6 +21,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       delete body.businessId;
 
       if (kind === "category") {
+        invalidateCatalogBrief(auth.businessId);
         const updated = await prisma.productCategory.update({
           where: { id },
           data: {
@@ -27,6 +29,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
             ...(body.description !== undefined && { description: String(body.description) }),
           },
         });
+        invalidateCatalogBrief(auth.businessId);
         return NextResponse.json(updated);
       }
 
@@ -58,7 +61,9 @@ export async function PUT(request: NextRequest, context: RouteContext) {
             data.categoryId = null;
           }
         }
+        invalidateCatalogBrief(auth.businessId);
         const updated = await prisma.product.update({ where: { id }, data });
+        invalidateCatalogBrief(auth.businessId);
         return NextResponse.json(updated);
       }
 
@@ -84,11 +89,13 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       const { id } = await context.params;
       const kind = request.nextUrl.searchParams.get("kind");
 
+      invalidateCatalogBrief(auth.businessId);
       if (kind === "category") {
         await prisma.productCategory.delete({ where: { id } });
       } else {
         await prisma.product.delete({ where: { id } });
       }
+      invalidateCatalogBrief(auth.businessId);
       return NextResponse.json({ success: true });
     } catch (error) {
       logger.error("Failed to delete catalog entry:", error);

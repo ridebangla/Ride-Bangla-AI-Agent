@@ -47,6 +47,14 @@ vi.mock("@/lib/ai/engine", () => ({
     // error escaping the engine mid-turn.
     throw new Error("8 RESOURCE_EXHAUSTED: Quota exceeded.");
   }),
+  // AI-perfection FIX-A: the route's failure catch consults the
+  // greeting helpers; every message in this suite is substantive
+  // (not a pure greeting), so the detector stub answers false and
+  // the graceful-text expectations below are unchanged. The FIX-A
+  // greeting branch itself is covered with the REAL helpers in
+  // tests/unit/widget-data-layer-degradation.test.ts.
+  isPureGreeting: vi.fn(() => false),
+  buildGreetingReply: vi.fn(() => ""),
 }));
 
 vi.mock("@/lib/ai/activity", () => ({

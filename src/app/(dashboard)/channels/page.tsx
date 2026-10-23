@@ -961,10 +961,32 @@ function PhoneCard({
 // Website widget card — shows the public site key + embed snippet.
 // ---------------------------------------------------------------------------
 
-function WidgetCard({ siteKey }: { siteKey: string | null }) {
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function WidgetCard({
+  siteKey,
+  businessName,
+}: {
+  siteKey: string | null;
+  businessName: string | null;
+}) {
   const [copied, setCopied] = useState(false);
+  // Tenant identity isolation (2026-10-23): without data-title the
+  // embed falls back to its platform default header ("Ride Bangla
+  // AI Agent") — a tenant's customers would see OUR name on THEIR
+  // shop's agent. The snippet therefore carries the business's own
+  // name whenever it is known.
+  const titleAttr = businessName
+    ? `\n  data-title="${escapeHtmlAttr(businessName)}"`
+    : "";
   const snippet = siteKey
-    ? `<script src="${typeof window !== "undefined" ? window.location.origin : ""}/widget/ride-bangla-chat.js"\n  data-site-key="${siteKey}"\n  data-visitor-id="VISITOR_ID">\n</script>`
+    ? `<script src="${typeof window !== "undefined" ? window.location.origin : ""}/widget/ride-bangla-chat.js"\n  data-site-key="${siteKey}"${titleAttr}\n  data-visitor-id="VISITOR_ID">\n</script>`
     : "";
 
   const copy = async () => {
@@ -1488,6 +1510,7 @@ export default function ChannelsPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [siteKey, setSiteKey] = useState<string | null>(null);
+  const [businessName, setBusinessName] = useState<string | null>(null);
   const [connectStatus, setConnectStatus] = useState<ConnectStatus | null>(null);
   const [toast, setToast] = useState<{
     message: string;
@@ -1541,6 +1564,12 @@ export default function ChannelsPage() {
       .then((data) => {
         if (data?.business?.siteKey) {
           setSiteKey(data.business.siteKey);
+          // Tenant identity isolation (2026-10-23): the install
+          // snippet below carries the business's own name as the
+          // widget's data-title, so a tenant's customers see the
+          // TENANT's name in the widget header — never the
+          // platform default ("Ride Bangla AI Agent").
+          if (data.business.name) setBusinessName(data.business.name);
           return undefined;
         }
         return fetch("/api/businesses")
@@ -1548,6 +1577,7 @@ export default function ChannelsPage() {
           .then((list) => {
             const first = list?.businesses?.[0];
             if (first?.siteKey) setSiteKey(first.siteKey);
+            if (first?.name) setBusinessName(first.name);
           });
       })
       .catch(() => {});
@@ -1664,7 +1694,7 @@ export default function ChannelsPage() {
               onAction={handleAction}
               saving={saving}
             />
-            <WidgetCard siteKey={siteKey} />
+            <WidgetCard siteKey={siteKey} businessName={businessName} />
             {/* Phase 5: social connect cards */}
             <MetaCard status={connectStatus?.meta || null} onToast={showToast} />
             <WhatsAppCloudCard status={connectStatus?.whatsappCloud || null} />

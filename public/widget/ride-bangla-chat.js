@@ -1,6 +1,46 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-22.11 (composer fix
+ * CANONICAL EMBED — v2026-10-23.3 (quota polling diet
+ * 2026-10-23: the thread sync no longer polls at a fixed 4 s for as
+ * long as the panel is open. It syncs immediately on open, then
+ * backs off while nothing new arrives (5 s → 8 s → … → 30 s cap),
+ * resets to fast cadence the moment a new remote message lands or
+ * a local turn settles, and pauses entirely while the tab is
+ * hidden (an immediate sync runs on return to visible). The
+ * activity poll (only ever while a turn is in flight) relaxes
+ * 1.2 s → 2 s; server-side each poll is now a cached siteKey
+ * resolution + a single conversation doc read. The SEND path is
+ * untouched: the visitor's message, the typing indicator and
+ * typing-until-first-token behave exactly as before.)
+ * Prior: v2026-10-23.2 (draggable launcher
+ * 2026-10-23: the floating bubble can be MOVED BY HAND — the
+ * owner ordered it because the bubble often covers a page's
+ * bottom submit button and could not be moved out of the way.
+ * Pointer-events drag (touch + mouse) on the launcher; a tap
+ * still opens the panel (movement threshold separates tap from
+ * drag, and the click a real drag produces is swallowed). The
+ * dragged position persists for the session (sessionStorage)
+ * and is clamped inside the viewport on drag, restore and
+ * resize/orientation change. When the panel opens from a moved
+ * position it anchors to the bubble: it opens below the bubble
+ * when there is no room above, and the whole open widget is
+ * shift-clamped fully on-screen. touch-action:none on the
+ * launcher keeps the host page from scroll-janking mid-drag.
+ * Inline mode never drags. Voice, videos and composer
+ * behaviour unchanged.)
+ * Prior: v2026-10-23.1 (female-voice hardening
+ * 2026-10-23: the read-aloud voice is ALWAYS female (owner
+ * correction — সবসময়ই মেয়ে কন্ঠে). The picker no longer
+ * falls back to the browser's language default (male or robotic
+ * on many devices): pass 1 identifiable female at pitch 1.0;
+ * pass 2 first not-identifiably-male voice for the language at
+ * raised pitch 1.1; pass 3 (last resort) an identifiable-male
+ * voice only at pitch 1.25; an empty voice list gets ONE short
+ * (<=350ms) retry, then speaks with lang + pitch 1.1. Female /
+ * male name lists extended from platform voice catalogues.
+ * Tap-to-speak only, click-again-to-stop, sentence queueing and
+ * every other behaviour unchanged.)
+ * Prior: v2026-10-22.11 (composer fix
  * 2026-10-22: the empty message box could open as a HUGE tall
  * slab (owner screenshot, Tools site). Root causes, all in the
  * composer: (1) NO sizing ever ran on panel open, so whatever
@@ -313,6 +353,17 @@
   var widgetContainer = null;
   var inlineActive = false;
 
+  // ---- Draggable launcher (v2026-10-23.2) ----
+  // bubblePos = the visitor-chosen position of the (closed) widget
+  // container's top-left corner, or null while the widget sits at its
+  // default corner. preOpenPos = the position to restore when the
+  // panel closes after an open-time shift (see anchorPanelToBubble).
+  var bubblePos = null;
+  var preOpenPos = null;
+  var dragState = null;
+  var suppressLauncherClick = false;
+  var BUBBLE_POS_KEY = "rbai-bubble-pos:" + (config.siteKey || "default");
+
   // ---- Thread identity (session-scoped) ----
   // The visitor id and the platform conversation id persist in
   // sessionStorage (per site key), so the thread survives panel closes
@@ -346,6 +397,14 @@
   var pendingEcho = [];
   var threadTimer = null;
   var threadSyncedOnce = false;
+  // Adaptive thread-sync cadence (v2026-10-23.3, quota diet): fast
+  // just after open / a turn / a new remote message, backing off
+  // while idle to the cap; paused while the tab is hidden.
+  var THREAD_SYNC_FAST_MS = 5000;
+  var THREAD_SYNC_MAX_MS = 30000;
+  var threadDelayMs = THREAD_SYNC_FAST_MS;
+  var threadSyncActive = false;
+  var threadRenderedCount = 0;
   var isPaused = false;
 
   // Live-activity caption channel: one random token per page session,
@@ -647,6 +706,12 @@
       #rbai-widget-btn{overflow:hidden;padding:0}\n\.rbai-avatarwrap{position:relative;display:block;overflow:hidden;background:#fff}\n\#rbai-widget-btn .rbai-avatarwrap{width:56px;height:56px;border-radius:50%}\n\#rbai-widget-header .rbai-avatarwrap{width:36px;height:36px;border-radius:50%;margin-right:10px;flex:none}\n\.rbai-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;pointer-events:none}\n\.rbai-vid.active{display:block}\n\.rbai-avatar-fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}\n\.rbai-avatarwrap.novid .rbai-avatar-fallback{display:block}\n\.rbai-avatarwrap.novid .rbai-vid{display:none!important}\n\#rbai-widget-headwrap{display:flex;align-items:center}\n\
       #rbai-widget-panel{display:none;width:370px;max-width:calc(100vw - 40px);height:520px;max-height:calc(100vh - 100px);background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.12);margin-bottom:12px;overflow:hidden;flex-direction:column}\n\
       #rbai-widget-panel.open{display:flex}\n\
+      #rbai-widget-btn{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}\n\
+      #rbai-widget-container.rbai-dragging{transition:none!important}\n\
+      #rbai-widget-container.rbai-dragging #rbai-widget-btn{cursor:grabbing;transform:none}\n\
+      #rbai-widget-container.rbai-panel-below{display:flex;flex-direction:column;align-items:flex-start}\n\
+      #rbai-widget-container.rbai-panel-below #rbai-widget-btn{order:1;flex:none}\n\
+      #rbai-widget-container.rbai-panel-below #rbai-widget-panel{order:2;margin-bottom:0;margin-top:12px}\n\
       #rbai-widget-container.rbai-inline{position:relative;bottom:auto;left:auto;right:auto;z-index:1;width:100%}\n\
       #rbai-widget-container.rbai-inline #rbai-widget-panel{width:100%;max-width:100%;height:560px;max-height:640px;margin-bottom:0}\n\
       #rbai-widget-container.rbai-inline #rbai-widget-btn{display:none}\n\
@@ -759,7 +824,17 @@
     setTimeout(kickActiveVideos, 4000);
 
     var launcherBtn = document.getElementById("rbai-widget-btn");
-    if (launcherBtn) launcherBtn.onclick = toggleWidget;
+    if (launcherBtn)
+      launcherBtn.onclick = function () {
+        // A click that trails a real drag belongs to the drag
+        // (v2026-10-23.2): swallow it; a plain tap toggles as before.
+        if (suppressLauncherClick) {
+          suppressLauncherClick = false;
+          return;
+        }
+        toggleWidget();
+      };
+    initBubbleDrag();
     document.getElementById("rbai-widget-close").onclick = toggleWidget;
     document.getElementById("rbai-widget-send").onclick = sendMessage;
     var composeBox = document.getElementById("rbai-widget-text");
@@ -1117,10 +1192,189 @@
     }
   }
 
+  // ---- Draggable launcher implementation (v2026-10-23.2) ----
+  // The visitor can drag the floating bubble anywhere on the page
+  // (owner order 2026-10-23: the bubble often covers a page's bottom
+  // submit button and could not be moved out of the way). Pointer
+  // events only; a movement threshold separates a tap (opens the
+  // panel, unchanged) from a drag (moves the widget; the click the
+  // drag produces is swallowed exactly once). The position persists
+  // for the tab session and is always clamped inside the viewport.
+
+  function applyBubblePos(left, top, save) {
+    var c = widgetContainer;
+    if (!c) return;
+    var rect = c.getBoundingClientRect();
+    var vw = window.innerWidth || 0;
+    var vh = window.innerHeight || 0;
+    var maxL = Math.max(8, vw - rect.width - 8);
+    var maxT = Math.max(8, vh - rect.height - 8);
+    left = Math.min(Math.max(8, left), maxL);
+    top = Math.min(Math.max(8, top), maxT);
+    c.style.left = left + "px";
+    c.style.top = top + "px";
+    c.style.right = "auto";
+    c.style.bottom = "auto";
+    bubblePos = { left: left, top: top };
+    if (save) {
+      try {
+        window.sessionStorage.setItem(BUBBLE_POS_KEY, JSON.stringify(bubblePos));
+      } catch (e) {}
+    }
+  }
+
+  function restoreBubblePos() {
+    var raw = null;
+    try {
+      raw = window.sessionStorage.getItem(BUBBLE_POS_KEY);
+    } catch (e) {}
+    if (!raw) return;
+    try {
+      var p = JSON.parse(raw);
+      if (p && isFinite(p.left) && isFinite(p.top)) {
+        applyBubblePos(Number(p.left), Number(p.top), false);
+      }
+    } catch (e) {}
+  }
+
+  function clearBubbleInlinePos() {
+    var c = widgetContainer;
+    if (!c) return;
+    c.style.left = "";
+    c.style.top = "";
+    c.style.right = "";
+    c.style.bottom = "";
+    c.classList.remove("rbai-panel-below");
+  }
+
+  // Panel anchoring for a moved bubble. The open box (panel + gap +
+  // button) is the same total height in both arrangements; only the
+  // button's strip inside it changes. Dropped in the top half → the
+  // panel opens BELOW the button, so the button stays exactly where
+  // it was dropped. Dropped in the bottom half → default arrangement
+  // (panel above the button). Either way the whole open box is then
+  // shift-clamped fully inside the viewport; the pre-open position
+  // is remembered so closing restores the visitor's chosen spot.
+  function anchorPanelToBubble() {
+    if (!bubblePos || !widgetContainer) return;
+    var vh = window.innerHeight || 0;
+    var useBelow = bubblePos.top + 28 <= Math.floor(vh / 2);
+    widgetContainer.classList.toggle("rbai-panel-below", useBelow);
+    clampContainerIntoView(true);
+  }
+
+  function clampContainerIntoView(save) {
+    if (!bubblePos || !widgetContainer) return;
+    var rect = widgetContainer.getBoundingClientRect();
+    var vw = window.innerWidth || 0;
+    var vh = window.innerHeight || 0;
+    var dx = 0;
+    var dy = 0;
+    if (rect.top < 8) dy = 8 - rect.top;
+    else if (rect.bottom > vh - 8) dy = vh - 8 - rect.bottom;
+    if (rect.left < 8) dx = 8 - rect.left;
+    else if (rect.right > vw - 8) dx = vw - 8 - rect.right;
+    if (dx || dy) applyBubblePos(bubblePos.left + dx, bubblePos.top + dy, save);
+  }
+
+  function onBubblePointerMove(e) {
+    if (!dragState || e.pointerId !== dragState.id) return;
+    var dx = e.clientX - dragState.sx;
+    var dy = e.clientY - dragState.sy;
+    if (!dragState.moved) {
+      // Tap/drag threshold: small jitter is still a tap.
+      if (Math.abs(dx) + Math.abs(dy) < 7) return;
+      dragState.moved = true;
+      if (widgetContainer) widgetContainer.classList.add("rbai-dragging");
+    }
+    applyBubblePos(dragState.left + dx, dragState.top + dy, false);
+  }
+
+  function onBubblePointerUp(e) {
+    if (!dragState || e.pointerId !== dragState.id) return;
+    var btn = document.getElementById("rbai-widget-btn");
+    var wasDrag = dragState.moved;
+    dragState = null;
+    if (btn) {
+      btn.removeEventListener("pointermove", onBubblePointerMove);
+      btn.removeEventListener("pointerup", onBubblePointerUp);
+      btn.removeEventListener("pointercancel", onBubblePointerUp);
+    }
+    if (widgetContainer) widgetContainer.classList.remove("rbai-dragging");
+    if (wasDrag) {
+      // The pointerup is followed by a click on the launcher: that
+      // click belongs to the drag, not to a tap — swallow it once.
+      suppressLauncherClick = true;
+      setTimeout(function () {
+        suppressLauncherClick = false;
+      }, 400);
+      // A deliberate move while open replaces the pre-open restore
+      // point; the dragged position is the position now.
+      preOpenPos = null;
+      if (bubblePos) applyBubblePos(bubblePos.left, bubblePos.top, true);
+      if (isOpen) anchorPanelToBubble();
+    }
+  }
+
+  function onBubblePointerDown(e) {
+    if (inlineActive || !widgetContainer) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    var btn = document.getElementById("rbai-widget-btn");
+    if (!btn) return;
+    var rect = widgetContainer.getBoundingClientRect();
+    dragState = {
+      id: e.pointerId,
+      sx: e.clientX,
+      sy: e.clientY,
+      left: rect.left,
+      top: rect.top,
+      moved: false,
+    };
+    try {
+      btn.setPointerCapture(e.pointerId);
+    } catch (err) {}
+    btn.addEventListener("pointermove", onBubblePointerMove);
+    btn.addEventListener("pointerup", onBubblePointerUp);
+    btn.addEventListener("pointercancel", onBubblePointerUp);
+  }
+
+  function initBubbleDrag() {
+    var btn = document.getElementById("rbai-widget-btn");
+    if (!btn) return;
+    restoreBubblePos();
+    if (!btn.addEventListener) return;
+    btn.addEventListener("pointerdown", onBubblePointerDown);
+    // The launcher holds <img>/<video> children: never let a press
+    // turn into a native image drag instead of a bubble drag.
+    btn.addEventListener("dragstart", function (e) {
+      e.preventDefault();
+    });
+    window.addEventListener("resize", function () {
+      if (!bubblePos || inlineActive) return;
+      // Closed: re-clamp the bubble. Open: re-clamp the whole box.
+      if (isOpen) clampContainerIntoView(true);
+      else applyBubblePos(bubblePos.left, bubblePos.top, true);
+    });
+  }
+
   function toggleWidget() {
     isOpen = !isOpen;
     var panel = document.getElementById("rbai-widget-panel");
     panel.classList.toggle("open", isOpen);
+    // Moved bubble (v2026-10-23.2): anchor the open panel to the
+    // bubble's position; on close, restore the pre-open spot.
+    if (isOpen && bubblePos) {
+      preOpenPos = { left: bubblePos.left, top: bubblePos.top };
+      anchorPanelToBubble();
+    }
+    if (!isOpen) {
+      if (widgetContainer) widgetContainer.classList.remove("rbai-panel-below");
+      if (preOpenPos) {
+        var restorePos = preOpenPos;
+        preOpenPos = null;
+        applyBubblePos(restorePos.left, restorePos.top, true);
+      }
+    }
     // First open: lazily fetch the working clip (never on host-page load).
     if (isOpen) ensureWorkingVideo();
     if (isOpen) {
@@ -1205,26 +1459,84 @@
     }
   }
 
-  // ---- Female voice selection (voice/video round 2026-10-22) ----
-  // A spoken reply must sound like a person, not the device
-  // default (male or robotic on many phones). Per reply, the
-  // picker takes the first voice that (a) speaks the REPLY'S
-  // language and (b) carries a known female name. The list is
+  // ---- Female voice selection (voice/video round 2026-10-22; ----
+  // ---- hardened v2026-10-23.1, owner correction 2026-10-23) ----
+  // OWNER RULE (firm): a spoken reply must ALWAYS be a female
+  // voice — "সবসময়ই মেয়ে কন্ঠে কথা বলবে". The 2026-10-22 picker
+  // returned null whenever no voice carried a known female NAME,
+  // and speakReply then set only u.lang, so the BROWSER'S LANGUAGE
+  // DEFAULT spoke — male or robotic on many devices. That silent
+  // default was the main male-slip path; two more: an empty voice
+  // list at first click (browsers load voices asynchronously) hit
+  // the same default, and unlabelled same-language voices (most
+  // Bengali bn-BD/bn-IN voices carry no gendered name) were
+  // skipped even when they were the platform's female voice.
+  // The picker therefore NEVER leaves the choice to the browser
+  // default any more:
+  //   Pass 1 — a voice for the REPLY'S language whose name is
+  //     identifiably FEMALE (list below) -> pitch 1.0.
+  //   Pass 2 — no identifiable female: the first voice for the
+  //     language that is NOT identifiably male (unlabelled
+  //     platform voices) -> pitch 1.1 (a slightly raised,
+  //     feminizing nudge inside the 1.05-1.15 band).
+  //   Pass 3 — LAST RESORT: only identifiably-male voices exist
+  //     for the language -> the first of them at pitch 1.25
+  //     (raised, inside the 1.2-1.3 band) rather than silently
+  //     accepting the browser default at pitch 1.0.
+  //   No voice object at all (empty list, or none for the
+  //     language): the utterance still carries its lang AND
+  //     pitch 1.1 — never pitch 1.0, and a pitch is NEVER
+  //     lowered anywhere in this picker.
+  // A name is always tested FEMALE first: an identifiably-female
+  // name can never be reclassified male ("female" itself
+  // contains "male"; "Danielle" contains "Daniel"; "Alexandra"
+  // contains "Alex"; "Samantha" contains "Sam"). The male test
+  // additionally uses a word-boundary match for "male" so a
+  // "... Female" voice is never caught by it. The list is
   // cached and refreshed on voiceschanged AND re-read at every
-  // speak, because browsers load voices asynchronously — a
-  // first click must never wait for the list or stay silent:
-  // with no female voice (yet, or ever, on this device) the
-  // utterance simply carries its lang and the browser's own
-  // default for that language speaks. Bengali voices are
-  // scarce and rarely carry a gendered name, so a bn voice is
-  // picked only when its name matches; otherwise the same
-  // language-default fallback applies.
+  // speak; an empty list at speak time gets ONE short retry
+  // (speakReply, <=350ms) — a first click never waits longer
+  // and never stays silent.
   var FEMALE_VOICE_NAME_PARTS = [
     "zira", "jenny", "aria", "samantha", "google us english",
     "karen", "moira", "tessa", "fiona", "veena", "serena",
     "allison", "ava", "susan", "heera", "aditi", "raveena",
     "lekha", "female",
+    // v2026-10-23.1 additions (platform voice catalogues —
+    // Microsoft Azure / Windows, Apple, Google — see task log):
+    "neerja", "swara", "kalpana", "sonia", "libby", "mia",
+    "maisie", "emma", "michelle", "hazel", "catherine",
+    "natasha", "linda", "erica", "danielle", "alexandra",
+    "kanya", "tanisha", "nabanita",
   ];
+  // Identifiably-MALE voice names (kept SEPARATE from the female
+  // list). Pass 2 skips these; pass 3 uses one only as the last
+  // resort, at raised pitch.
+  var MALE_VOICE_NAME_PARTS = [
+    "david", "daniel", "guy", "christopher", "ryan", "mark",
+    "alex", "fred", "george", "arthur", "madhur", "hemant",
+    "ravi", "james", "richard", "sean", "stefan", "thomas",
+    "william", "prabhat", "sameer", "bashkar", "pradeep",
+    "davis", "andrew", "brian", "jason", "tony", "eric",
+    "diego", "enrique", "jorge", "mathieu",
+    "yunyang", "yunjian", "yunye",
+  ];
+  function voiceNameHas(name, parts) {
+    for (var i = 0; i < parts.length; i++) {
+      if (name.indexOf(parts[i]) >= 0) return true;
+    }
+    return false;
+  }
+  function isFemaleVoiceName(name) {
+    return voiceNameHas(name, FEMALE_VOICE_NAME_PARTS);
+  }
+  function isMaleVoiceName(name) {
+    // Female wins every tie (see the note above): a name that
+    // reads female is never male, whatever else it contains.
+    if (isFemaleVoiceName(name)) return false;
+    if (/\bmale\b/.test(name)) return true;
+    return voiceNameHas(name, MALE_VOICE_NAME_PARTS);
+  }
   var cachedVoices = [];
   function refreshVoices() {
     if (!speechSupported()) return;
@@ -1244,20 +1556,33 @@
       }
     } catch (e) {}
   }
-  function pickFemaleVoice(langTag) {
+  // Returns { voice, pitch }: voice is null only when no voice
+  // object can serve the language at all (empty list, or no
+  // voice for it) — the caller still sets lang + pitch 1.1.
+  function pickVoiceForLang(langTag) {
     refreshVoices();
     var lang = String(langTag || "").toLowerCase().split("-")[0];
-    if (!lang || !cachedVoices.length) return null;
+    if (!lang || !cachedVoices.length) return { voice: null, pitch: 1.1 };
+    var firstUnlabelled = null;
+    var firstMale = null;
     for (var i = 0; i < cachedVoices.length; i++) {
       var v = cachedVoices[i];
       var vLang = String(v.lang || "").toLowerCase();
       if (vLang.indexOf(lang) !== 0) continue;
       var name = String(v.name || "").toLowerCase();
-      for (var j = 0; j < FEMALE_VOICE_NAME_PARTS.length; j++) {
-        if (name.indexOf(FEMALE_VOICE_NAME_PARTS[j]) >= 0) return v;
+      if (isFemaleVoiceName(name)) return { voice: v, pitch: 1.0 };
+      if (isMaleVoiceName(name)) {
+        if (!firstMale) firstMale = v;
+        continue;
       }
+      if (!firstUnlabelled) firstUnlabelled = v;
     }
-    return null;
+    if (firstUnlabelled) return { voice: firstUnlabelled, pitch: 1.1 };
+    // Last resort (pass 3): only identifiable-male voices exist
+    // for this language — use the first at raised pitch 1.25
+    // rather than the browser default at pitch 1.0.
+    if (firstMale) return { voice: firstMale, pitch: 1.25 };
+    return { voice: null, pitch: 1.1 };
   }
 
   function speakReply(text, btn) {
@@ -1268,7 +1593,6 @@
     }
     stopSpeaking();
     var lang = detectTextLang(text) === "bn" ? "bn-BD" : "en-US";
-    var femaleVoice = pickFemaleVoice(lang);
     // Queue sentence by sentence: mobile Chrome silently truncates
     // single very long utterances.
     var parts =
@@ -1283,16 +1607,59 @@
     btn.title = t("stopListening");
     btn.setAttribute("aria-label", t("stopListening"));
     var last = queue.length - 1;
-    queue.forEach(function (part, i) {
-      var u = new SpeechSynthesisUtterance(part);
-      u.lang = lang;
-      if (femaleVoice) u.voice = femaleVoice;
-      if (i === last) {
-        u.onend = function () { if (speakingBtn === btn) stopSpeaking(); };
-        u.onerror = function () { if (speakingBtn === btn) stopSpeaking(); };
+    function doSpeak() {
+      // Stopped (or superseded) while waiting for voices: the
+      // pending speak must not fire after the user stopped it.
+      if (speakingBtn !== btn) return;
+      var pick = pickVoiceForLang(lang);
+      queue.forEach(function (part, i) {
+        var u = new SpeechSynthesisUtterance(part);
+        u.lang = lang;
+        u.pitch = pick.pitch;
+        if (pick.voice) u.voice = pick.voice;
+        if (i === last) {
+          u.onend = function () { if (speakingBtn === btn) stopSpeaking(); };
+          u.onerror = function () { if (speakingBtn === btn) stopSpeaking(); };
+        }
+        window.speechSynthesis.speak(u);
+      });
+    }
+    refreshVoices();
+    if (cachedVoices.length) { doSpeak(); return; }
+    // Empty list at speak time: browsers load voices
+    // asynchronously, so wait ONCE, briefly — a voiceschanged
+    // fast-path plus a 50ms poll, with a hard ~350ms cap — then
+    // speak regardless (lang + raised pitch, no voice object).
+    // Never blocked, never silent, never a noticeable delay.
+    // fireOnce guarantees exactly one speak however the wait
+    // resolves, and doSpeak's own guard drops it entirely if
+    // the user stopped playback while waiting.
+    var fired = false;
+    var waitTimer = null;
+    var pollTimer = null;
+    function fireOnce() {
+      if (fired) return;
+      fired = true;
+      if (pollTimer) clearInterval(pollTimer);
+      if (waitTimer) clearTimeout(waitTimer);
+      try {
+        if (typeof window.speechSynthesis.removeEventListener === "function") {
+          window.speechSynthesis.removeEventListener("voiceschanged", onVoicesReady);
+        }
+      } catch (e) {}
+      doSpeak();
+    }
+    function onVoicesReady() {
+      refreshVoices();
+      if (cachedVoices.length) fireOnce();
+    }
+    try {
+      if (typeof window.speechSynthesis.addEventListener === "function") {
+        window.speechSynthesis.addEventListener("voiceschanged", onVoicesReady);
       }
-      window.speechSynthesis.speak(u);
-    });
+    } catch (e) {}
+    pollTimer = setInterval(onVoicesReady, 50);
+    waitTimer = setTimeout(fireOnce, 350);
   }
 
   function attachSpeakButton(msgEl, text) {
@@ -1467,7 +1834,10 @@
   function startActivityPolling() {
     if (activityTimer) return;
     pollActivity();
-    activityTimer = setInterval(pollActivity, 1200);
+    // 2 s cadence (was 1.2 s): the caption still tracks the turn
+    // closely, and each poll is now a single-doc read server-side.
+    // Polling still runs ONLY while a request is in flight.
+    activityTimer = setInterval(pollActivity, 2000);
   }
 
   function stopActivityPolling() {
@@ -1486,12 +1856,14 @@
   // rendered on the first sync of a restored conversation (history);
   // during live polling they are this tab's own echoes.
   function syncThread() {
-    if (!conversationId || !config.siteKey || !config.visitorId) return;
+    if (!conversationId || !config.siteKey || !config.visitorId) {
+      return Promise.resolve();
+    }
     var q =
       "siteKey=" + encodeURIComponent(config.siteKey) +
       "&conversationId=" + encodeURIComponent(conversationId) +
       "&visitorId=" + encodeURIComponent(config.visitorId);
-    fetch(config.server + "/api/chat/thread?" + q)
+    return fetch(config.server + "/api/chat/thread?" + q)
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (data) {
         if (!data || !data.messages) return;
@@ -1533,23 +1905,109 @@
             if (threadLang) setUiLang(threadLang);
           }
           var renderedMsg = addMessage(m.content, m.role === "customer" ? "user" : "bot");
+          threadRenderedCount++;
           if (m.role !== "customer") attachSpeakButton(renderedMsg, m.content);
         });
       })
       .catch(function () {});
   }
 
+  // Adaptive scheduler (v2026-10-23.3): a timeout chain instead of a
+  // fixed interval. Each completed sync re-arms the next one — fast
+  // when something just rendered, backing off ×1.6 while idle up to
+  // the 30 s cap. Hidden tabs do not poll at all: the timer is
+  // cleared on hide and an immediate sync runs on show (see the
+  // visibilitychange hook below). Panel open/close still starts and
+  // stops the whole loop via startThreadSync/stopThreadSync.
+  function scheduleThreadSync() {
+    if (!threadSyncActive) return;
+    if (threadTimer) clearTimeout(threadTimer);
+    threadTimer = setTimeout(runThreadSyncTick, threadDelayMs);
+  }
+
+  function runThreadSyncTick() {
+    threadTimer = null;
+    if (!threadSyncActive) return;
+    if (typeof document !== "undefined" && document.hidden) {
+      // Paused while hidden; visibilitychange re-arms on return.
+      return;
+    }
+    var before = threadRenderedCount;
+    syncThread().then(function () {
+      if (!threadSyncActive) return;
+      if (threadRenderedCount > before) {
+        // A human reply (or restored history) just landed — stay
+        // fast, the conversation is live right now.
+        threadDelayMs = THREAD_SYNC_FAST_MS;
+      } else {
+        threadDelayMs = Math.min(
+          THREAD_SYNC_MAX_MS,
+          Math.round(threadDelayMs * 1.6)
+        );
+      }
+      scheduleThreadSync();
+    });
+  }
+
   function startThreadSync() {
-    if (threadTimer) return;
-    syncThread();
-    threadTimer = setInterval(syncThread, 4000);
+    if (threadSyncActive) return;
+    threadSyncActive = true;
+    threadDelayMs = THREAD_SYNC_FAST_MS;
+    // Immediate sync on open (unchanged behaviour), then the
+    // adaptive chain takes over.
+    var before = threadRenderedCount;
+    syncThread().then(function () {
+      if (threadRenderedCount > before) {
+        threadDelayMs = THREAD_SYNC_FAST_MS;
+      }
+      scheduleThreadSync();
+    });
   }
 
   function stopThreadSync() {
+    threadSyncActive = false;
     if (threadTimer) {
-      clearInterval(threadTimer);
+      clearTimeout(threadTimer);
       threadTimer = null;
     }
+  }
+
+  // A settled local turn is the moment a handoff state change (or a
+  // human's fast reply) is most likely: sync once immediately and
+  // return to the fast cadence. Called from settleRequest only —
+  // the send path itself is never delayed by polling.
+  function pokeThreadSync() {
+    if (!threadSyncActive) return;
+    threadDelayMs = THREAD_SYNC_FAST_MS;
+    var before = threadRenderedCount;
+    syncThread().then(function () {
+      if (threadRenderedCount > before) {
+        threadDelayMs = THREAD_SYNC_FAST_MS;
+      }
+      scheduleThreadSync();
+    });
+  }
+
+  if (typeof document !== "undefined" && document.addEventListener) {
+    document.addEventListener("visibilitychange", function () {
+      if (!threadSyncActive) return;
+      if (document.hidden) {
+        if (threadTimer) {
+          clearTimeout(threadTimer);
+          threadTimer = null;
+        }
+      } else if (isOpen) {
+        // Back in view: catch up at once, fast cadence resumes.
+        threadDelayMs = THREAD_SYNC_FAST_MS;
+        var before = threadRenderedCount;
+        syncThread().then(function () {
+          if (threadRenderedCount > before) {
+            threadDelayMs = THREAD_SYNC_FAST_MS;
+          }
+          scheduleThreadSync();
+        });
+      }
+    });
   }
 
   // ---- Shared API plumbing ----
@@ -1584,6 +2042,7 @@
     if (pendingRequests === 0) {
       setAgentState(succeeded ? "done" : "idle");
       stopActivityPolling();
+      pokeThreadSync();
     }
   }
 
@@ -2190,6 +2649,9 @@
     if (inlineActive && widgetContainer.parentElement === mount) return;
     inlineActive = true;
     widgetContainer.classList.add("rbai-inline");
+    // Inline layout owns the container's position while mounted;
+    // the visitor's dragged spot is remembered, not lost.
+    clearBubbleInlinePos();
     mount.appendChild(widgetContainer);
     openPanelInPlace();
   }
@@ -2201,6 +2663,9 @@
     if (document.body && !document.body.contains(widgetContainer)) {
       document.body.appendChild(widgetContainer);
     }
+    // Back to floating: restore the visitor's dragged spot if any.
+    preOpenPos = null;
+    if (bubblePos) applyBubblePos(bubblePos.left, bubblePos.top, false);
     isOpen = false;
     var panel = document.getElementById("rbai-widget-panel");
     if (panel) panel.classList.remove("open");

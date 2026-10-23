@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { verifySessionToken } from "@/lib/auth";
+import { verifySessionTokenForEntry } from "@/lib/auth";
 import { getUnscopedPrisma } from "@/lib/prisma";
 import { getSubscription } from "@/lib/subscription";
 import { TRIAL_DAYS } from "@/lib/plans";
@@ -58,19 +58,30 @@ export default async function RootPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get("rbai-token")?.value;
   if (token) {
-    const payload = await verifySessionToken(token);
+    // Q-SIGNIN (2026-10-23): entry semantics, same as the dashboard
+    // layout — a data-store failure (quota wall) must not 500 the root
+    // page or strand a signed-in user on the marketing page. The
+    // destination is computed first and redirect() fires outside the
+    // try (redirect throws its own control-flow error).
+    const { payload } = await verifySessionTokenForEntry(token);
     if (payload) {
-      const admin = await getUnscopedPrisma().admin.findUnique({
-        where: { id: payload.userId },
-        select: { businessId: true },
-      });
-      if (admin) {
-        if (admin.businessId) {
-          const sub = await getSubscription(admin.businessId);
-          if (!sub.isActive) redirect("/billing");
+      let destination: "/dashboard" | "/billing" | null = null;
+      try {
+        const admin = await getUnscopedPrisma().admin.findUnique({
+          where: { id: payload.userId },
+          select: { businessId: true },
+        });
+        if (admin) {
+          destination = "/dashboard";
+          if (admin.businessId) {
+            const sub = await getSubscription(admin.businessId);
+            if (!sub.isActive) destination = "/billing";
+          }
         }
-        redirect("/dashboard");
+      } catch {
+        destination = "/dashboard";
       }
+      if (destination) redirect(destination);
     }
   }
   // The reviews section needs the platform's own public siteKey; resolve it
