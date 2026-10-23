@@ -43,9 +43,9 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: SITE_URL + "/agent-avatar.png",
-        width: 1024,
-        height: 1024,
+        url: SITE_URL + "/og-image.png",
+        width: 1200,
+        height: 630,
         alt: "Ride Bangla AI Agent",
       },
     ],
@@ -55,7 +55,7 @@ export const metadata: Metadata = {
     title: "Ride Bangla AI Agent — AI Customer Support & Social Automation SaaS",
     description:
       "AI customer service agent for businesses: instant 24/7 chat support, WhatsApp / Facebook / Instagram / Telegram automation, and a no-code admin dashboard.",
-    images: [SITE_URL + "/agent-avatar.png"],
+    images: [SITE_URL + "/og-image.png"],
   },
   manifest: "/manifest.webmanifest",
     icons: {
