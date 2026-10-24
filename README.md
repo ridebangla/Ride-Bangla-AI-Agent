@@ -14,12 +14,14 @@
 </p>
 
 <p align="center">
-  <img src="docs/ai-agent.png" alt="The Ride Bangla AI Agent mascot at its desk in the Ride Bangla office — “How can I help you today?” — with 24/7, live chat and quick response badges" width="900" />
+  <img src="docs/screenshots/landing-desktop.png" alt="Live landing page at ai.ridebangla.bd, captured 2026-10-23 — “Your AI customer-service agent that never sleeps”, with the platform's own chat widget bubble visible at the bottom right" width="900" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/landing-desktop.png" alt="Live landing page at ai.ridebangla.bd, captured 2026-10-23 — “Your AI customer-service agent that never sleeps”, with the platform's own chat widget bubble visible at the bottom right" width="900" />
+  <img src="docs/demo/ai-live-demo.gif" alt="Live demo — recorded from ai.ridebangla.bd, 24 October 2026: the landing hero, a scroll through the three setup steps and the feature cards, ending with the chat widget opened to its greeting “Hi! How can we help you today?”" width="390" />
 </p>
+
+<p align="center"><sub>Live demo — recorded from the live site at ai.ridebangla.bd on 24 October 2026 (phone viewport): hero → setup steps → features → the chat widget opened to its greeting. No chat message was sent for this recording.</sub></p>
 
 > **Service status:** the platform is live at [ai.ridebangla.bd](https://ai.ridebangla.bd). Live answer capacity is currently being upgraded (data-store quota and AI-provider budget), so the public widget may temporarily return an apology instead of a full answer. Everything below describes the product as it is built and evidenced in this repository — not a roadmap.
 
@@ -43,10 +45,6 @@ Ride Bangla's own business runs on this same platform. Company accounts sit outs
 | **2 · The agent learns** | The platform ingests your sites into a per-business knowledge base (pages, products, prices, hours, policies, FAQs). You can also add and edit knowledge entries directly — edits reach the very next conversation. |
 | **3 · The widget answers customers** | One embed script (`public/widget/ride-bangla-chat.js`) puts the agent on any website. It answers from verified knowledge only, in the customer's language — and when it has no verified fact, it says so instead of inventing one. |
 | **4 · Humans take over when it matters** | Serious problems and “talk to a human” requests become support tickets. Your team replies from the shared inbox, in the same thread the customer is already in. |
-
-<p align="center">
-  <img src="public/agent-avatar.png" alt="The Ride Bangla AI Agent mascot — a white and green support robot wearing a headset, the same artwork the live site uses as its Open Graph image" width="220" />
-</p>
 
 ---
 
