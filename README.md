@@ -14,10 +14,6 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/landing-desktop.png" alt="Live landing page at ai.ridebangla.bd, captured 2026-10-23 — “Your AI customer-service agent that never sleeps”, with the platform's own chat widget bubble visible at the bottom right" width="900" />
-</p>
-
-<p align="center">
   <img src="docs/demo/ai-live-demo.gif" alt="Live demo — recorded from ai.ridebangla.bd, 24 October 2026: the landing hero, a scroll through the three setup steps and the feature cards, ending with the chat widget opened to its greeting “Hi! How can we help you today?”" width="390" />
 </p>
 
@@ -63,23 +59,23 @@ Ride Bangla's own business runs on this same platform. Company accounts sit outs
 - A full knowledge base in the dashboard — entries and categories you control — plus a knowledge test surface to check what the agent will say before customers hear it.
 - **Live website browsing:** when a customer shares a link, the agent fetches and reads that page before answering. Browsed pages are treated as untrusted data behind a prompt fence, and the fetcher refuses private/internal addresses (SSRF-guarded).
 
-![Knowledge base — the dashboard surface where a business manages what its agent knows](docs/screenshots/05-knowledge-base.png)
+<img src="docs/screenshots/05-knowledge-base.png" alt="Knowledge base — the dashboard surface where a business manages what its agent knows" width="820" />
 
 ### One inbox for every channel
 
 - Channels evidenced in this repository: the **website widget, WhatsApp, Facebook Messenger, Instagram, Telegram, email, SMS and phone**, plus social engagement surfaces — all landing in **one conversation inbox with one customer memory** across channels.
 - Webhook signatures are verified and **fail closed** when a channel secret is missing.
 
-![Channels — connect and manage every customer channel from one place](docs/screenshots/12-channels.png)
+<img src="docs/screenshots/12-channels.png" alt="Channels — connect and manage every customer channel from one place" width="820" />
 
-![Conversations — the shared inbox where the agent and your team work side by side](docs/screenshots/03-conversations.png)
+<img src="docs/screenshots/03-conversations.png" alt="Conversations — the shared inbox where the agent and your team work side by side" width="820" />
 
 ### Tickets & human handover
 
 - The agent creates support tickets itself when a conversation needs a human; tickets carry status, priority and SLA rules, and the human continues in the same thread.
 - Canned responses, automation rules, business hours and a team/departments structure keep a real support operation running behind the agent.
 
-![Tickets — agent-created support tickets, worked by humans in the same conversation](docs/screenshots/10-tickets.png)
+<img src="docs/screenshots/10-tickets.png" alt="Tickets — agent-created support tickets, worked by humans in the same conversation" width="820" />
 
 ### Selling, not just answering
 
@@ -93,7 +89,7 @@ Ride Bangla's own business runs on this same platform. Company accounts sit outs
 - **The limit rule:** a finished limit never blocks sign-in. The dashboard opens normally; inside it, a popup says the limit is finished, when it resets, and shows the plans with an **Update your package** path. Only the work stops.
 - **Comp / free grants:** the platform admin can comp any business into free access — per plan, with duration and reason, including feature scoping and a comp-request queue. Ride Bangla's own accounts are permanently outside the limit machinery.
 
-![Dashboard — a tenant workspace home: setup checklist, conversation and ticket totals, recent conversations and channel overview. Note the sidebar carries the tenant's own brand (“Owly”), not Ride Bangla — the white-label identity in action](docs/screenshots/02-dashboard.png)
+<img src="docs/screenshots/02-dashboard.png" alt="Dashboard — a tenant workspace home: setup checklist, conversation and ticket totals, recent conversations and channel overview. Note the sidebar carries the tenant's own brand (“Owly”), not Ride Bangla — the white-label identity in action" width="820" />
 
 ### Language & manners
 
@@ -104,7 +100,7 @@ Ride Bangla's own business runs on this same platform. Company accounts sit outs
 
 - Analytics, an activity log, API keys and API documentation, outbound webhooks with delivery history, data export, and GDPR export/delete for customer records.
 
-![Analytics — conversation and agent performance across channels](docs/screenshots/14-analytics.png)
+<img src="docs/screenshots/14-analytics.png" alt="Analytics — conversation and agent performance across channels" width="820" />
 
 ---
 
@@ -122,15 +118,11 @@ Ride Bangla's own business runs on this same platform. Company accounts sit outs
 | ![Chat widget panel open on the live landing page, showing the greeting “Hi! How can we help you today?”](docs/screenshots/widget-panel.png) | ![Pricing page — desktop, live at ai.ridebangla.bd/pricing](docs/screenshots/pricing-desktop.png) |
 | **Chat widget — panel open** — the widget opened from the landing-page bubble without signing in, captured 2026-10-23, showing its greeting “Hi! How can we help you today?”. No message was sent for this capture. | **Pricing — desktop** — the live public pricing page, captured 2026-10-23: Free Trial $0, Starter $19/mo, Growth $49/mo, Pro $99/mo. |
 
-![Sign in — the live login page at ai.ridebangla.bd/login, captured 2026-10-23](docs/screenshots/login-desktop.png)
-
-**Sign in — live** — the live public login page, captured 2026-10-23 (public page only; no sign-in was performed).
-
 ### Dashboard (demo tenant)
 
 | | |
 |---|---|
-| ![Sign in — the AI Agent login page](docs/screenshots/01-login.png) | ![Dark mode — the dashboard in its dark theme](docs/screenshots/19-dark-mode.png) |
+| ![Sign in — the live login page at ai.ridebangla.bd/login, captured 2026-10-23](docs/screenshots/login-desktop.png) | ![Dark mode — the dashboard in its dark theme](docs/screenshots/19-dark-mode.png) |
 | **Sign in** — one login that persists on the device; sign-in is only asked again after sign-out, a password change or revoked access. | **Dark mode** — the full dashboard in the platform's dark theme. |
 
 > The dashboard screenshots in this README are the repository's own product screenshots (`docs/screenshots/`), showing a demo tenant workspace branded “Owly” in the sidebar. The public-surface captures above (landing desktop and phone, widget panel, pricing and login) are fresh live captures from [ai.ridebangla.bd](https://ai.ridebangla.bd) taken on 2026-10-23; dashboard imagery remains the repository's demo-tenant set, because no sign-in was performed. No screenshot in this README is staged or fabricated.
