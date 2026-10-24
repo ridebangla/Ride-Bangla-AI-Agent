@@ -35,12 +35,14 @@ export async function GET(request: NextRequest) {
         select: {
           orderFields: true,
           courierDeliveryEnabled: true,
+          partnerId: true,
           isInternalAccount: true,
           siteKey: true,
         },
       })) as {
         orderFields?: unknown;
         courierDeliveryEnabled?: unknown;
+        partnerId?: unknown;
         isInternalAccount?: unknown;
         siteKey?: unknown;
       } | null;
@@ -59,6 +61,10 @@ export async function GET(request: NextRequest) {
             typeof business?.courierDeliveryEnabled === "boolean"
               ? business.courierDeliveryEnabled
               : null,
+          // Tenant's Ride Bangla Partner ID (R3-ai-2): required, with a
+          // served area, before a tenant order may reach riders.
+          partnerId:
+            typeof business?.partnerId === "string" ? business.partnerId : null,
         },
       });
     } catch (error) {
@@ -107,6 +113,27 @@ export async function PUT(request: NextRequest) {
         courierDeliveryEnabled = body.courierDeliveryEnabled;
       }
 
+      // Partner ID (R3-ai-2, same save): a plain identifier string;
+      // empty clears it. Never trusted for anything but the courier
+      // gate — it is the tenant's own partner identity, not a secret.
+      let partnerId: string | null | undefined;
+      if (body.partnerId !== undefined) {
+        if (typeof body.partnerId !== "string") {
+          return NextResponse.json(
+            { error: "partnerId must be a string." },
+            { status: 400 }
+          );
+        }
+        const cleaned = body.partnerId.trim().slice(0, 100);
+        if (cleaned && !/^[A-Za-z0-9_-]+$/.test(cleaned)) {
+          return NextResponse.json(
+            { error: "partnerId may only contain letters, digits, - and _." },
+            { status: 400 }
+          );
+        }
+        partnerId = cleaned || null;
+      }
+
       const updated = await getUnscopedPrisma().business.update({
         where: { id: auth.businessId },
         data: {
@@ -114,10 +141,12 @@ export async function PUT(request: NextRequest) {
           ...(courierDeliveryEnabled !== undefined
             ? { courierDeliveryEnabled }
             : {}),
+          ...(partnerId !== undefined ? { partnerId } : {}),
         },
         select: {
           orderFields: true,
           courierDeliveryEnabled: true,
+          partnerId: true,
           isInternalAccount: true,
           siteKey: true,
         },
@@ -126,6 +155,7 @@ export async function PUT(request: NextRequest) {
       const updatedBiz = updated as {
         orderFields: unknown;
         courierDeliveryEnabled?: unknown;
+        partnerId?: unknown;
         isInternalAccount?: unknown;
         siteKey?: unknown;
       };
@@ -137,6 +167,8 @@ export async function PUT(request: NextRequest) {
             typeof updatedBiz.courierDeliveryEnabled === "boolean"
               ? updatedBiz.courierDeliveryEnabled
               : null,
+          partnerId:
+            typeof updatedBiz.partnerId === "string" ? updatedBiz.partnerId : null,
         },
       });
     } catch (error) {

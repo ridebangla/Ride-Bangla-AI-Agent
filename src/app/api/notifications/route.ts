@@ -12,6 +12,8 @@
  *   - the tenant's own payment claims and their status changes
  *     (payment_claims — pending / approved / rejected),
  *   - open support/order tickets (tickets, latest first),
+ *   - confirmed orders routed to the owner instead of riders
+ *     (orders with an `owner_notified` courier link, R3-ai-2),
  *   - recent customer conversations (conversations, latest first).
  * The bell's unread dot is driven by `latestAt` vs the client's stored
  * seen-watermark, so it lights up on genuinely new items and clears
@@ -30,7 +32,7 @@ export const runtime = "nodejs";
 
 interface NotificationItem {
   id: string;
-  kind: "notice" | "billing" | "payment" | "ticket" | "conversation" | "website";
+  kind: "notice" | "billing" | "payment" | "ticket" | "conversation" | "website" | "order";
   text: string;
   at: string | null;
   href: string;
@@ -141,6 +143,51 @@ export async function GET(request: NextRequest) {
 
       await runWithBusiness(businessId, async () => {
         const db = getUnscopedPrisma();
+        // ---- Confirmed orders routed to the owner (no courier leg) ----
+        // The courier bridge records these as `owner_notified` links on
+        // the order itself (re-audit #3, R3-ai-2): the order news must
+        // reach the shop owner directly, so the bell surfaces them with
+        // the items and the pickup → delivery addresses, like the other
+        // real events in this feed. No new collection, no invented data.
+        const recentOrders = (await db.order.findMany({
+          orderBy: { updatedAt: "desc" },
+          take: 10,
+        })) as unknown as Array<{
+          id: string;
+          status: string;
+          updatedAt: Date;
+          courierBooking?: {
+            state?: string;
+            reason?: string;
+            ownerNotification?: {
+              items?: Array<{ name: string; qty: number }>;
+              from?: string;
+              to?: string;
+            };
+          } | null;
+        }>;
+        for (const o of recentOrders) {
+          if (o.status !== "confirmed") continue;
+          const link = o.courierBooking;
+          if (!link || link.state !== "owner_notified") continue;
+          const note = link.ownerNotification;
+          const itemsText = (note?.items ?? [])
+            .map((it) => `${it.qty}× ${it.name}`)
+            .join(", ");
+          items.push({
+            id: `owner-order-${o.id}`,
+            kind: "order",
+            text:
+              `New order confirmed — courier not available` +
+              (itemsText ? ` (${itemsText})` : "") +
+              (note?.from || note?.to
+                ? ` — ${note?.from || "?"} → ${note?.to || "?"}`
+                : "") +
+              `. Please arrange delivery yourself.`,
+            at: iso(o.updatedAt instanceof Date ? o.updatedAt : toDate(o.updatedAt)),
+            href: "/orders",
+          });
+        }
         const tickets = (await db.ticket.findMany({
           where: { status: "open" },
           orderBy: { createdAt: "desc" },

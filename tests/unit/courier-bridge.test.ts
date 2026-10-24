@@ -12,8 +12,10 @@
  *   3. unconfirmed / cancelled orders → no booking
  *   4. missing address/phone → flagged needs_info, no booking; fixing
  *      the info and re-confirming books it
- *   5. business without the setting → no booking (defaults: ON for the
- *      platform's own business, OFF for tenants; stored value wins)
+ *   5. business without a Partner ID / outside the served area / with
+ *      the switch off → NO booking: the order is notified to the owner
+ *      instead (owner_notified link with items + FROM → TO, R3-ai-2);
+ *      the platform's own business still dispatches on the switch alone
  *   6. courier-side status is visible to the agent side via the link
  *   7. cancel mirror: unclaimed → cancelled; claimed → hands off
  *   8. hostile customFields can never reach ops money/status fields
@@ -28,6 +30,11 @@ import {
   courierOrderIdFor,
   classifyExistingBooking,
   resolveCourierDeliveryEnabled,
+  resolveCourierGate,
+  resolvePartnerId,
+  isServedDistrict,
+  extractDeliveryDistrict,
+  buildOwnerNotification,
   extractDeliveryDetails,
   buildCourierOrderDoc,
   handleOrderConfirmed,
@@ -36,6 +43,7 @@ import {
   type CourierBridgeDeps,
   type CourierBridgeStore,
   type CourierBookingLink,
+  type OwnerNotification,
 } from "@/lib/courier-bridge";
 import type { Business, Order } from "@/lib/models";
 
@@ -181,6 +189,8 @@ const TENANT_ON = {
   contactPhone: "+8801700000000",
   contactAddress: "Shop 4, Baker Road, Dhanmondi, Dhaka",
   courierDeliveryEnabled: true,
+  // Doctrine fixture: a dispatchable tenant HAS a Partner ID (R3-ai-2).
+  partnerId: "RB-PARTNER-1",
 } as unknown as Business;
 
 const TENANT_DEFAULT = {
@@ -188,6 +198,15 @@ const TENANT_DEFAULT = {
   id: "biz-plain",
   siteKey: "rbsite-plainshop",
   courierDeliveryEnabled: undefined,
+} as unknown as Business;
+
+/** Tenant with neither the switch nor a Partner ID. */
+const TENANT_NO_PARTNER = {
+  ...TENANT_ON,
+  id: "biz-nopartner",
+  siteKey: "rbsite-nopartner",
+  courierDeliveryEnabled: undefined,
+  partnerId: undefined,
 } as unknown as Business;
 
 function makeOrder(overrides: Partial<Order> = {}): Order {
@@ -218,11 +237,17 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
 function makeHarness(
   orders: Order[],
   businesses: Business[]
-): { deps: CourierBridgeDeps; store: FakeStore; links: CourierBookingLink[] } {
+): {
+  deps: CourierBridgeDeps;
+  store: FakeStore;
+  links: CourierBookingLink[];
+  notifications: OwnerNotification[];
+} {
   const orderMap = new Map(orders.map((o) => [o.id, o]));
   const bizMap = new Map(businesses.map((b) => [b.id, b]));
   const store = new FakeStore();
   const links: CourierBookingLink[] = [];
+  const notifications: OwnerNotification[] = [];
   const deps: CourierBridgeDeps = {
     store,
     loadOrder: async (id) => orderMap.get(id) ?? null,
@@ -234,8 +259,11 @@ function makeHarness(
     },
     now: () => new Date("2026-10-21T07:00:00.000Z"),
     serverTimestamp: () => "SERVER_TS",
+    notifyOwner: async (n) => {
+      notifications.push(n);
+    },
   };
-  return { deps, store, links };
+  return { deps, store, links, notifications };
 }
 
 const CID = courierOrderIdFor("order-1");
@@ -448,22 +476,283 @@ describe("no-booking cases", () => {
     expect(store.size).toBe(0);
   });
 
-  it("tenant without the setting (default OFF) → disabled, nothing written, no link", async () => {
-    const order = makeOrder({ businessId: "biz-plain" });
-    const { deps, store, links } = makeHarness([order], [TENANT_DEFAULT]);
+  it("tenant without a Partner ID → owner notified, no dispatch doc, link recorded (OLD disabled semantics REPLACED by R3-ai-2)", async () => {
+    const order = makeOrder({ businessId: "biz-nopartner" });
+    const { deps, store, links, notifications } = makeHarness(
+      [order],
+      [TENANT_NO_PARTNER]
+    );
     const outcome = await handleOrderConfirmed("order-1", deps);
-    expect(outcome).toEqual({ state: "disabled" });
+    expect(outcome).toEqual({
+      state: "owner_notified",
+      reason: "no_partner_id",
+      notified: true,
+    });
     expect(store.size).toBe(0);
-    expect(links).toHaveLength(0);
+    expect(links).toHaveLength(1);
+    expect(links[0].state).toBe("owner_notified");
+    expect(links[0].reason).toBe("no_partner_id");
+    expect(notifications).toHaveLength(1);
+    expect(readLinkState(order)).toBe("owner_notified");
   });
 
-  it("own business with the setting explicitly OFF → disabled", async () => {
+  it("own business with the setting explicitly OFF → owner notified (courier_disabled), not silent disabled (OLD semantics REPLACED by R3-ai-2)", async () => {
     const off = { ...RB_BUSINESS, courierDeliveryEnabled: false } as unknown as Business;
     const order = makeOrder();
-    const { deps, store } = makeHarness([order], [off]);
+    const { deps, store, links } = makeHarness([order], [off]);
     const outcome = await handleOrderConfirmed("order-1", deps);
-    expect(outcome).toEqual({ state: "disabled" });
+    expect(outcome).toEqual({
+      state: "owner_notified",
+      reason: "courier_disabled",
+      notified: true,
+    });
     expect(store.size).toBe(0);
+    expect(links).toHaveLength(1);
+    expect(links[0].reason).toBe("courier_disabled");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* R3-ai-2. Courier gate doctrine + owner notification                */
+/* ------------------------------------------------------------------ */
+
+describe("courier gate doctrine (R3-ai-2)", () => {
+  it("resolveCourierGate: own business dispatches without Partner ID or area checks", () => {
+    expect(resolveCourierGate(RB_BUSINESS, makeOrder())).toEqual({ dispatch: true });
+    expect(
+      resolveCourierGate(
+        { ...RB_BUSINESS, courierDeliveryEnabled: false },
+        makeOrder()
+      )
+    ).toEqual({ dispatch: false, reason: "courier_disabled" });
+  });
+
+  it("resolveCourierGate: tenant needs Partner ID, then a served area, then the switch", () => {
+    const dhakaOrder = makeOrder({
+      customFields: {
+        customer_name: "Rahim",
+        phone: "01712345678",
+        delivery_address: "House 5, Gulshan Avenue, Dhaka",
+      },
+    });
+    expect(resolveCourierGate(TENANT_NO_PARTNER, makeOrder())).toEqual({
+      dispatch: false,
+      reason: "no_partner_id",
+    });
+    expect(resolveCourierGate(TENANT_ON, dhakaOrder)).toEqual({
+      dispatch: false,
+      reason: "outside_served_area",
+    });
+    expect(
+      resolveCourierGate({ ...TENANT_ON, courierDeliveryEnabled: false }, makeOrder())
+    ).toEqual({ dispatch: false, reason: "courier_disabled" });
+    expect(resolveCourierGate(TENANT_ON, makeOrder())).toEqual({ dispatch: true });
+    // Switch never stored + Partner ID + Faridpur → dispatch (boolean
+    // only blocks when explicitly off).
+    expect(resolveCourierGate(TENANT_DEFAULT, makeOrder())).toEqual({ dispatch: true });
+  });
+
+  it("resolvePartnerId trims and treats blank as absent", () => {
+    expect(resolvePartnerId({ partnerId: "  RB-1 " })).toBe("RB-1");
+    expect(resolvePartnerId({ partnerId: "   " })).toBeNull();
+    expect(resolvePartnerId({})).toBeNull();
+  });
+
+  it("served-area matching is case/format-tolerant and token-based", () => {
+    expect(isServedDistrict("Faridpur Sadar")).toBe(true);
+    expect(isServedDistrict("FARIDPUR DISTRICT")).toBe(true);
+    expect(isServedDistrict("district: Faridpur, Bangladesh")).toBe(true);
+    expect(isServedDistrict("Dhaka")).toBe(false);
+    expect(isServedDistrict("Faridpuria Bazar")).toBe(false);
+  });
+
+  it("explicit district field wins over the address text", () => {
+    const byField = makeOrder({
+      customFields: {
+        phone: "01712345678",
+        delivery_address: "House 5, Gulshan Avenue, Dhaka",
+        district: "Faridpur",
+      },
+    });
+    expect(extractDeliveryDistrict(byField)).toBe("Faridpur");
+    expect(resolveCourierGate(TENANT_ON, byField)).toEqual({ dispatch: true });
+    const fieldSaysDhaka = makeOrder({
+      customFields: {
+        phone: "01712345678",
+        delivery_address: "House 12, Road 3, Faridpur Sadar",
+        district: "Dhaka",
+      },
+    });
+    expect(resolveCourierGate(TENANT_ON, fieldSaysDhaka)).toEqual({
+      dispatch: false,
+      reason: "outside_served_area",
+    });
+  });
+
+  it("tenant with Partner ID + outside Faridpur → owner notified, no dispatch doc", async () => {
+    const order = makeOrder({
+      businessId: "biz-cake",
+      customFields: {
+        customer_name: "Rahim Uddin",
+        phone: "01712345678",
+        delivery_address: "House 5, Gulshan Avenue, Dhaka",
+      },
+    });
+    const { deps, store, links, notifications } = makeHarness([order], [TENANT_ON]);
+    const outcome = await handleOrderConfirmed("order-1", deps);
+    expect(outcome).toEqual({
+      state: "owner_notified",
+      reason: "outside_served_area",
+      notified: true,
+    });
+    expect(store.size).toBe(0);
+    expect(links).toHaveLength(1);
+    expect(links[0].ownerNotification?.reason).toBe("outside_served_area");
+    expect(notifications).toHaveLength(1);
+  });
+
+  it("tenant with Partner ID + Faridpur → dispatch exactly as before", async () => {
+    const order = makeOrder({ id: "order-t", businessId: "biz-cake" });
+    const { deps, store } = makeHarness([order], [TENANT_ON]);
+    const outcome = await handleOrderConfirmed("order-t", deps);
+    expect(outcome).toEqual({
+      state: "booked",
+      courierOrderId: courierOrderIdFor("order-t"),
+      created: true,
+    });
+    expect(store.size).toBe(3);
+  });
+
+  it("tenant with no switch stored + Partner ID + Faridpur → dispatch (switch only blocks when explicitly off)", async () => {
+    const order = makeOrder({ businessId: "biz-plain" });
+    const { deps, store } = makeHarness([order], [TENANT_DEFAULT]);
+    const outcome = await handleOrderConfirmed("order-1", deps);
+    expect(outcome.state).toBe("booked");
+    expect(store.size).toBe(3);
+  });
+
+  it("owner notification payload contains items + FROM → TO", async () => {
+    const order = makeOrder({ businessId: "biz-nopartner" });
+    const { deps, notifications, links } = makeHarness([order], [TENANT_NO_PARTNER]);
+    await handleOrderConfirmed("order-1", deps);
+    const n = notifications[0];
+    expect(n.orderId).toBe("order-1");
+    expect(n.items).toEqual([
+      { name: "Chocolate Cake", qty: 2, price: 450 },
+      { name: "Candle Pack", qty: 1, price: 0 },
+    ]);
+    // FROM = tenant pickup (business address, no explicit pickup field);
+    // TO = the order's delivery address.
+    expect(n.from).toBe("Shop 4, Baker Road, Dhanmondi, Dhaka");
+    expect(n.to).toBe("House 12, Road 3, Faridpur Sadar");
+    // Same payload is recorded on the order link (auditable + bell feed).
+    expect(links[0].ownerNotification).toEqual(n);
+    // Explicit pickup overrides the business address as FROM.
+    const pickupOrder = makeOrder({
+      businessId: "biz-nopartner",
+      customFields: {
+        customer_name: "Rahim",
+        phone: "01712345678",
+        delivery_address: "House 12, Road 3, Faridpur Sadar",
+        pickup: "Warehouse 9, Tongi",
+      },
+    });
+    const h2 = makeHarness([pickupOrder], [TENANT_NO_PARTNER]);
+    await handleOrderConfirmed("order-1", h2.deps);
+    expect(h2.notifications[0].from).toBe("Warehouse 9, Tongi");
+  });
+
+  it("buildOwnerNotification whitelists items (no money/status leakage)", () => {
+    const n = buildOwnerNotification(
+      makeOrder({
+        items: [
+          {
+            name: "Box",
+            qty: 1,
+            price: 100,
+            deliveryFee: 777,
+            status: "delivered",
+          } as unknown as Order["items"][number],
+        ],
+      }),
+      TENANT_ON,
+      "no_partner_id",
+      "2026-10-21T07:00:00.000Z"
+    );
+    expect(n.items).toEqual([{ name: "Box", qty: 1, price: 100 }]);
+    expect(n).not.toHaveProperty("deliveryFee");
+  });
+
+  it("re-confirming the same no-courier outcome does NOT double-notify", async () => {
+    const order = makeOrder({ businessId: "biz-nopartner" });
+    const { deps, store, links, notifications } = makeHarness(
+      [order],
+      [TENANT_NO_PARTNER]
+    );
+    const first = await handleOrderConfirmed("order-1", deps);
+    const second = await handleOrderConfirmed("order-1", deps);
+    expect(first).toEqual({
+      state: "owner_notified",
+      reason: "no_partner_id",
+      notified: true,
+    });
+    expect(second).toEqual({
+      state: "owner_notified",
+      reason: "no_partner_id",
+      notified: false,
+    });
+    expect(notifications).toHaveLength(1);
+    expect(links).toHaveLength(1);
+    expect(store.size).toBe(0);
+  });
+
+  it("owner-notified order books normally once the gate passes (Partner ID added)", async () => {
+    const order = makeOrder({ businessId: "biz-nopartner" });
+    const biz = { ...TENANT_NO_PARTNER } as unknown as Business;
+    const { deps, store } = makeHarness([order], [biz]);
+    const first = await handleOrderConfirmed("order-1", deps);
+    expect(first.state).toBe("owner_notified");
+    (biz as unknown as Record<string, unknown>).partnerId = "RB-PARTNER-9";
+    const second = await handleOrderConfirmed("order-1", deps);
+    expect(second).toEqual({
+      state: "booked",
+      courierOrderId: CID,
+      created: true,
+    });
+    expect(store.size).toBe(3);
+  });
+
+  it("internal/own business without Partner ID dispatches as before, even outside Faridpur", async () => {
+    const order = makeOrder({
+      customFields: {
+        customer_name: "Rahim",
+        phone: "01712345678",
+        delivery_address: "House 5, Gulshan Avenue, Dhaka",
+      },
+    });
+    const { deps, store } = makeHarness([order], [RB_BUSINESS]);
+    const outcome = await handleOrderConfirmed("order-1", deps);
+    expect(outcome.state).toBe("booked");
+    expect(store.size).toBe(3);
+  });
+
+  it("cancelling an owner-notified order is a no-op ops-side", async () => {
+    const order = makeOrder({ businessId: "biz-nopartner" });
+    const { deps, store } = makeHarness([order], [TENANT_NO_PARTNER]);
+    await handleOrderConfirmed("order-1", deps);
+    order.status = "cancelled";
+    const outcome = await handleOrderCancelled("order-1", deps);
+    expect(outcome).toEqual({ state: "none" });
+    expect(store.size).toBe(0);
+  });
+
+  it("owner-notified link is visible via getCourierDeliveryStatus", async () => {
+    const order = makeOrder({ businessId: "biz-nopartner" });
+    const { deps } = makeHarness([order], [TENANT_NO_PARTNER]);
+    await handleOrderConfirmed("order-1", deps);
+    const status = await getCourierDeliveryStatus("order-1", deps);
+    expect(status?.linkState).toBe("owner_notified");
+    expect(status?.courierOrderId).toBeNull();
   });
 });
 

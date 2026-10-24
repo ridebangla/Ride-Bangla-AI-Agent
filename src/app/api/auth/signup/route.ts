@@ -5,6 +5,7 @@ import { getUnscopedPrisma } from "@/lib/prisma";
 import {
   generateRefreshToken,
   generateToken,
+  isDatastoreQuotaError,
   setSessionCookies,
 } from "@/lib/auth";
 import { TRIAL_MS, TRIAL_DAYS } from "@/lib/subscription";
@@ -29,6 +30,26 @@ function getFirebaseAdminAuth(): admin.auth.Auth {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/**
+ * Capacity-class failure (re-audit #3, R3-ai-1): the same honest-503
+ * contract as /api/auth/google and /api/public/firebase-config. The
+ * signup path's data layer is Firestore (via the Prisma shim) plus
+ * Firebase Auth, so capacity surfaces as gRPC codes 8
+ * (RESOURCE_EXHAUSTED) / 14 (UNAVAILABLE) — as a number, as a string,
+ * or inside the message — or as the shared isDatastoreQuotaError
+ * shapes. Anything else keeps the generic 500 below.
+ */
+export function isSignupCapacityError(err: unknown): boolean {
+  if (isDatastoreQuotaError(err)) return true;
+  const code =
+    typeof err === "object" && err !== null && "code" in err
+      ? String((err as { code: unknown }).code).toLowerCase()
+      : "";
+  if (code === "8" || code === "14" || code === "unavailable") return true;
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /UNAVAILABLE/i.test(msg);
+}
 
 function slugify(name: string): string {
   return (
@@ -254,6 +275,17 @@ export async function POST(request: NextRequest) {
     logger.warn(
       `[Auth] Signup failed: ${err instanceof Error ? err.message : "unknown"}`
     );
+    // A quota-exhausted / unavailable data layer is a temporary
+    // capacity problem, not a signup failure: say so honestly (503)
+    // instead of the generic 500 that retrying could never fix while
+    // the underlying cause lasts. The partial-signup rollback above
+    // still runs first — this mapping only changes the response.
+    if (isSignupCapacityError(err)) {
+      return NextResponse.json(
+        { error: "Signup is temporarily unavailable. Please try again later." },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
       { error: "Signup failed. Please try again." },
       { status: 500 }

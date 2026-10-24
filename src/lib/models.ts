@@ -167,8 +167,19 @@ export interface Business {
       own courier system (Rider app dispatch). Absent = platform default
       (ON for the platform's own Ride Bangla business only, OFF for every
       other tenant). Edited in Orders → Order Settings; the effective
-      value is resolved server-side by resolveCourierDeliveryEnabled. */
+      value is resolved server-side by resolveCourierDeliveryEnabled.
+      NOTE: the switch alone never dispatches a TENANT order — the
+      dispatch gate (resolveCourierGate, re-audit #3 R3-ai-2) also
+      requires a Partner ID (below) and a served area. */
   courierDeliveryEnabled?: boolean;
+  /** Ride Bangla Partner ID for this tenant (re-audit #3, R3-ai-2):
+      the tenant's own partner identity in the Ride Bangla courier
+      system. Tenant orders reach riders ONLY when this is set AND the
+      delivery is inside a served area; otherwise the confirmed order is
+      notified directly to the shop owner. Edited in Orders → Order
+      Settings (same save as courierDeliveryEnabled). No Partner-ID
+      field existed before this fix. */
+  partnerId?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -819,8 +830,9 @@ export interface Order {
       server-side by src/lib/courier-bridge.ts when the order is
       confirmed/cancelled. Shape: CourierBookingLink —
       { state: 'booked' | 'needs_info' | 'cancelled' |
-        'cancel_requested' | 'failed', courierOrderId?, missing?,
-        opsStatus?, bookedAt?, updatedAt, error? }. Absent = the bridge
+        'cancel_requested' | 'failed' | 'owner_notified', courierOrderId?,
+        missing?, opsStatus?, bookedAt?, updatedAt, error?, reason?,
+        ownerNotification? }. Absent = the bridge
       has not processed this order (not confirmed, or delivery disabled
       for the business). */
   courierBooking?: JsonValue;

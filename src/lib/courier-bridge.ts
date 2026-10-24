@@ -14,6 +14,15 @@
  *   It calls `handleOrderConfirmed` / `handleOrderCancelled` here after a
  *   status change. Every channel funnels into the same order doc, so one
  *   hook covers every channel.
+ * - GATE (owner doctrine, re-audit #3 R3-ai-2): a TENANT order reaches
+ *   riders ONLY when the tenant set their Partner ID (`businesses.
+ *   partnerId`, Orders → Order Settings) AND the delivery is inside a
+ *   served area (Faridpur today; SERVED_COURIER_DISTRICTS grows district
+ *   by district) AND the courier switch is not explicitly off. The
+ *   platform's own business is exempt from the Partner-ID/area checks.
+ *   Every no-courier outcome notifies the SHOP OWNER directly instead:
+ *   an `owner_notified` link on the order carrying WHAT was ordered and
+ *   FROM → TO (surfaced in the dashboard bell feed) — never silent.
  * - Write path: SERVER-ONLY, via the Admin SDK (`getAdminDb()` in
  *   ./admin-db) into the shared ride-bangla-app Firestore — the same
  *   trusted path the billing modules use. Never a client write, never the
@@ -98,7 +107,27 @@ export type CourierBookingState =
   | "needs_info"
   | "cancelled"
   | "cancel_requested"
-  | "failed";
+  | "failed"
+  /** Confirmed order routed to the shop owner instead of riders
+   *  (re-audit #3, R3-ai-2): the no-courier leg, never silent. */
+  | "owner_notified";
+
+export type CourierGateReason =
+  | "no_partner_id"
+  | "outside_served_area"
+  | "courier_disabled";
+
+/** The owner notification for a no-courier confirmed order: WHAT was
+ *  ordered and FROM → TO, so the shop owner can fulfil it directly. */
+export interface OwnerNotification {
+  orderId: string;
+  businessId: string;
+  items: Array<{ name: string; qty: number; price: number | null }>;
+  from: string;
+  to: string;
+  reason: CourierGateReason;
+  notifiedAt: string;
+}
 
 export interface CourierBookingLink {
   state: CourierBookingState;
@@ -110,6 +139,10 @@ export interface CourierBookingLink {
   bookedAt?: string;
   updatedAt: string;
   error?: string;
+  /** No-courier reason (owner_notified links only). */
+  reason?: CourierGateReason;
+  /** The owner notification recorded with an owner_notified link. */
+  ownerNotification?: OwnerNotification;
 }
 
 export function readBookingLink(order: {
@@ -123,11 +156,12 @@ export function readBookingLink(order: {
 }
 
 /**
- * Effective per-business setting. The stored boolean always wins. When
- * the business has never stored it, the default is ON only for the
+ * Effective per-business courier SWITCH. The stored boolean always wins.
+ * When the business has never stored it, the default is ON only for the
  * platform's own Ride Bangla business (the owner's business) and OFF for
- * every tenant — a tenant outside the courier service area simply never
- * enables it.
+ * every tenant. This is ONLY the switch — it is NOT the dispatch gate:
+ * tenant dispatch additionally requires a Partner ID and a served area
+ * (see resolveCourierGate, re-audit #3 R3-ai-2).
  */
 export function resolveCourierDeliveryEnabled(business: {
   courierDeliveryEnabled?: unknown;
@@ -140,6 +174,137 @@ export function resolveCourierDeliveryEnabled(business: {
   if (business.isInternalAccount === true) return true;
   if (business.siteKey === RIDE_BANGLA_OWN_SITE_KEY) return true;
   return false;
+}
+
+/** The platform's own Ride Bangla business: internal flag or own site key. */
+export function isOwnBusiness(business: {
+  isInternalAccount?: unknown;
+  siteKey?: unknown;
+}): boolean {
+  return (
+    business.isInternalAccount === true ||
+    business.siteKey === RIDE_BANGLA_OWN_SITE_KEY
+  );
+}
+
+/**
+ * Districts the Ride Bangla courier service covers today. Grows district
+ * by district: add the next district's name here and it is served.
+ * Matching is case/format-tolerant (see isServedDistrict).
+ */
+export const SERVED_COURIER_DISTRICTS = ["faridpur"];
+
+/** A tenant's Ride Bangla Partner ID, as set in Orders → Order Settings
+ *  (`businesses.partnerId`). Absent/blank = the tenant has no Partner ID.
+ *  NOTE: no Partner-ID field existed in this repo before re-audit #3 —
+ *  the only prior `partnerId` was the null ops-side field on the dispatch
+ *  doc itself. This field is created by this fix (models.ts + the
+ *  order-fields API/UI) so the doctrine has something real to check. */
+export function resolvePartnerId(business: {
+  partnerId?: unknown;
+}): string | null {
+  const raw =
+    typeof business.partnerId === "string" ? business.partnerId.trim() : "";
+  return raw ? raw : null;
+}
+
+/** True when the text names a served district (whole-token match, so
+ *  "Faridpur Sadar" and "district: Faridpur" match but "Faridpuria"
+ *  does not). */
+export function isServedDistrict(text: string): boolean {
+  const tokens = text
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean);
+  return SERVED_COURIER_DISTRICTS.some((d) => tokens.includes(d));
+}
+
+/**
+ * The delivery district for an order. Businesses define their own order
+ * fields, so there is no guaranteed district column: prefer an explicit
+ * district field when the order carries one, otherwise read the drop
+ * address text itself (the address is where the district is written in
+ * practice, e.g. "House 12, Road 3, Faridpur Sadar").
+ */
+export function extractDeliveryDistrict(order: {
+  customFields?: unknown;
+}): string | null {
+  const cf = asRecord(order.customFields);
+  for (const key of ["district", "delivery_district", "district_name"]) {
+    const v = cleanText(cf[key], 200);
+    if (v) return v;
+  }
+  const drop =
+    cleanText(cf.delivery_address, 500) ||
+    cleanText(cf.dropoff, 500) ||
+    cleanText(cf.address, 500);
+  return drop || null;
+}
+
+export type CourierGateResult =
+  | { dispatch: true }
+  | { dispatch: false; reason: CourierGateReason };
+
+/**
+ * The owner's dispatch doctrine (re-audit #3, R3-ai-2): a tenant's
+ * confirmed order reaches Ride Bangla riders ONLY IF (a) the tenant has
+ * set their Partner ID AND (b) the delivery is inside a served area —
+ * and the tenant's courier switch is not explicitly off. The platform's
+ * own business keeps its existing behaviour: the switch alone decides
+ * (default ON), with no Partner-ID or area check — it IS Ride Bangla.
+ */
+export function resolveCourierGate(
+  business: {
+    courierDeliveryEnabled?: unknown;
+    isInternalAccount?: unknown;
+    siteKey?: unknown;
+    partnerId?: unknown;
+  },
+  order: { customFields?: unknown }
+): CourierGateResult {
+  if (business.courierDeliveryEnabled === false) {
+    return { dispatch: false, reason: "courier_disabled" };
+  }
+  if (isOwnBusiness(business)) return { dispatch: true };
+  if (!resolvePartnerId(business)) {
+    return { dispatch: false, reason: "no_partner_id" };
+  }
+  const districtText = extractDeliveryDistrict(order);
+  if (!districtText || !isServedDistrict(districtText)) {
+    return { dispatch: false, reason: "outside_served_area" };
+  }
+  return { dispatch: true };
+}
+
+/**
+ * Build the owner notification for a no-courier order: the whitelisted
+ * items (WHAT was ordered) plus pickup FROM and delivery TO. Never
+ * fails on missing details — a partial address is reported as-is and
+ * the owner can see what is missing, rather than the news going
+ * nowhere at all.
+ */
+export function buildOwnerNotification(
+  order: Pick<Order, "id" | "businessId" | "customFields" | "items">,
+  business: Pick<Business, "contactAddress">,
+  reason: CourierGateReason,
+  notifiedAt: string
+): OwnerNotification {
+  const cf = asRecord(order.customFields);
+  const from =
+    cleanText(cf.pickup, 500) || cleanText(business.contactAddress, 500);
+  const to =
+    cleanText(cf.delivery_address, 500) ||
+    cleanText(cf.dropoff, 500) ||
+    cleanText(cf.address, 500);
+  return {
+    orderId: order.id,
+    businessId: order.businessId,
+    items: whitelistItems(order.items),
+    from,
+    to,
+    reason,
+    notifiedAt,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -706,6 +871,15 @@ export interface CourierBridgeDeps {
   saveLink(orderId: string, link: CourierBookingLink): Promise<void>;
   now(): Date;
   serverTimestamp(): unknown;
+  /**
+   * Owner-notification channel for the no-courier leg. Optional: the
+   * durable notification is the `owner_notified` link itself (surfaced
+   * to the owner in the dashboard bell feed, which reads owner_notified
+   * orders), so the default is "link only". Inject a real channel here
+   * (SMS/WhatsApp/inbox) and it receives the full items + FROM → TO
+   * payload; a channel failure is logged and never blocks the link.
+   */
+  notifyOwner?: (notification: OwnerNotification) => Promise<void>;
 }
 
 export function defaultDeps(): CourierBridgeDeps {
@@ -739,6 +913,13 @@ export type CourierBridgeOutcome =
   | { state: "booked"; courierOrderId: string; created: boolean }
   | { state: "needs_info"; missing: string[] }
   | { state: "disabled" }
+  | {
+      state: "owner_notified";
+      reason: CourierGateReason;
+      /** False when this confirm only replays an already-recorded
+       *  notification (idempotent: no second notification). */
+      notified: boolean;
+    }
   | { state: "skipped"; reason: string }
   | { state: "failed"; error: string };
 
@@ -775,10 +956,10 @@ export async function handleOrderConfirmed(
       });
       return { state: "failed", error: "business_not_found" };
     }
-    if (!resolveCourierDeliveryEnabled(business)) return { state: "disabled" };
-
     // Order ids are server-minted UUIDs; anything else can never be a
-    // legitimate platform order and must not shape a Firestore doc id.
+    // legitimate platform order and must not shape a Firestore doc id —
+    // checked before any gate or link write, so a forged id can neither
+    // book nor notify.
     if (!isSafeAgentOrderId(orderId)) {
       await recordLink(d, orderId, {
         state: "failed",
@@ -791,7 +972,9 @@ export async function handleOrderConfirmed(
     const courierOrderId = courierOrderIdFor(orderId);
     const existingLink = readBookingLink(order);
 
-    // Idempotency: a live booking for this order already exists → done.
+    // Idempotency first: a live booking for this order already exists
+    // → done, whatever the gate says today (a partner removed after
+    // booking must not un-book, and must not re-notify either).
     // The doc found at the deterministic id must be verified as THIS
     // order's bridge booking first — a foreign doc squatting at the id
     // is a collision to surface, never a booking to adopt.
@@ -814,6 +997,53 @@ export async function handleOrderConfirmed(
       }
       // Link says booked but the ops doc is gone — fall through and
       // recreate it under the same deterministic id (self-healing).
+    }
+
+    // Owner doctrine (R3-ai-2): no dispatch unless the gate passes.
+    // The no-courier leg is NOT silent: the confirmed order is notified
+    // DIRECTLY to the shop owner, with WHAT was ordered and FROM → TO,
+    // recorded on the order as an `owner_notified` link (auditable, and
+    // surfaced in the dashboard bell feed). Re-confirming the same
+    // no-courier outcome replays the recorded link without notifying
+    // twice; if the gate later passes (Partner ID added, area served),
+    // the flow below books normally instead.
+    const gate = resolveCourierGate(business, order);
+    if (!gate.dispatch) {
+      if (
+        existingLink?.state === "owner_notified" &&
+        existingLink.reason === gate.reason
+      ) {
+        return { state: "owner_notified", reason: gate.reason, notified: false };
+      }
+      const notification = buildOwnerNotification(
+        order,
+        business,
+        gate.reason,
+        d.now().toISOString()
+      );
+      if (d.notifyOwner) {
+        try {
+          await d.notifyOwner(notification);
+        } catch (err) {
+          // The link below IS the durable notification; a channel
+          // failure must never lose the order news or break confirm.
+          logger.error("[courier-bridge] owner notification channel failed", err, {
+            orderId,
+            reason: gate.reason,
+          });
+        }
+      }
+      await recordLink(d, orderId, {
+        state: "owner_notified",
+        reason: gate.reason,
+        ownerNotification: notification,
+        updatedAt: d.now().toISOString(),
+      });
+      logger.info("[courier-bridge] order notified to owner (no courier)", {
+        orderId,
+        reason: gate.reason,
+      });
+      return { state: "owner_notified", reason: gate.reason, notified: true };
     }
 
     const extracted = extractDeliveryDetails(order, business);

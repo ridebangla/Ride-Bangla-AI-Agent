@@ -439,6 +439,7 @@ function OrderSettingsTab({ toast }: { toast: (t: "success" | "error", m: string
   const [modal, setModal] = useState<null | { index: number | null; field: OrderField }>(null);
   const [defaults, setDefaults] = useState<OrderField[]>([]);
   const [courierEnabled, setCourierEnabled] = useState(false);
+  const [partnerId, setPartnerId] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -449,6 +450,7 @@ function OrderSettingsTab({ toast }: { toast: (t: "success" | "error", m: string
         setFields(json.orderFields ?? []);
         setDefaults(json.defaults ?? []);
         setCourierEnabled(json.courierDelivery?.enabled ?? false);
+        setPartnerId(json.courierDelivery?.partnerId ?? "");
       } catch {
         toast("error", "Could not load order fields.");
       } finally {
@@ -464,7 +466,7 @@ function OrderSettingsTab({ toast }: { toast: (t: "success" | "error", m: string
       const res = await fetch("/api/order-fields", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderFields: fields, courierDeliveryEnabled: courierEnabled }),
+        body: JSON.stringify({ orderFields: fields, courierDeliveryEnabled: courierEnabled, partnerId }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Save failed");
@@ -555,6 +557,24 @@ function OrderSettingsTab({ toast }: { toast: (t: "success" | "error", m: string
                   with the fields below.
                 </span>
               </span>
+            </label>
+            <label className="block mt-4">
+              <span className="font-semibold text-rbai-text block text-sm">
+                Ride Bangla Partner ID
+              </span>
+              <span className="text-sm text-rbai-text-light mt-1 leading-relaxed block">
+                Your orders reach Ride Bangla riders only when this Partner ID is set
+                and the delivery is inside a served area (Faridpur today). Without it —
+                or outside the served area — a confirmed order is notified directly to
+                you instead, with the items and the pickup → delivery addresses.
+              </span>
+              <input
+                type="text"
+                value={partnerId}
+                onChange={(e) => setPartnerId(e.target.value)}
+                placeholder="e.g. RB-PARTNER-1234"
+                className="mt-2 w-full rounded-lg border border-rbai-border bg-rbai-bg px-3 py-2 text-sm text-rbai-text"
+              />
             </label>
           </div>
 
