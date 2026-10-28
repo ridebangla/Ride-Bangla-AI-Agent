@@ -1,5 +1,6 @@
 import { ToolDefinition } from "./types";
 import { prisma, withBusinessId } from "@/lib/prisma";
+import { createOrMergeInboundLead } from "@/lib/inbound-leads-store";
 import { validateOutboundUrl } from "@/lib/ssrf";
 import { browseWebsite } from "./browse";
 import nodemailer from "nodemailer";
@@ -200,7 +201,89 @@ export const agentTools: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_advance_payment_details",
+      description:
+        "Check whether THIS business takes an advance payment for an order or booking, and if so get the business's own payment number and advance amount EXACTLY as the tenant configured them. Call this before telling a customer where to send an advance. State the returned payment number and advance amount verbatim — never invent, round, or adjust them, never add any fee, and never name a payment gateway: there is no gateway integration and no payment is ever verified automatically. When applicable is false, say nothing about any payment number or amount: the business takes no advance for this kind of record. This tool never confirms an order or booking and never quotes a fare or delivery charge; the advance amount is the tenant's own configured figure, not a price.",
+      parameters: {
+        type: "object",
+        properties: {
+          recordKind: {
+            type: "string",
+            description: "What the payment is for: 'order' (including today's order-doc bookings) or 'booking' (Leg A distinct booking records, once wired).",
+          },
+        },
+      },
+    },
+  },
 
+  {
+    type: "function",
+    function: {
+      name: "record_advance_payment",
+      description:
+        "Record a transaction ID the customer sent after paying the business's advance. The payment is stored as CHECKING: tell the customer the payment is being checked by the team — NEVER tell them the payment is received, because only a human team member who has checked the money may mark it received in the dashboard. NEVER ask the customer for a card number, OTP, or password, and refuse them if offered: this tool accepts a transaction ID only. The advance amount is taken from the tenant's configuration on the server, never from chat — there is no amount parameter, so never state an amount from the conversation. If the tool reports a duplicate transaction ID, say honestly that this ID was already used for this business and ask the customer to check it or contact the team; never accuse the customer of anything and never say the payment is received. This tool never confirms an order or booking.",
+      parameters: {
+        type: "object",
+        properties: {
+          recordId: {
+            type: "string",
+            description: "The order id returned by take_order (or a Leg A booking id, once wired).",
+          },
+          recordKind: {
+            type: "string",
+            description: "'order' for order docs (including today's order-doc bookings); 'booking' for Leg A distinct booking records, once wired.",
+          },
+          transactionId: {
+            type: "string",
+            description: "The transaction ID exactly as the customer sent it (letters/digits; spaces and dashes are ignored). Never a card number, OTP, or password.",
+          },
+        },
+        required: ["recordId", "transactionId"],
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "create_inbound_lead",
+      description:
+        "Record an INBOUND sales lead for THIS business (never another business) when the customer shows real buying or booking interest: they ask a product price, they want to order or book, or they give a phone number. A lead is NOT an order and does NOT confirm anything — the team follows up and confirms separately, and a pending order still goes through take_order. Never quote a fare or delivery price; record only what the customer wants, in their words. If an open lead already exists for this customer, the call adds to it instead of duplicating. Do not call this for complaints, support problems, or smalltalk.",
+      parameters: {
+        type: "object",
+        properties: {
+          customerName: {
+            type: "string",
+            description: "Customer's name, if known.",
+          },
+          customerPhone: {
+            type: "string",
+            description: "Customer's phone number, if given.",
+          },
+          interest: {
+            type: "string",
+            description: "What the customer wants (product, service, or booking), in their words.",
+          },
+          note: {
+            type: "string",
+            description: "Anything else the team should know for the follow-up.",
+          },
+          followUpDate: {
+            type: "string",
+            description: "Follow-up date in YYYY-MM-DD form, only when the customer suggests a callback date.",
+          },
+          customerMessage: {
+            type: "string",
+            description: "The customer's own triggering words, verbatim when available.",
+          },
+        },
+        required: [],
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -301,6 +384,78 @@ export const agentTools: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "request_booking",
+      description:
+        "Record a customer BOOKING REQUEST for a time-based service (appointment, session, visit, consultation — anything the customer books for a date/time, NOT a product purchase; product purchases use take_order). Pass the service, the customer's requested slot, and the business's booking-question answers. If the tool replies with needsQuestions, ask the customer for exactly those details and call again — never record the request until all required booking questions are collected. AVAILABILITY HONESTY: there is no calendar and no availability check in this system — the requested slot is ONLY a request, never a confirmed booking, never a free/busy claim. Say \"request\" to the customer until the human team confirms; never say the slot is booked, confirmed, or available.",
+      parameters: {
+        type: "object",
+        properties: {
+          service: {
+            type: "string",
+            description: "What is being booked, e.g. 'Haircut', 'Studio session', 'Consultation'.",
+          },
+          requestedSlot: {
+            type: "string",
+            description: "The customer's requested slot, verbatim — e.g. 'Saturday morning'. This is a REQUEST, not a confirmed time.",
+          },
+          requestedDate: {
+            type: "string",
+            description: "Date as stated by the customer, YYYY-MM-DD. Shape only — never verified against availability.",
+          },
+          requestedTime: {
+            type: "string",
+            description: "Time as stated by the customer, HH:MM. Shape only — never verified against availability.",
+          },
+          place: {
+            type: "string",
+            description: "Where the booking takes place (venue, address, branch), if given.",
+          },
+          whatToBring: {
+            type: "string",
+            description: "What the customer should bring, if the business stated it.",
+          },
+          questions: {
+            type: "array",
+            description: "The business's booking questions + the customer's answers: [{ key, question, answer }]. Every REQUIRED booking question must be answered before the request is recorded.",
+            items: {
+              type: "object",
+              properties: {
+                key: { type: "string" },
+                question: { type: "string" },
+                answer: { type: "string" },
+              },
+              required: ["key", "answer"],
+            },
+          },
+          customerName: {
+            type: "string",
+            description: "Customer's name, if known.",
+          },
+          customerPhone: {
+            type: "string",
+            description: "Customer's phone number, if known.",
+          },
+          advanceAmount: {
+            type: "number",
+            description: "Advance/deposit amount ONLY if the business or the customer explicitly stated it. Omit when not stated — never invent a figure, never quote a fare.",
+          },
+          advanceCurrency: {
+            type: "string",
+            description: "3-letter currency code ONLY alongside an explicitly stated advanceAmount. Omit otherwise.",
+          },
+          reminders: {
+            type: "array",
+            description: "Reminder preferences stated by the customer, e.g. ['remind me the day before']. Free text only; no reminder is sent by this tool.",
+            items: { type: "string" },
+          },
+        },
+        required: ["service", "requestedSlot"],
+      },
+    },
+  },
 ];
 
 export async function executeToolCall(
@@ -321,6 +476,14 @@ export async function executeToolCall(
       return await scheduleFollowup(args, conversationId);
     case "take_order":
       return await takeOrder(args, conversationId);
+    case "request_booking":
+      return await requestBooking(args, conversationId);
+    case "get_advance_payment_details":
+      return await getAdvancePaymentDetailsTool(args);
+    case "record_advance_payment":
+      return await recordAdvancePaymentTool(args, conversationId);
+    case "create_inbound_lead":
+      return await createInboundLeadTool(args, conversationId);
     case "search_catalog":
       return await searchCatalogTool(args);
     case "recommend_alternative":
@@ -749,6 +912,380 @@ async function takeOrder(
       `Order recorded (${serviceType}). The team has been notified and will ` +
       `confirm shortly. Order reference: ${order.id.slice(0, 8)}.`,
   });
+}
+
+/**
+ * Booking-request path (Leg A): the customer asked to book a time-based
+ * service. Persisted ONLY as a booking REQUEST (status `requested`) in
+ * the tenant's `bookings` collection — never as an order, never as a
+ * ticket, and never as a confirmation. The human team confirms, proposes
+ * another time, or returns it from the dashboard Bookings screen.
+ * Unlike take_order, this creates NO ticket: the Bookings screen is the
+ * team's queue for bookings, kept separate from product orders and tickets.
+ */
+async function requestBooking(
+  args: Record<string, unknown>,
+  conversationId?: string
+): Promise<string> {
+  const { getBusinessId, getUnscopedPrisma } = await import("../prisma");
+  const {
+    getBookingQuestions,
+    getMissingBookingAnswers,
+    createBooking,
+  } = await import("../bookings");
+  // normalizeQuestionAnswers lives in booking-state (the questions
+  // module), not bookings — the executor imported it from the wrong
+  // module. Behaviour unchanged: same function, correct source.
+  const { normalizeQuestionAnswers } = await import("../booking-state");
+
+  // Fail-closed: no tenant context => no booking.
+  const businessId = getBusinessId();
+  if (!businessId) {
+    return JSON.stringify({
+      success: false,
+      message: "No business context for this booking request.",
+    });
+  }
+
+  const service = String(args.service ?? "").trim();
+  const requestedSlot = String(args.requestedSlot ?? "").trim();
+  if (!service || !requestedSlot) {
+    return JSON.stringify({
+      success: false,
+      message: "service and requestedSlot are required to record a booking request.",
+    });
+  }
+
+  // Booking-question slot check: every REQUIRED question the business
+  // defined must be answered before the request is created. When something
+  // is missing we return the exact list so the AI can ask conversationally
+  // and call request_booking again — mirroring take_order's needsFields.
+  let bookingQuestions: import("../bookings").BookingQuestion[];
+  try {
+    bookingQuestions = await getBookingQuestions(businessId);
+  } catch {
+    bookingQuestions = [];
+  }
+  const answers = normalizeQuestionAnswers(args.questions);
+  const missing = getMissingBookingAnswers(bookingQuestions, answers);
+  if (missing.length > 0) {
+    return JSON.stringify({
+      success: false,
+      needsQuestions: missing,
+      message:
+        "Before recording the booking request, please collect the following details from the customer: " +
+        missing
+          .map(
+            (f) =>
+              `${f.label}${
+                f.type === "select" && f.options
+                  ? ` (choose one: ${f.options.join(", ")})`
+                  : ""
+              }`
+          )
+          .join("; ") +
+        ". Then call request_booking again with everything, including the answers.",
+    });
+  }
+
+  // Link the booking to the conversation's customer when known. Never link
+  // across tenants: the conversation must belong to this business.
+  let customerId: string | null = null;
+  if (conversationId) {
+    try {
+      const conv = (await getUnscopedPrisma().conversation.findUnique({
+        where: { id: conversationId },
+        select: { customerId: true, businessId: true },
+      })) as { customerId?: string | null; businessId?: string } | null;
+      if (conv && conv.businessId === businessId) {
+        customerId = conv.customerId ?? null;
+      }
+    } catch {
+      customerId = null;
+    }
+  }
+
+  try {
+    const result = await createBooking({
+      conversationId: conversationId ?? null,
+      customerId,
+      service,
+      requestedSlot,
+      requestedDate: (args.requestedDate as string | undefined) ?? null,
+      requestedTime: (args.requestedTime as string | undefined) ?? null,
+      place: (args.place as string | undefined) ?? null,
+      whatToBring: (args.whatToBring as string | undefined) ?? null,
+      questions: answers,
+      customerName: (args.customerName as string | undefined) ?? null,
+      customerPhone: (args.customerPhone as string | undefined) ?? null,
+      advanceAmount:
+        args.advanceAmount === null || args.advanceAmount === undefined || args.advanceAmount === ""
+          ? null
+          : Number(args.advanceAmount),
+      advanceCurrency: (args.advanceCurrency as string | undefined) ?? null,
+      reminders: Array.isArray(args.reminders) ? (args.reminders as string[]) : [],
+      summary: `${service}: ${requestedSlot}`.slice(0, 300),
+    });
+    return JSON.stringify({
+      success: true,
+      bookingId: result.bookingId,
+      status: result.status,
+      availability: result.availability,
+      message:
+        `Booking request recorded (${service}) for ${requestedSlot}. The team has been notified and will ` +
+        `confirm it shortly — this is a request, not a confirmed booking yet. ` +
+        `Request reference: ${result.bookingId.slice(0, 8)}.`,
+    });
+  } catch (err) {
+    return JSON.stringify({
+      success: false,
+      message: err instanceof Error ? err.message : "Failed to record the booking request.",
+    });
+  }
+}
+
+/**
+ * LEG C (staged): advance-payment agent tools (manual check only).
+ *
+ * getAdvancePaymentDetailsTool states NOTHING on its own — it returns
+ * the tenant-configured number + amount (or applicable:false) and the
+ * model renders them. recordAdvancePaymentTool stores a
+ * customer-supplied transaction ID as `checking` and NOTHING ELSE:
+ * it cannot mark a payment received (only the dashboard
+ * mark-received route can, by a human), it cannot confirm or change
+ * any order/booking status, and it never reads an amount from the
+ * model — the amount is snapshotted from tenant config server-side.
+ * Booking-kind records are refused with `booking_store_not_wired`
+ * until Leg A wires a booking lookup (see advance-payments.ts).
+ */
+async function getAdvancePaymentDetailsTool(
+  args: Record<string, unknown>
+): Promise<string> {
+  const { getBusinessId } = await import("../prisma");
+  const {
+    getAdvanceConfig,
+    isAdvanceApplicable,
+  } = await import("../advance-payments");
+
+  const businessId = getBusinessId();
+  if (!businessId) {
+    return JSON.stringify({
+      success: false,
+      message: "No business context for this payment.",
+    });
+  }
+  const recordKindRaw = String(args.recordKind ?? "order");
+  if (recordKindRaw === "booking") {
+    return JSON.stringify({
+      success: false,
+      error: "booking_store_not_wired",
+      message:
+        "Distinct booking records are not wired yet; advance payments for today's order-doc bookings use recordKind 'order'.",
+    });
+  }
+  if (recordKindRaw !== "order") {
+    return JSON.stringify({
+      success: false,
+      message: "recordKind must be 'order' or 'booking'.",
+    });
+  }
+  const config = await getAdvanceConfig(businessId);
+  if (!config) {
+    return JSON.stringify({
+      applicable: false,
+      reason: "advance_not_configured",
+      message: "This business has no advance payment configured.",
+    });
+  }
+  if (!isAdvanceApplicable(config, "order")) {
+    return JSON.stringify({
+      applicable: false,
+      reason: "advance_not_applicable",
+      message: "This business takes no advance for this kind of record.",
+    });
+  }
+  return JSON.stringify({
+    applicable: true,
+    paymentNumber: config.paymentNumber,
+    paymentLabel: config.paymentLabel,
+    advanceAmount: config.advanceAmount,
+    message:
+      "State this payment number and advance amount exactly as returned. The payment is checked manually by the team; never claim it is verified automatically.",
+  });
+}
+
+async function recordAdvancePaymentTool(
+  args: Record<string, unknown>,
+  conversationId?: string
+): Promise<string> {
+  const { getBusinessId } = await import("../prisma");
+  const {
+    getAdvanceConfig,
+    isAdvanceApplicable,
+    normalizeTransactionId,
+    refuseSensitivePaymentInput,
+    recordAdvancePayment,
+  } = await import("../advance-payments");
+
+  // Fail-closed: no tenant context => no payment record.
+  const businessId = getBusinessId();
+  if (!businessId) {
+    return JSON.stringify({
+      success: false,
+      message: "No business context for this payment.",
+    });
+  }
+
+  // Guardrail first: card numbers / OTPs / passwords are refused
+  // before anything is stored, and the refusal never echoes them.
+  const refusal = refuseSensitivePaymentInput(args);
+  if (refusal) {
+    return JSON.stringify({
+      success: false,
+      error: "sensitive_data_refused",
+      message:
+        "That cannot be collected for payments. Please ask the customer only for the transaction ID of the advance they sent.",
+    });
+  }
+
+  const recordId = String(args.recordId ?? "").trim();
+  if (!recordId) {
+    return JSON.stringify({
+      success: false,
+      message: "recordId is required to record an advance payment.",
+    });
+  }
+  const recordKindRaw = String(args.recordKind ?? "order");
+  if (recordKindRaw === "booking") {
+    return JSON.stringify({
+      success: false,
+      error: "booking_store_not_wired",
+      message:
+        "Distinct booking records are not wired yet; advance payments for today's order-doc bookings use recordKind 'order'.",
+    });
+  }
+  if (recordKindRaw !== "order") {
+    return JSON.stringify({
+      success: false,
+      message: "recordKind must be 'order' or 'booking'.",
+    });
+  }
+  const transactionId = normalizeTransactionId(args.transactionId);
+  if (!transactionId) {
+    return JSON.stringify({
+      success: false,
+      error: "invalid_transaction_id",
+      message:
+        "That does not look like a transaction ID. Ask the customer to check it and send it again.",
+    });
+  }
+
+  // The record must belong to this business: the tenant-scoped order
+  // read returns null for another tenant's id, exactly like an
+  // unknown id (fail-closed, no cross-tenant leak).
+  const order = await prisma.order.findUnique({
+    where: { id: recordId },
+    select: { id: true },
+  });
+  if (!order) {
+    return JSON.stringify({
+      success: false,
+      error: "record_not_found",
+      message: "No order with that reference was found for this business.",
+    });
+  }
+
+  const config = await getAdvanceConfig(businessId);
+  if (!config) {
+    return JSON.stringify({
+      success: false,
+      error: "advance_not_configured",
+      message: "This business has no advance payment configured.",
+    });
+  }
+  if (!isAdvanceApplicable(config, "order")) {
+    return JSON.stringify({
+      success: false,
+      error: "advance_not_applicable",
+      message: "This business takes no advance for this kind of record.",
+    });
+  }
+
+  const result = await recordAdvancePayment({
+    businessId,
+    recordKind: "order",
+    recordId,
+    transactionId,
+    // Server-side snapshot from tenant config ONLY — never from chat.
+    amount: config.advanceAmount,
+    recordedBy: { type: "customer", conversationId: conversationId ?? null },
+  });
+  if (!result.ok) {
+    return JSON.stringify({
+      success: false,
+      error: result.error,
+      existingPaymentId: result.existingPaymentId,
+      message:
+        "This transaction ID was already used for this business. Ask the customer to check the ID, or to contact the team if they believe it is correct. Do not say the payment is received.",
+    });
+  }
+  return JSON.stringify({
+    success: true,
+    paymentId: result.payment.id,
+    status: "checking",
+    advanceAmount: result.payment.amount,
+    message:
+      "Transaction ID recorded. Tell the customer their payment is being checked by the team and they will be told once it is confirmed. Never say the payment is received yet.",
+  });
+}
+
+async function createInboundLeadTool(
+  args: Record<string, unknown>,
+  conversationId?: string
+): Promise<string> {
+  const strArg = (key: string): string | undefined =>
+    typeof args[key] === "string" && (args[key] as string).trim()
+      ? ((args[key] as string).trim() as string)
+      : undefined;
+  // Defaults from the conversation thread (name/contact/channel) so the
+  // model only has to pass what it newly learned in this turn.
+  const conversation = conversationId
+    ? await prisma.conversation.findUnique({ where: { id: conversationId } })
+    : null;
+  const conv = conversation as unknown as Record<string, unknown> | null;
+  try {
+    const result = await createOrMergeInboundLead({
+      name: strArg("customerName") ?? (typeof conv?.customerName === "string" ? (conv.customerName as string) : undefined),
+      phone: strArg("customerPhone") ?? (typeof conv?.customerContact === "string" ? (conv.customerContact as string) : undefined),
+      interest: strArg("interest"),
+      note: strArg("note"),
+      followUpDate: strArg("followUpDate"),
+      source: "agent",
+      channel: typeof conv?.channel === "string" ? (conv.channel as string) : undefined,
+      conversationId: conversationId ?? null,
+      customerId: typeof conv?.customerId === "string" ? (conv.customerId as string) : null,
+      customerMessage: strArg("customerMessage"),
+    });
+    if (result.refused) {
+      return JSON.stringify({
+        success: false,
+        message: "No buying or booking interest found; no lead created.",
+      });
+    }
+    return JSON.stringify({
+      success: true,
+      merged: result.merged,
+      leadId: result.lead?.id ?? null,
+      stage: result.lead?.stage ?? null,
+      signalKinds: result.signalKinds,
+    });
+  } catch (err) {
+    return JSON.stringify({
+      success: false,
+      message:
+        err instanceof Error ? err.message : "Could not record the lead.",
+    });
+  }
 }
 
 async function searchCatalogTool(args: Record<string, unknown>): Promise<string> {

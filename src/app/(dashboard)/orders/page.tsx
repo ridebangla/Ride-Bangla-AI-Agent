@@ -13,6 +13,8 @@ import { Header } from "@/components/layout/header";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
+import InvoicePrint from "@/components/orders/invoice-print";
+import type { OrderCounters } from "@/lib/order-dashboard";
 import {
   ClipboardList,
   Plus,
@@ -95,6 +97,22 @@ interface Order {
   status: "pending" | "confirmed" | "cancelled";
   total: number | null;
   summary?: string;
+  // LEG E: resolved channel + record-only invoice fields. All optional:
+  // HEAD orders carry none of these; the list route resolves `channel`
+  // from the linked conversation, and deliveryCharge / paymentMethod /
+  // currency / priceBreakdown are read only when a writer stamped them
+  // (see src/lib/order-dashboard.ts header). Absence is never guessed.
+  channel?: string | null;
+  deliveryCharge?: number | null;
+  paymentMethod?: string | null;
+  currency?: string | null;
+  couponDiscount?: number | null;
+  priceBreakdown?: {
+    deliveryCharge?: number | null;
+    couponDiscount?: number | null;
+    productTotal?: number | null;
+    finalTotal?: number | null;
+  } | null;
   createdAt: string;
   courierBooking?: CourierBookingView | null;
   courierDelivery?: CourierDeliveryView | null;
@@ -198,15 +216,36 @@ function OrdersTab({ toast }: { toast: (t: "success" | "error", m: string) => vo
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  // LEG E: live counters from /api/orders/summary (full order set, not
+  // the newest-100 page), the recorded-channel filter, and the order
+  // currently shown in the print view. Summary starts null so the strip
+  // shows a loading line, never a placeholder zero, before it loads.
+  const [summary, setSummary] = useState<OrderCounters | null>(null);
+  const [channelFilter, setChannelFilter] = useState<string>("all");
+  const [invoiceOrder, setInvoiceOrder] = useState<Order | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
 
-  const reload = async (status = statusFilter) => {
-    const q = status === "all" ? "" : `?status=${status}`;
-    const res = await fetch(`/api/orders${q}`);
+  const reload = async (status = statusFilter, channel = channelFilter) => {
+    const params = new URLSearchParams();
+    if (status !== "all") params.set("status", status);
+    if (channel !== "all") params.set("channel", channel);
+    const qs = params.toString();
+    const res = await fetch(`/api/orders${qs ? `?${qs}` : ""}`);
     if (!res.ok) throw new Error("Failed to load orders");
     const json = await res.json();
     setOrders(json.orders ?? []);
+    // Counters are a separate full-set computation; a failure here must
+    // not hide the list. A null summary renders a loading line, not zeros.
+    try {
+      const sres = await fetch(`/api/orders/summary`);
+      if (sres.ok) {
+        const sjson = await sres.json();
+        if (sjson.counters) setSummary(sjson.counters);
+      }
+    } catch {
+      // Summary stays null; the list above still renders.
+    }
   };
 
   useEffect(() => {
@@ -225,7 +264,20 @@ function OrdersTab({ toast }: { toast: (t: "success" | "error", m: string) => vo
   const changeFilter = async (s: string) => {
     setStatusFilter(s);
     try {
-      await reload(s);
+      await reload(s, channelFilter);
+    } catch {
+      toast("error", "Could not load orders.");
+    }
+  };
+
+  // LEG E: channel filter (recorded source only — see order-dashboard.ts).
+  // Shopify / WooCommerce are honestly empty until a store integration
+  // records that source; "other" = a recorded channel outside the named
+  // six; "unknown" = no recorded source at all (never a guess).
+  const changeChannelFilter = async (c: string) => {
+    setChannelFilter(c);
+    try {
+      await reload(statusFilter, c);
     } catch {
       toast("error", "Could not load orders.");
     }
@@ -265,6 +317,107 @@ function OrdersTab({ toast }: { toast: (t: "success" | "error", m: string) => vo
 
   return (
     <div className="p-6 max-w-6xl space-y-4">
+      {/* LEG E: live counters — computed from real orders only by
+          /api/orders/summary. Empty tenants show zeros AFTER load;
+          before load the strip shows a loading line, never placeholders.
+          Sales with 2+ recorded currencies show the per-currency
+          breakdown, never a merged total (see order-dashboard.ts). */}
+      {summary === null ? (
+        <div className="text-sm text-rbai-text-light">Loading counters…</div>
+      ) : (
+        <div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="rounded-xl border border-rbai-border bg-rbai-surface p-3">
+              <div className="text-xs text-rbai-text-light">Total orders</div>
+              <div className="text-lg font-medium">{summary.total}</div>
+            </div>
+            <div className="rounded-xl border border-rbai-border bg-rbai-surface p-3">
+              <div className="text-xs text-rbai-text-light">Total sales</div>
+              <div className="text-lg font-medium">
+                {summary.totalSales !== null
+                  ? summary.totalSalesCurrency
+                    ? `${summary.totalSalesCurrency} ${summary.totalSales.toFixed(2)}`
+                    : summary.totalSales.toFixed(2)
+                  : "Multiple currencies"}
+              </div>
+            </div>
+            <div className="rounded-xl border border-rbai-border bg-rbai-surface p-3">
+              <div className="text-xs text-rbai-text-light">Pending</div>
+              <div className="text-lg font-medium">{summary.pending}</div>
+            </div>
+            <div className="rounded-xl border border-rbai-border bg-rbai-surface p-3">
+              <div className="text-xs text-rbai-text-light">In progress</div>
+              <div className="text-lg font-medium">{summary.inProgress}</div>
+            </div>
+            <div className="rounded-xl border border-rbai-border bg-rbai-surface p-3">
+              <div className="text-xs text-rbai-text-light">Completed</div>
+              <div className="text-lg font-medium">{summary.completed}</div>
+            </div>
+            <div className="rounded-xl border border-rbai-border bg-rbai-surface p-3">
+              <div className="text-xs text-rbai-text-light">Cancelled</div>
+              <div className="text-lg font-medium">{summary.cancelled}</div>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-rbai-text-light">
+            Confirmed: {summary.confirmed} (in progress + completed).
+            {summary.totalSales === null &&
+              summary.salesByCurrency.length > 0 &&
+              ` Sales by currency: ${summary.salesByCurrency
+                .map((b) => `${b.currency ?? "currency not recorded"} ${b.total.toFixed(2)}`)
+                .join(" · ")}.`}
+            {summary.totalSales !== null &&
+              summary.salesByCurrency.length === 1 &&
+              summary.salesByCurrency[0].currency === null &&
+              " Currency is not recorded on these orders, so sales are shown without a symbol."}
+            {summary.unpricedCount > 0 &&
+              ` ${summary.unpricedCount} order(s) have no recorded total and are excluded from sales.`}
+          </div>
+        </div>
+      )}
+      <div className="mt-2 flex items-center gap-2">
+        <label className="text-sm text-rbai-text-light" htmlFor="channel-filter">
+          Channel
+        </label>
+        <select
+          id="channel-filter"
+              value={channelFilter}
+              onChange={(e) => changeChannelFilter(e.target.value)}
+              className="px-3 py-1.5 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text"
+            >
+          <option value="all">All channels</option>
+          <option value="facebook">Facebook</option>
+          <option value="instagram">Instagram</option>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="shopify">Shopify</option>
+          <option value="woocommerce">WooCommerce</option>
+          <option value="website">Website</option>
+          <option value="other">Other (recorded)</option>
+          <option value="unknown">Unknown (no source recorded)</option>
+        </select>
+      </div>
+      {invoiceOrder && (
+        <InvoicePrint
+          order={{
+            ...invoiceOrder,
+            createdAt: new Date(invoiceOrder.createdAt).toLocaleString(),
+            customerName:
+              typeof invoiceOrder.customFields?.customer_name === "string"
+                ? (invoiceOrder.customFields.customer_name as string)
+                : typeof invoiceOrder.customFields?.name === "string"
+                  ? (invoiceOrder.customFields.name as string)
+                  : null,
+            customerPhone:
+              typeof invoiceOrder.customFields?.phone === "string"
+                ? (invoiceOrder.customFields.phone as string)
+                : null,
+            deliveryAddress:
+              typeof invoiceOrder.customFields?.delivery_address === "string"
+                ? (invoiceOrder.customFields.delivery_address as string)
+                : null,
+          }}
+          onClose={() => setInvoiceOrder(null)}
+        />
+      )}
       <div className="flex items-center gap-2">
         {["all", "pending", "confirmed", "cancelled"].map((s) => (
           <button
@@ -301,6 +454,7 @@ function OrdersTab({ toast }: { toast: (t: "success" | "error", m: string) => vo
                 <th className="px-4 py-3 font-medium">Customer</th>
                 <th className="px-4 py-3 font-medium">Items</th>
                 <th className="px-4 py-3 font-medium">Total</th>
+                <th className="px-4 py-3 font-medium">Channel</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium text-right">Actions</th>
               </tr>
@@ -317,13 +471,39 @@ function OrdersTab({ toast }: { toast: (t: "success" | "error", m: string) => vo
                     <td className="px-4 py-3 text-rbai-text font-medium">
                       {o.total != null ? o.total : "—"}
                     </td>
+                    <td className="px-4 py-3 text-rbai-text-light capitalize">
+                      {o.channel ?? "unknown"}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={cn("inline-flex px-2 py-0.5 rounded-full text-xs font-medium capitalize", statusStyles[o.status])}>
                         {o.status}
                       </span>
+                      {/* LEG B (staged): team label never hides the lock.
+                          Confirmed ⟺ locked by the guard (order-lock.ts):
+                          agent/chat edits are refused and any team change
+                          is audited. No new copy: "Locked" is a functional
+                          label, and the condition needs no new API field. */}
+                      {o.status === "confirmed" && (
+                        <span
+                          title="Locked: agent and chat cannot change this order; team changes are audited."
+                          className="ml-1 inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-rbai-success/10 text-rbai-success"
+                        >
+                          Locked
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
+                        {/* LEG E: invoice print is a document view only.
+                            It contains no courier-booking action of any
+                            kind (see InvoicePrint + LEG-REPORT.md §7). */}
+                        <button
+                          title="Print invoice"
+                          onClick={() => setInvoiceOrder(o)}
+                          className="px-2.5 py-1 text-xs font-medium rounded-lg border border-rbai-border text-rbai-text hover:bg-rbai-bg"
+                        >
+                          Print invoice
+                        </button>
                         <button
                           title="Details"
                           onClick={() => setExpanded(expanded === o.id ? null : o.id)}

@@ -89,7 +89,12 @@ async function generateReply(
   const knowledge = await getKnowledgeContext();
 
   const system = [
-    `You are the social media assistant for "${settings.businessName}".`,
+    // ID-08: settings.businessName is "" (never "Ride Bangla") for an
+    // unconfigured tenant since the ai.ts fallback removal. Name no
+    // business rather than borrowing the platform's name on comments.
+    settings.businessName
+      ? `You are the social media assistant for "${settings.businessName}".`
+      : "You are a social media assistant. Do not name any business, and never present yourself as Ride Bangla.",
     settings.businessDesc ? `Business: ${settings.businessDesc}` : "",
     "Write a short, warm, polite, human-like reply to a customer's",
     `${itemKind} on ${platform}. Reply in the SAME language the customer used`,
@@ -499,6 +504,26 @@ export async function syncEngagement(): Promise<SyncResult> {
       let draftReply = "";
 
       if (item.kind === "comment" || item.kind === "message") {
+        // Leg C: comment auto-post honours the global kill-switch. The sync
+        // previously auto-posted a comment reply on autoReply alone, even
+        // while global AI was off — against the kill-switch doctrine
+        // ("AI stays silent across EVERY conversation (website, channels,
+        // social)"). Under global-off, comments are stored with NO draft
+        // and NO auto-post; staff reply manually from the inbox. Message
+        // items are untouched by this branch (DM flows keep HEAD behaviour).
+        let globalOffForComment = false;
+        if (item.kind === "comment") {
+          const settingsRow = await prisma.settings
+            .findFirst({ select: { aiEnabled: true } })
+            .catch(() => null);
+          globalOffForComment =
+            (settingsRow as { aiEnabled?: unknown } | null)?.aiEnabled === false;
+        }
+        if (globalOffForComment) {
+          result.limitations.push(
+            `Global AI off — stored ${item.platform} comment ${item.externalId} without draft or auto-post`
+          );
+        } else {
         try {
           const replyText = await generateReply(
             item.content,
@@ -519,6 +544,7 @@ export async function syncEngagement(): Promise<SyncResult> {
               (err instanceof Error ? err.message : String(err))
           );
         }
+        } // Leg C: end of global-off else (comment auto-post gate)
       }
 
       await prisma.socialInteraction.create({

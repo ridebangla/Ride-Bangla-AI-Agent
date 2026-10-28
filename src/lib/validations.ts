@@ -143,6 +143,29 @@ export const createAutomationRuleSchema = z.object({
 });
 
 // Settings
+// Owner message controls (LEG C, staged): per-family enable / master
+// pause / per-scope pause / per-scope override text, stored as one
+// nested object on the settings doc. Shape-validated here; semantic
+// validation (known scopes, templated-override placeholders) runs in
+// src/lib/owner-controls/message-controls.ts — the Settings PUT path
+// (diff 002) and the dedicated route both call it, so both writers
+// enforce the same rules.
+const messageControlPauseSchema = z
+  .object({
+    paused: z.boolean(),
+    pausedAt: z.string().nullable().optional(),
+    pausedUntil: z.string().nullable().optional(),
+    note: z.string().max(500).nullable().optional(),
+  })
+  .strict();
+const messageControlFamilySchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    masterPause: messageControlPauseSchema.optional(),
+    kinds: z.record(z.string(), messageControlPauseSchema).optional(),
+    texts: z.record(z.string(), z.string().max(10000).nullable()).optional(),
+  })
+  .strict();
 export const updateSettingsSchema = z.object({
   businessName: z.string().max(500).optional(),
   businessDesc: z.string().max(5000).optional(),
@@ -191,6 +214,14 @@ export const updateSettingsSchema = z.object({
   // AI across every conversation; true (default) leaves the decision to
   // each conversation's own aiEnabled switch.
   aiEnabled: z.boolean().optional(),
+  // Leg D (video round 2) — reply approval mode, OPT-IN. Absent =
+  // false: direct send, exactly as before. true = agent replies become
+  // drafts held for team review with auto-send after the wait below.
+  replyApprovalEnabled: z.boolean().optional(),
+  replyApprovalWaitSeconds: z.number().int().min(30).max(86400).optional(),
+  // Leg E: business-set takeover auto-revert timer, in minutes.
+  // 0 = no auto-revert (a takeover lasts until staff hand it back).
+  takeoverAutoRevertMinutes: z.number().int().min(0).max(10080).optional(),
   // Behaviour package (owner directive 2026-10-21): agent behaviour
   // switches + timing + the business's own review link. All optional —
   // absent fields keep the platform defaults (see src/lib/ai/behaviour.ts).
@@ -199,6 +230,38 @@ export const updateSettingsSchema = z.object({
   reviewUrl: z.string().max(500).optional(),
   followUpOrderCheckInHours: z.number().int().min(1).max(168).optional(),
   followUpDroppedHours: z.number().int().min(4).max(336).optional(),
+  // Leg I: follow-up schedule choice (see src/lib/followup-settings.ts).
+  // The preset keys are the task's six values; "custom" pairs with
+  // followUpDelayCustomMinutes, capped at 23h (1380 minutes) so the
+  // follow-up always fits inside the 24h platform window. No Hot-count
+  // field is added here — that count remains Leg F's owner decision
+  // and is deliberately not defaulted by this leg.
+  followUpDelayPreset: z
+    .enum(["30m", "1h", "2h", "6h", "12h", "23h", "custom"])
+    .optional(),
+  followUpDelayCustomMinutes: z.number().int().min(1).max(1380).optional(),
+  messageControls: z
+    .object({
+      followups: messageControlFamilySchema.optional(),
+      reminders: messageControlFamilySchema.optional(),
+      reviewAsks: messageControlFamilySchema.optional(),
+    })
+    .strict()
+    .optional(),
+  // LEG D (booking reminders): business-set reminder switches + the
+  // hours-before value, and the optional Messenger template/tag name
+  // for the out-of-window fallback. All optional — absent fields keep
+  // the platform defaults (see src/lib/booking-reminders.ts).
+  reminderDayBeforeEnabled: z.boolean().optional(),
+  reminderHoursBeforeEnabled: z.boolean().optional(),
+  reminderHoursBefore: z.number().int().min(1).max(72).optional(),
+  messengerTemplateName: z.string().max(200).optional(),
+  // Leg I: delivered-order review request switch. Absent = OFF (the
+  // OFF-default is enforced by getBehaviourSettings, which reads
+  // this field as `=== true`; zod only permits the boolean through).
+  // Required here because this schema is .strict(): without this
+  // line the Settings API would 400-reject the toggle.
+  orderReviewRequestsEnabled: z.boolean().optional(),
 }).strict();
 
 // Canned Responses

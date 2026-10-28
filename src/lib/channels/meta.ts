@@ -25,6 +25,16 @@ import { resolveCustomer } from "@/lib/customer-resolver";
 import { encryptToken, getActiveAccounts, getDecryptedToken } from "@/lib/social/accounts";
 import { handleCommentEvent } from "@/lib/social/comments";
 import { logger } from "@/lib/logger";
+import { transcribeAudio } from "@/lib/ai/media";
+import { hasAnyProviderKey, resolveSiteKeys } from "@/lib/ai/providers";
+import {
+  decideVoiceTurn,
+  detectVoiceReplyLang,
+  extractMetaAudioAttachment,
+  validateVoiceAudio,
+  voiceFallbackStrings,
+  voiceFailureCustomerNote,
+} from "@/lib/ai/voice-input";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 const OAUTH_SCOPES = [
@@ -316,7 +326,16 @@ export async function sendMetaMessage(
 interface MetaMessagingEvent {
   sender?: { id?: string };
   recipient?: { id?: string };
-  message?: { mid?: string; text?: string; is_echo?: boolean };
+  message?: {
+    mid?: string;
+    text?: string;
+    is_echo?: boolean;
+    // STAGED Leg A video2: Meta voice clips arrive as audio attachments.
+    // At HEAD this field was absent, so voice messages were dropped by
+    // the `if (!text) continue` guard below. Only "audio" attachments
+    // are routed to transcription (see extractMetaAudioAttachment).
+    attachments?: Array<{ type?: string; payload?: { url?: string } }>;
+  };
 }
 
 interface MetaChangeValue {
@@ -355,7 +374,13 @@ export async function handleMetaWebhook(
     for (const ev of entry.messaging ?? []) {
       if (ev.message?.is_echo) continue; // our own sent messages
       const text = ev.message?.text?.trim();
-      if (!text) continue;
+      // STAGED Leg A video2: a voice clip has no text. At HEAD the next
+      // line dropped it silently; now an audio attachment keeps the
+      // event alive and the voice branch below handles it. Text still
+      // wins when a message carries both (a captioned clip is answered
+      // from its caption, exactly as before).
+      const audioAttachment = extractMetaAudioAttachment(ev.message);
+      if (!text && !audioAttachment) continue;
       const psid = ev.sender?.id || "";
       const pageOrIgId = ev.recipient?.id || "";
       if (!psid || !pageOrIgId) continue;
@@ -393,6 +418,35 @@ export async function handleMetaWebhook(
           })
           .catch(() => undefined);
       }
+
+      // STAGED Leg A video2: voice-message understanding. The clip is
+      // downloaded (page token, never a hardcoded key), transcribed with
+      // the provider chain, and the transcript is routed through the
+      // EXISTING processChannelMessage -> chat() path — same brain,
+      // same tools, same order flow as typed text, text reply out.
+      // Failures never guess and never drop silently: the thread gets
+      // an honest marker and the customer gets an honest text reply
+      // asking them to type it (or silence while human takeover holds,
+      // matching the widget voice route's takeover behaviour).
+      if (audioAttachment && !text) {
+        await handleMetaVoiceMessage({
+          businessId,
+          conversationId: conversation.id,
+          conversationAiEnabled: conversation.aiEnabled,
+          conversationChannel: conversation.channel,
+          pageOrIgId,
+          psid,
+          audioUrl: audioAttachment.url ?? "",
+        });
+        counts.messages++;
+        continue;
+      }
+
+      // TS cannot prove it from the two guards above, but text is
+      // defined here: textless non-audio events continued at the top,
+      // and textless audio events continued through the voice branch.
+      // This guard only fires if those guards ever change.
+      if (!text) continue;
 
       const result = await processChannelMessage(conversation.id, businessId, text);
       counts.messages++;
@@ -432,4 +486,139 @@ export async function handleMetaWebhook(
     }
   }
   return counts;
+}
+
+// ---------------------------------------------------------------------------
+// STAGED Leg A video2 — Meta voice-message understanding
+// ---------------------------------------------------------------------------
+// Pure decision layer: src/lib/ai/voice-input.ts (decideVoiceTurn).
+// This helper only does I/O around it: download -> validate ->
+// transcribe -> route-or-fallback. Audio bytes are memory-only and
+// are never persisted; only the transcript (on success, via the
+// normal chat path) or an honest failure marker is stored.
+// Provider keys come from resolveSiteKeys() (owner's launch-step key);
+// nothing here hardcodes a key, a transcript, or a price. Voice turns
+// can never confirm anything: the only engine entry is
+// processChannelMessage -> chat(), and the agent tool list at HEAD
+// contains no confirm tool (take_order creates PENDING only).
+async function handleMetaVoiceMessage(opts: {
+  businessId: string;
+  conversationId: string;
+  conversationAiEnabled: boolean;
+  conversationChannel: string | null;
+  pageOrIgId: string;
+  psid: string;
+  audioUrl: string;
+}): Promise<void> {
+  // Fallback language: the thread's own recent customer text, script-
+  // detected exactly like the widget voice route does (business
+  // setting wins inside resolveBehaviourLang; here only prior text is
+  // available, so the pure mirror in voice-input.ts is used).
+  let priorCustomerText = "";
+  try {
+    const lastCustomer = await prisma.message.findFirst({
+      where: { conversationId: opts.conversationId, role: "customer" },
+      orderBy: { createdAt: "desc" },
+    });
+    priorCustomerText = lastCustomer?.content || "";
+  } catch {
+    /* language detection is best-effort */
+  }
+
+  const storeFailure = async (reason: "no_key" | "unintelligible" | "download_failed" | "unsupported_audio") => {
+    await prisma.message.create({
+      data: withBusinessId({
+        conversationId: opts.conversationId,
+        role: "customer",
+        content: voiceFailureCustomerNote(reason),
+      }),
+    });
+    await prisma.conversation
+      .update({
+        where: { id: opts.conversationId },
+        data: { updatedAt: new Date() },
+      })
+      .catch(() => undefined);
+    // Human takeover: stay silent, exactly like the widget voice
+    // route — staff see the marker in the thread, the visitor hears
+    // nothing from the AI.
+    if (opts.conversationAiEnabled === false) return;
+    await sendMetaMessage(
+      opts.pageOrIgId,
+      opts.psid,
+      voiceFallbackStrings(detectVoiceReplyLang(undefined, priorCustomerText))[reason]
+    );
+  };
+
+  // Download with the connected page/IG account's token.
+  let downloaded: { bytes: Buffer; mimeType: string } | null = null;
+  try {
+    const found = await getAccountForRecipient(opts.pageOrIgId);
+    if (found) {
+      const res = await fetch(opts.audioUrl, {
+        headers: { Authorization: `Bearer ${found.token}` },
+      });
+      if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer());
+        const rawMime = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+        downloaded = {
+          bytes: buf,
+          mimeType: rawMime.startsWith("audio/") ? rawMime : "audio/mp4",
+        };
+      }
+    }
+  } catch (err) {
+    logger.warn("[Meta] voice download failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  const validation = downloaded
+    ? validateVoiceAudio(downloaded.mimeType, downloaded.bytes.length)
+    : undefined;
+  const keys = await resolveSiteKeys().catch(() => null);
+  const keyPresent = keys ? hasAnyProviderKey(keys) : false;
+
+  let transcript: string | null = null;
+  if (downloaded && validation?.ok && keyPresent && keys) {
+    try {
+      transcript = await transcribeAudio(keys, downloaded.bytes, downloaded.mimeType);
+    } catch (err) {
+      // Empty transcripts throw inside transcribeAudio, and provider
+      // failures throw AllProvidersFailedError — both land here as
+      // `unintelligible` via decideVoiceTurn below. Nothing is guessed.
+      logger.warn("[Meta] voice transcription failed", {
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      transcript = null;
+    }
+  }
+
+  const decision = decideVoiceTurn({
+    audioDownloaded: downloaded !== null,
+    providerKeyPresent: keyPresent,
+    transcript,
+    priorCustomerText,
+    ...(validation ? { audioValidation: validation } : {}),
+  });
+
+  if (decision.kind === "route") {
+    const result = await processChannelMessage(
+      opts.conversationId,
+      opts.businessId,
+      decision.transcript
+    );
+    if (!result.silent && result.response) {
+      await reportActivity(opts.conversationId, "sending_reply", {
+        channel: opts.conversationChannel || undefined,
+      });
+      try {
+        await sendMetaMessage(opts.pageOrIgId, opts.psid, result.response);
+      } finally {
+        await clearActivity(opts.conversationId);
+      }
+    }
+    return;
+  }
+  await storeFailure(decision.reason);
 }

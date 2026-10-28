@@ -23,7 +23,7 @@ import type { WebsiteCreationRequest } from "@/lib/models";
 
 export const runtime = "nodejs";
 
-export const WEBSITE_REQUEST_STATUSES = [
+const WEBSITE_REQUEST_STATUSES = [
   "new",
   "contacted",
   "in_progress",

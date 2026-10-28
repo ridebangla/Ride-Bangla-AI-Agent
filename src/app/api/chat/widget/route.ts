@@ -128,12 +128,6 @@ class GateDeadlineError extends Error {
 //     decisions are still applied in the original order.
 // The gate deadline above stays as the safety net, and the chain now
 // logs a [latency] span so its cost stays measurable.
-type SiteKeyBusiness = { id: string; name: string; isInternalAccount?: unknown };
-const businessBySiteKeyCache = new Map<
-  string,
-  { at: number; business: SiteKeyBusiness }
->();
-
 function siteKeyCacheTtlMs(): number {
   const n = Number(process.env.WIDGET_SITEKEY_CACHE_TTL_MS);
   return Number.isFinite(n) && n >= 0 && n <= 600_000 ? n : 60_000;
@@ -151,40 +145,12 @@ async function getBusinessBySiteKeyCached(
   return business;
 }
 
-/** Test-only: clear the siteKey cache between cases (same pattern as
- *  the provider breakers' __resetProviderBreakers). */
-export function __resetWidgetSiteKeyCache(): void {
-  businessBySiteKeyCache.clear();
-}
-
-/**
- * AI-perfection round (2026-10-23), FIX-A support: stale-read accessor
- * for the siteKey cache. Returns the cached business REGARDLESS of
- * TTL — including a stale entry — or null when this instance never
- * resolved the siteKey. Used ONLY by the turn-failure path to answer
- * a pure greeting while the data layer is down; the live gate path
- * keeps using getBusinessBySiteKeyCached with its TTL semantics
- * unchanged.
- */
-export function getStaleBusinessBySiteKey(
-  siteKey: string
-): SiteKeyBusiness | null {
-  const hit = businessBySiteKeyCache.get(siteKey);
-  return hit ? hit.business : null;
-}
-
-const GRACEFUL_TURN_TEXT = {
-  bn: "দুঃখিত, এই মুহূর্তে আপনার বার্তাটির উত্তর দিতে একটু সমস্যা হচ্ছে। অনুগ্রহ করে একটু পরে আবার চেষ্টা করুন, অথবা জরুরি হলে আমাদের টিমের সঙ্গে সরাসরি যোগাযোগ করুন।",
-  en: "I'm sorry, I'm having a little trouble answering your message right now. Please try again in a moment, or contact our team directly if it's urgent.",
-} as const;
-
-/** Graceful turn-failure text in the visitor's language (Bengali script
- *  in their message → Bengali; anything else → English). */
-export function gracefulTurnResponseText(messageText: string): string {
-  return /[\u0980-\u09FF]/.test(messageText || "")
-    ? GRACEFUL_TURN_TEXT.bn
-    : GRACEFUL_TURN_TEXT.en;
-}
+import {
+  businessBySiteKeyCache,
+  type SiteKeyBusiness,
+  getStaleBusinessBySiteKey,
+  gracefulTurnResponseText,
+} from "@/lib/widget-sitekey-cache";
 
 export async function POST(request: NextRequest) {
   // Identifiers captured as the turn progresses so the failure path can
@@ -457,6 +423,7 @@ export async function POST(request: NextRequest) {
             const result = await withTurnDeadline(
               chat(convId, text || "(sent a photo)", {
                 media,
+                business: { name: business.name },
                 onToken: (tokenText) => send("token", { text: tokenText }),
                 onRetract: () => send("retract", {}),
               })
@@ -465,10 +432,18 @@ export async function POST(request: NextRequest) {
             send("done", {
               conversationId: convId,
               visitorId: visitor,
-              response: result.response,
+              // Leg D (video round 2): a draft-pending turn must never
+              // render draft text in the visitor's chat. The engine
+              // already returns an empty response + silent for such
+              // turns; this guard is belt-and-braces, and the flags let
+              // the embed know a reply is held for review.
+              response: result.draftPending ? "" : result.response,
               products: result.products,
               silent: result.silent,
               aiConfigured: result.aiConfigured !== false,
+              draftPending: result.draftPending === true,
+              draftId: result.draftId ?? null,
+              draftAutoSendAt: result.draftAutoSendAt ?? null,
             });
           } catch (error) {
             logger.error("Widget chat (stream) failed:", error);
@@ -504,15 +479,21 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await withTurnDeadline(
-      chat(convId, text || "(sent a photo)", { media })
+      chat(convId, text || "(sent a photo)", {
+        media,
+        business: { name: business.name },
+      })
     );
 
     return NextResponse.json({
       conversationId: convId,
       visitorId: visitor,
-      response: result.response,
+      response: result.draftPending ? "" : result.response,
       products: result.products,
       silent: result.silent,
+      draftPending: result.draftPending === true,
+      draftId: result.draftId ?? null,
+      draftAutoSendAt: result.draftAutoSendAt ?? null,
       // Help-Center adapter support (2026-10-20): false only when the
       // business has no AI provider key configured (engine fallback path),
       // so server-side consumers can render their own honest degradation

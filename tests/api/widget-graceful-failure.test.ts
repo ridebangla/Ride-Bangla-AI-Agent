@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { getBusinessBySiteKey } from "@/lib/tenant";
 import { getSubscription } from "@/lib/subscription";
-import { __resetWidgetSiteKeyCache } from "@/app/api/chat/widget/route";
+import { __resetWidgetSiteKeyCache } from "@/lib/widget-sitekey-cache";
 import { createRequest, parseJsonResponse } from "../helpers/request";
 
 const BN_GRACEFUL =

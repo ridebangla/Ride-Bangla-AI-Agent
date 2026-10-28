@@ -143,25 +143,7 @@ async function verifyCaller(
  * viewer — nothing per-user is cached.
  */
 const REVIEWS_CACHE_TTL_MS = 60_000;
-type ReviewsPayload = {
-  ok: true;
-  average: number;
-  count: number;
-  reviews: Array<{
-    name: string;
-    rating: number;
-    text: string;
-    createdAt: unknown;
-    photoURL: string;
-    verifiedGoogle: boolean;
-  }>;
-};
-const reviewsCache = new Map<string, { at: number; payload: ReviewsPayload }>();
-
-/** Test-only: clear the reviews payload cache between cases. */
-export function __resetReviewsCache(): void {
-  reviewsCache.clear();
-}
+import { reviewsCache, type ReviewsPayload } from "@/lib/reviews-cache";
 
 // ---------------------------------------------------------------- GET ----
 export async function GET(request: NextRequest) {

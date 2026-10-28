@@ -16,6 +16,16 @@
 
 import { prisma, withBusinessId, getUnscopedPrisma } from "./prisma";
 import { logger } from "./logger";
+import {
+  appendAuditTrail,
+  planHumanStatusChange,
+  type LockAuditEntry,
+  type LockActorType,
+} from "./order-lock";
+import {
+  queueOrderRatingRequest,
+  prismaRatingStore,
+} from "./order-rating-requests";
 import type { JsonValue } from "./models";
 
 export type OrderFieldType = "text" | "select" | "date" | "number" | "textarea";
@@ -215,15 +225,118 @@ export async function createOrder(input: CreateOrderInput) {
   });
 }
 
-/** Mark an order confirmed/cancelled (dashboard). */
-export async function setOrderStatus(orderId: string, status: OrderStatus) {
+/**
+ * Mark an order confirmed/cancelled (dashboard) — LEG B (staged).
+ *
+ * HUMAN-CONFIRM-ONLY + LOCKED (shared guard, src/lib/order-lock.ts):
+ * - Only a human actor may write status. An "agent" or "customer"
+ *   actor is refused BEFORE any write, so no agent tool, chat path,
+ *   or future auto-confirm switch can confirm/cancel/reopen an order
+ *   even if one were added by mistake — the data layer says no.
+ * - Every status write appends one audit entry to `lockAudit` in the
+ *   SAME update as the status change (plus `lockedAt` on confirm,
+ *   cleared on reopen). A post-confirmation change without an audit
+ *   entry cannot happen through this function.
+ * - Backward compatibility: callers that pass no `opts` (the pre-LB
+ *   dashboard route shape) still work, but their audit entry is
+ *   flagged `actorUnverified: true` with actorId null — the gap is
+ *   visible, never invented. The LB-03 route always passes a
+ *   verified dashboard actor, so real dashboard transitions are
+ *   attributed. Cross-tenant ids fail closed with a P2025-style
+ *   error (the route maps it to 404, exactly as before).
+ * - The courier bridge hook below is UNCHANGED: it is a consequence
+ *   of a human confirmation, never a status writer, and its
+ *   single-field `courierBooking` write is not a content edit, so
+ *   the lock does not (and must not) block it.
+ */
+export interface SetOrderStatusOptions {
+  actorType?: LockActorType;
+  actorId?: string | null;
+  /** Optional human reason (dashboard may pass body.reason). */
+  reason?: string | null;
+  conversationId?: string | null;
+  /** Test seam; defaults to new Date().toISOString(). */
+  nowIso?: string;
+}
+
+export async function setOrderStatus(
+  orderId: string,
+  status: OrderStatus,
+  opts?: SetOrderStatusOptions
+) {
   if (!["pending", "confirmed", "cancelled"].includes(status)) {
     throw new Error(`Invalid status: ${status}`);
   }
+  const actorType: LockActorType = opts?.actorType ?? "human";
+  if (actorType !== "human") {
+    throw new Error(
+      "Only a human team member may confirm, cancel, or reopen an order."
+    );
+  }
+  const nowIso = opts?.nowIso ?? new Date().toISOString();
+  // Current record first: the guard and the audit trail both need it,
+  // and the scoped update below still enforces tenancy (a cross-tenant
+  // id throws P2025 there, exactly as before — no existence leak).
+  const current = await getUnscopedPrisma().order.findUnique({
+    where: { id: orderId },
+  });
+  if (!current) {
+    // Preserve HEAD behaviour for unknown ids: the scoped update throws
+    // P2025, which the route maps to 404.
+    return prisma.order.update({
+      where: { id: orderId },
+      data: { status },
+    });
+  }
+  const currentStatus = String(
+    (current as { status?: unknown }).status ?? ""
+  );
+  const plan = planHumanStatusChange({
+    record: {
+      id: orderId,
+      status: currentStatus,
+      lockedAt: (current as { lockedAt?: unknown }).lockedAt,
+      lockAudit: (current as { lockAudit?: unknown }).lockAudit,
+    },
+    toStatus: status,
+    actorType: "human",
+    actorId: opts?.actorId ?? null,
+    reason: opts?.reason ?? null,
+    conversationId: opts?.conversationId ?? null,
+    nowIso,
+  });
+  if (!plan.allowed) {
+    throw new Error(plan.message);
+  }
+  const existingTrail = (current as { lockAudit?: unknown }).lockAudit;
+  const trail: LockAuditEntry[] = appendAuditTrail(
+    existingTrail,
+    plan.auditEntry
+  );
+  // Same cast pattern createOrder already uses for JSON fields
+  // (items/customFields as unknown as JsonValue); the Order model
+  // carries an index signature, so lockAudit/lockedAt persist like
+  // the courierBooking precedent.
+  const data: {
+    status: OrderStatus;
+    lockAudit: JsonValue;
+    lockedAt?: string | null;
+  } = { status, lockAudit: trail as unknown as JsonValue };
+  if (plan.setLockedAt !== undefined) {
+    data.lockedAt = plan.setLockedAt;
+  }
   const updated = await prisma.order.update({
     where: { id: orderId },
-    data: { status },
+    data,
   });
+
+  // Merge note (family stack): Leg B already read the pre-update record
+  // above (current/currentStatus); it serves as Leg I's previous-status
+  // read — no second read. decideRatingRequest compares previousStatus
+  // to status for equality only, so B's string form is equivalent to
+  // Leg I's null-on-missing form for every real order status.
+  const previousStatus = currentStatus;
+  let result = updated;
 
   // Courier bridge (owner directive 2026-10-21): confirming an order
   // automatically creates its Ride Bangla courier booking; cancelling
@@ -243,10 +356,39 @@ export async function setOrderStatus(orderId: string, status: OrderStatus) {
       const fresh = await getUnscopedPrisma().order.findUnique({
         where: { id: orderId },
       });
-      if (fresh) return fresh;
+      if (fresh) result = fresh;
     } catch (err) {
       logger.error("Courier bridge hook failed:", err);
     }
   }
-  return updated;
+
+  // Leg I: after a CONFIRM (and after the bridge, so the fresh
+  // order is used), queue the star-rating request in the order's
+  // own chat. Fail-soft by design — a notification failure never
+  // breaks a confirm, and the queue itself refuses non-transitions,
+  // unlinked orders, foreign conversations, takeover threads, and
+  // duplicate requests. Rating language follows the business's
+  // settings language (no customer text exists at confirm time).
+  if (status === "confirmed") {
+    try {
+      const settings = await prisma.settings.findFirst().catch(() => null);
+      const businessName =
+        settings && typeof settings.businessName === "string"
+          ? settings.businessName
+          : "";
+      const lang = settings?.language === "bn" ? "bn" : "en";
+      await queueOrderRatingRequest(
+        result,
+        previousStatus,
+        { businessName, lang },
+        prismaRatingStore(prisma, withBusinessId)
+      );
+    } catch (err) {
+      logger.warn("[orders] rating request queue failed (confirm unaffected)", {
+        orderId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return result;
 }

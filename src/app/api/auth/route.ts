@@ -95,11 +95,20 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Ensure default settings exist
+    // ID-04 (one agent per account): the Settings row IS this account's
+    // agent configuration (Settings.businessId is @unique — one agent
+    // per business, enforced by schema). Seed its spoken name from the
+    // business name supplied at creation. Before this fix the row was
+    // created with defaults only, so every new account's agent answered
+    // as "My Business" under a "Ride Bangla AI Agent" header.
     await setupDb.settings.upsert({
       where: { businessId: business.id },
       update: {},
-      create: { businessId: business.id },
+      create: {
+        businessId: business.id,
+        businessName: business.name,
+        businessDesc: "",
+      },
     });
 
     // Ensure channels exist

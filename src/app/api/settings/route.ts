@@ -3,6 +3,14 @@ import { prisma, runWithBusiness } from "@/lib/prisma";
 import { maskSettingsSecrets } from "@/lib/security";
 import { updateSettingsSchema, validateBody } from "@/lib/validations";
 import { logger } from "@/lib/logger";
+import {
+  appendAudit,
+  buildAuditEntry,
+  mergeControls,
+  normalizeControls,
+  summarizeControlChanges,
+  validateControlPatch,
+} from "@/lib/owner-controls/message-controls";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 
 export async function GET(request: NextRequest) {
@@ -66,10 +74,76 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: validation.error }, { status: 400 });
       }
 
+      // Owner message controls (LEG C): a Settings PUT carrying
+      // messageControls must pass the SAME semantic validation as the
+      // dedicated route, deep-merge (never replace sibling families),
+      // and audit — otherwise a PUT naming one family would silently
+      // wipe the others (nested-object replace semantics) and the
+      // trail would have a hole. Requires diff 001 (schema field).
+      // The audit trail is server-computed, never client input: it is
+      // NOT part of updateSettingsSchema (client-sent audit keys stay
+      // stripped/rejected by validation). writeData is therefore the
+      // schema output PLUS the server-only audit field.
+      let writeData: typeof validation.data & {
+        messageControlsAudit?: unknown;
+      } = validation.data;
+      if (validation.data.messageControls !== undefined) {
+        const patchCheck = validateControlPatch(validation.data.messageControls);
+        if (!patchCheck.ok) {
+          return NextResponse.json(
+            { error: patchCheck.error, field: patchCheck.field ?? null },
+            { status: 400 }
+          );
+        }
+        const existing = await prisma.settings.findUnique({
+          where: { businessId: auth.businessId },
+        });
+        const before = normalizeControls(existing?.messageControls);
+        const after = mergeControls(
+          before,
+          validation.data.messageControls as Record<string, unknown>
+        );
+        const changes = summarizeControlChanges(before, after);
+        if (changes.length > 0) {
+          const actorId =
+            typeof auth.userId === "string" && auth.userId !== ""
+              ? auth.userId
+              : null;
+          const actorType = actorId
+            ? actorId.startsWith("api-key:")
+              ? "api-key"
+              : "dashboard"
+            : "unknown";
+          const entry = buildAuditEntry({
+            id: crypto.randomUUID(),
+            businessId: auth.businessId,
+            actorType,
+            actorId,
+            at: new Date().toISOString(),
+            action: "controls_updated",
+            family: changes[0].family,
+            scope: changes.length === 1 ? changes[0].scope : null,
+            recordId: null,
+            changes,
+          });
+          const priorAudit = Array.isArray(existing?.messageControlsAudit)
+            ? (existing?.messageControlsAudit as never[])
+            : [];
+          writeData = {
+            ...validation.data,
+            messageControls: after,
+            messageControlsAudit: appendAudit(priorAudit as never, entry),
+          };
+        } else {
+          // No-change patch: keep the stored controls as-is instead of
+          // overwriting them with a partial object.
+          writeData = { ...validation.data, messageControls: before };
+        }
+      }
       const settings = await prisma.settings.upsert({
         where: { businessId: auth.businessId },
-        update: validation.data,
-        create: { businessId: auth.businessId, ...validation.data },
+        update: writeData,
+        create: { businessId: auth.businessId, ...writeData },
       });
 
       return NextResponse.json(maskSettingsSecrets(settings));

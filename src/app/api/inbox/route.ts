@@ -3,6 +3,12 @@ import { prisma, runWithBusiness } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { parsePagination, paginatedResponse } from "@/lib/pagination";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
+import {
+  normaliseComments,
+  mergeInboxItems,
+  filterCommentsBySearch,
+} from "@/lib/social/comment-inbox";
+import { oldestUnansweredCustomerMessage } from "@/lib/takeover-handoff";
 
 /**
  * Phase 5: unified inbox data.
@@ -184,9 +190,20 @@ export async function GET(request: NextRequest) {
           if (m.role === "customer") unread++;
           else break;
         }
+        // Leg E: how long the customer has waited for a human reply —
+        // oldest unanswered customer message (see takeover-handoff.ts:
+        // system records do not reset the wait, unlike the unread
+        // count above, which breaks on any non-customer role).
+        // `msgs` arrive newest-first; the helper takes oldest-first.
+        const wait = oldestUnansweredCustomerMessage(
+          [...msgs].reverse(),
+          Date.now()
+        );
         return {
           ...c,
           unread,
+          waitingSince: wait.waitingSince,
+          waitSeconds: wait.waitSeconds,
           lastMessage: msgs[0]
             ? {
                 role: msgs[0].role,
@@ -197,9 +214,83 @@ export async function GET(request: NextRequest) {
         };
       });
 
+      // Leg C: unified mode (?include=comments). Page-post comments for
+      // the tab's channel(s) are merged with the message rows, newest first,
+      // via the pure normaliser — the facebook/instagram tabs then show
+      // comments ALONGSIDE messages instead of only in the segregated
+      // Comments tab. Default (no param) behaviour is unchanged.
+      // Pagination honesty: conversations keep their skip/take page; the
+      // comment side is a newest-first window (take 100, the same cap as
+      // GET /api/social/comments), NOT paginated by the same cursor.
+      // `commentsTruncated` is true when that window may hide older rows.
+      // Replied comments are included only with commentStatus=all; the
+      // default (pending) is the actionable inbox queue.
+      let unified: unknown[] | null = null;
+      let pendingComments = 0;
+      let commentsTruncated = false;
+      let commentSkipped = 0;
+      if (searchParams.get("include") === "comments") {
+        const commentPlatforms =
+          tab === "facebook"
+            ? ["facebook"]
+            : tab === "instagram"
+              ? ["instagram"]
+              : tab === "all"
+                ? ["facebook", "instagram"]
+                : [];
+        if (commentPlatforms.length > 0) {
+          const commentStatus = searchParams.get("commentStatus") || "pending";
+          const commentWhere: Record<string, unknown> = {
+            kind: "comment",
+            platform: { in: commentPlatforms },
+          };
+          if (commentStatus === "pending") commentWhere.replied = false;
+          const commentRows = await prisma.socialInteraction.findMany({
+            where: commentWhere,
+            orderBy: { createdAt: "desc" },
+            take: 100,
+            select: {
+              id: true,
+              platform: true,
+              kind: true,
+              externalId: true,
+              parentRef: true,
+              customerRef: true,
+              content: true,
+              likes: true,
+              replied: true,
+              repliedAt: true,
+              replyRef: true,
+              draftReply: true,
+              createdAt: true,
+              authorName: true,
+              commentText: true,
+            },
+          });
+          commentsTruncated = commentRows.length >= 100;
+          const normalised = normaliseComments(
+            commentRows as unknown as Parameters<typeof normaliseComments>[0]
+          );
+          commentSkipped = normalised.skipped;
+          const searched =
+            search && search.trim()
+              ? filterCommentsBySearch(normalised.items, search.trim())
+              : normalised.items;
+          const merged = mergeInboxItems(
+            items as unknown as Array<Record<string, unknown>>,
+            searched
+          );
+          unified = merged.items;
+          pendingComments = merged.pendingCommentCount;
+        }
+      }
+
       return NextResponse.json({
         ...paginatedResponse(items, total, page, limit),
         unreadTotal: items.reduce((sum, i) => sum + i.unread, 0),
+        ...(unified
+          ? { items: unified, pendingComments, commentsTruncated, commentSkipped }
+          : {}),
       });
     } catch (error) {
       logger.error("Failed to fetch inbox:", error);

@@ -692,7 +692,7 @@ describe("GET /api/public/reviews — payload cache", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     const { __resetReviewsCache } = await import(
-      "@/app/api/public/reviews/route"
+      "@/lib/reviews-cache"
     );
     __resetReviewsCache();
     const { __resetSiteKeyCache } = await import("@/lib/tenant");

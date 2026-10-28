@@ -65,6 +65,10 @@ interface SettingsData {
   reviewUrl: string;
   followUpOrderCheckInHours: number;
   followUpDroppedHours: number;
+  /** Leg E: business-set takeover auto-revert timer, in minutes (0 = never). */
+  takeoverAutoRevertMinutes: number;
+  /** Leg I: delivered-order review request switch. OFF by default. */
+  orderReviewRequestsEnabled: boolean;
 }
 
 type SectionKey =
@@ -113,6 +117,8 @@ const sectionFields: Record<SectionKey, (keyof SettingsData)[]> = {
     "reviewUrl",
     "followUpOrderCheckInHours",
     "followUpDroppedHours",
+    "takeoverAutoRevertMinutes",
+    "orderReviewRequestsEnabled",
   ],
   voice: ["elevenLabsKey", "elevenLabsVoice"],
   phone: ["twilioSid", "twilioToken", "twilioPhone"],
@@ -550,6 +556,24 @@ function AISection({
           />
         </button>
       </div>
+      {/* Leg E: business-set takeover auto-revert timer. 0 = never —
+          a takeover lasts until staff hand it back. PROPOSAL wording. */}
+      <FormField
+        label="Human takeover auto-revert (minutes)"
+        description="When a team member takes over a chat, the AI automatically resumes after this many minutes. 0 means never — a takeover lasts until someone hands it back."
+      >
+        <NumberInput
+          value={data.takeoverAutoRevertMinutes || 0}
+          onChange={(v) =>
+            update(
+              "takeoverAutoRevertMinutes",
+              Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0
+            )
+          }
+          min={0}
+          max={10080}
+        />
+      </FormField>
       <div className="p-4 rounded-lg bg-rbai-primary-50/50 border border-rbai-primary/20">
         <p className="text-sm font-semibold text-rbai-text flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-rbai-primary" />
@@ -622,6 +646,20 @@ function AISection({
           checked={data.followUpsEnabled !== false}
           onToggle={() =>
             update("followUpsEnabled", !(data.followUpsEnabled !== false))
+          }
+        />
+        {/* Leg I: delivered-order review request. PROPOSAL wording
+          for owner approval (standing no-invented-copy rule). OFF
+          until the tenant switches it on; when on, one review
+          request per delivered order goes one day after delivery
+          is known, carrying the review link above, and only to
+          orders with a linked chat. */}
+        <BehaviourSwitch
+          label="Ask for a review after delivery"
+          description="One day after a delivered order, send the customer a review request with your review link above — only for orders placed in a chat, and only once per order. Stays off until you switch it on."
+          checked={data.orderReviewRequestsEnabled === true}
+          onToggle={() =>
+            update("orderReviewRequestsEnabled", !(data.orderReviewRequestsEnabled === true))
           }
         />
         <div className="grid gap-4 sm:grid-cols-2">
@@ -941,6 +979,8 @@ const defaultSettings: SettingsData = {
   reviewUrl: "",
   followUpOrderCheckInHours: 24,
   followUpDroppedHours: 48,
+  takeoverAutoRevertMinutes: 0,
+  orderReviewRequestsEnabled: false,
 };
 
 export default function SettingsPage() {

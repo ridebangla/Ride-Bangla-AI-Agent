@@ -33,6 +33,7 @@ import { FacebookIcon, InstagramIcon, XBrandIcon } from "@/components/ui/channel
 import { useState, useEffect, useRef, useCallback } from "react";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { AgentActivityLine } from "@/components/conversations/agent-activity-line";
+import { ChannelControlSwitch } from "@/components/owner-controls/ChannelControlSwitch";
 import {
   isFreshActivity,
   type AgentActivity,
@@ -148,6 +149,32 @@ interface CommentItem {
   createdAt: string;
 }
 
+// Leg C: one normalised page-post comment in the unified inbox list.
+// channelLabel ("Facebook comment" / "Instagram comment") + postLabel
+// ("Post <parentRef>") are the distinct labels — a comment row is never
+// shown as if it were a DM, and the post ref is shown verbatim (the post
+// text itself is not fetched or invented).
+interface UnifiedComment {
+  itemKind: "comment";
+  id: string;
+  platform: string;
+  channelLabel: string;
+  postRef: string;
+  postLabel: string;
+  authorName: string;
+  text: string;
+  likes: number;
+  replied: boolean;
+  draftReply: string | null;
+  createdAt: string;
+  sortAt: string;
+  unread: boolean;
+}
+
+type UnifiedInboxRow =
+  | (InboxConversation & { itemKind: "message" })
+  | UnifiedComment;
+
 // ---------------------------------------------------------------------------
 // Small components
 // ---------------------------------------------------------------------------
@@ -200,6 +227,11 @@ function AiToggle({
 export default function InboxPage() {
   const [tab, setTab] = useState("website");
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
+  // Leg C: unified list for the Facebook/Instagram tabs (messages +
+  // comments, already merged + sorted by /api/inbox?include=comments).
+  const [unifiedItems, setUnifiedItems] = useState<UnifiedInboxRow[] | null>(null);
+  const [selectedComment, setSelectedComment] = useState<UnifiedComment | null>(null);
+  const [commentDraft, setCommentDraft] = useState("");
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [pendingComments, setPendingComments] = useState(0);
   const [unreadByTab, setUnreadByTab] = useState<Record<string, number>>({});
@@ -213,6 +245,8 @@ export default function InboxPage() {
   const [deliveryNote, setDeliveryNote] = useState<string | null>(null);
   const [togglingAi, setTogglingAi] = useState(false);
   const [globalAiOff, setGlobalAiOff] = useState(false);
+  const [channelControls, setChannelControls] = useState<Record<string, { mode: string }>>({});
+  const [channelSwitchBusy, setChannelSwitchBusy] = useState(false);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -235,11 +269,16 @@ export default function InboxPage() {
     }
     const params = new URLSearchParams({ channel: t });
     if (query.trim()) params.set("search", query.trim());
+    // Leg C: on the Facebook/Instagram tabs, ask for the unified list so
+    // page-post comments appear ALONGSIDE messages on their channel.
+    const isUnifiedTab = t === "facebook" || t === "instagram";
+    if (isUnifiedTab) params.set("include", "comments");
     const res = await fetch(`/api/inbox?${params.toString()}`);
     if (!res.ok) throw new Error("Failed to load inbox");
     const data = await res.json();
     // /api/inbox returns the paginated envelope { data, pagination, unreadTotal }.
     setConversations(Array.isArray(data.data) ? data.data : []);
+    setUnifiedItems(isUnifiedTab && Array.isArray(data.items) ? data.items : null);
     return data;
   }, []);
 
@@ -261,11 +300,17 @@ export default function InboxPage() {
     await Promise.all(
       tabs.map(async (t) => {
         try {
-          const res = await fetch(`/api/inbox?channel=${t}&limit=1`);
+          // Leg C: on Facebook/Instagram the badge also counts pending
+          // comments in the unified window (same 100-row window cap as the
+          // Comments queue), so an unanswered comment lights up its channel.
+          const unified = t === "facebook" || t === "instagram";
+          const res = await fetch(
+            `/api/inbox?channel=${t}&limit=1${unified ? "&include=comments" : ""}`
+          );
           if (res.ok) {
             const data = await res.json();
             // unreadTotal covers the whole tab, not just the page.
-            counts[t] = data.unreadTotal || 0;
+            counts[t] = (data.unreadTotal || 0) + (unified ? data.pendingComments || 0 : 0);
           }
         } catch { /* ignore */ }
       })
@@ -291,8 +336,51 @@ export default function InboxPage() {
     } catch { /* ignore */ }
   }, []);
 
+  // Owner-controls (settled 2026-10-28 model): per-channel AI/owner map
+  // from the wired settings-doc adapter. A failed load leaves the map
+  // empty, which reads as "ai" per channel — never as owner-held — so
+  // a load failure can never silently silence a channel. The switch
+  // itself is the only control that resumes a held channel.
+  const fetchChannelControls = useCallback(async () => {
+    try {
+      const res = await fetch("/api/owner-controls/channels");
+      if (res.ok) {
+        const data = await res.json();
+        setChannelControls(data.channelControls || {});
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  const handleChannelSwitch = useCallback(
+    async (action: "takeover" | "handback") => {
+      if (channelSwitchBusy) return;
+      setChannelSwitchBusy(true);
+      try {
+        const res = await fetch(`/api/owner-controls/channels/${tab}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        });
+        if (!res.ok) throw new Error("Failed");
+        await fetchChannelControls();
+        showToast(
+          action === "handback"
+            ? "AI is back on — it will read the full history and resume naturally"
+            : "AI is off on this channel — the customer now talks directly to you",
+          "success"
+        );
+      } catch {
+        showToast("Failed to switch channel AI mode", "error");
+      } finally {
+        setChannelSwitchBusy(false);
+      }
+    },
+    [tab, channelSwitchBusy, fetchChannelControls, showToast]
+  );
+
   useEffect(() => {
     setSelectedId(null);
+    setSelectedComment(null);
     setThread(null);
     setMobileShowDetail(false);
     refresh();
@@ -301,7 +389,8 @@ export default function InboxPage() {
   useEffect(() => {
     refreshUnread();
     fetchGlobalAi();
-  }, [refreshUnread, fetchGlobalAi]);
+    fetchChannelControls();
+  }, [refreshUnread, fetchGlobalAi, fetchChannelControls]);
 
   // Signature of the last rendered thread payload — silent polls skip
   // the state write when nothing material changed, so an idle open
@@ -433,9 +522,39 @@ export default function InboxPage() {
 
   const handleSelect = (id: string) => {
     setSelectedId(id);
+    setSelectedComment(null);
     setMobileShowDetail(true);
     setDeliveryNote(null);
     setReplyText("");
+  };
+
+  // Leg C: selecting a comment opens the comment detail pane (not a DM
+  // thread) — the reply posts to that comment on its channel/post via the
+  // existing approve route, which resolves the account + platform target.
+  const handleSelectComment = (comment: UnifiedComment) => {
+    setSelectedComment(comment);
+    setSelectedId(null);
+    setThread(null);
+    setCommentDraft(comment.draftReply || "");
+    setMobileShowDetail(true);
+  };
+
+  const handleApproveUnifiedComment = async (id: string, text: string) => {
+    await handleApproveComment(id, text);
+    setSelectedComment(null);
+    setUnifiedItems((prev) =>
+      prev ? prev.filter((i) => !(i.itemKind === "comment" && i.id === id)) : prev
+    );
+    refresh();
+  };
+
+  const handleDismissUnifiedComment = async (id: string) => {
+    await handleDismissComment(id);
+    setSelectedComment(null);
+    setUnifiedItems((prev) =>
+      prev ? prev.filter((i) => !(i.itemKind === "comment" && i.id === id)) : prev
+    );
+    refresh();
   };
 
   const handleAiToggle = async (enabled: boolean) => {
@@ -527,6 +646,26 @@ export default function InboxPage() {
 
   const def = channelDef(tab);
 
+  // Leg C: the rendered list. On Facebook/Instagram tabs the API's merged
+  // list is used (messages + comments, newest first); every other tab
+  // keeps the existing conversations-only list. The Comments tab is kept
+  // as a filtered queue view — it is not removed by this leg.
+  const unifiedList =
+    (tab === "facebook" || tab === "instagram") && unifiedItems ? unifiedItems : null;
+  const displayItems: Array<
+    | { type: "message"; conv: InboxConversation }
+    | { type: "comment"; comment: UnifiedComment }
+  > = unifiedList
+    ? unifiedList.map((item) =>
+        item.itemKind === "comment"
+          ? { type: "comment" as const, comment: item as UnifiedComment }
+          : {
+              type: "message" as const,
+              conv: item as unknown as InboxConversation,
+            }
+      )
+    : conversations.map((conv) => ({ type: "message" as const, conv }));
+
   return (
     <>
       <Header
@@ -579,6 +718,21 @@ export default function InboxPage() {
         </div>
       )}
 
+      {/* Per-channel AI switch (owner-controls, settled model): one switch
+          per channel tab, above the thread list, below the global banner.
+          The unified inbox stays one place — no new page, no new tab. */}
+      {tab !== "comments" && (
+        <ChannelControlSwitch
+          channel={tab}
+          label={def.label}
+          mode={(channelControls[tab]?.mode as "ai" | "owner") ?? "ai"}
+          busy={channelSwitchBusy}
+          globalAiOff={globalAiOff}
+          onTakeOver={() => handleChannelSwitch("takeover")}
+          onHandBack={() => handleChannelSwitch("handback")}
+        />
+      )}
+
       <div className="flex-1 flex overflow-hidden">
         {tab === "comments" ? (
           <CommentsPanel
@@ -615,19 +769,70 @@ export default function InboxPage() {
                   <div className="flex items-center justify-center h-40">
                     <Loader2 className="h-6 w-6 animate-spin text-rbai-primary" />
                   </div>
-                ) : conversations.length === 0 ? (
+                ) : displayItems.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-64 px-6 text-center">
                     <div className="p-4 rounded-full bg-rbai-primary-50 mb-4">
                       <InboxIcon className="h-8 w-8 text-rbai-primary" />
                     </div>
-                    <p className="font-medium text-rbai-text">No {def.label} conversations</p>
+                    <p className="font-medium text-rbai-text">
+                      {unifiedList
+                        ? `No ${def.label} messages or comments yet`
+                        : `No ${def.label} conversations`}
+                    </p>
                     <p className="text-sm text-rbai-text-light mt-1">
-                      New {def.label} messages will appear here
+                      {unifiedList
+                        ? `New ${def.label} messages and post comments will appear here`
+                        : `New ${def.label} messages will appear here`}
                     </p>
                   </div>
                 ) : (
                   <div className="divide-y divide-rbai-border">
-                    {conversations.map((conv) => {
+                    {displayItems.map((row) => {
+                      if (row.type === "comment") {
+                        const comment = row.comment;
+                        const isSelected = selectedComment?.id === comment.id;
+                        return (
+                          <button
+                            key={`comment-${comment.id}`}
+                            onClick={() => handleSelectComment(comment)}
+                            className={cn(
+                              "w-full px-4 py-3.5 text-left hover:bg-rbai-primary-50/50 transition-colors",
+                              isSelected && "bg-rbai-primary-50 border-l-2 border-l-rbai-primary"
+                            )}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium text-sm text-rbai-text truncate">
+                                    {comment.authorName || "Unknown commenter"}
+                                  </p>
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700">
+                                    Comment
+                                  </span>
+                                  {!comment.replied && <UnreadBadge count={1} />}
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="text-xs text-rbai-text-light">
+                                    {formatRelativeTime(comment.createdAt)}
+                                  </span>
+                                  <span className="text-xs font-medium text-rbai-text-light">
+                                    {comment.channelLabel} · {comment.postLabel}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-rbai-text-light mt-1 truncate">
+                                  {comment.text}
+                                </p>
+                                {comment.draftReply && (
+                                  <p className="text-xs text-rbai-primary mt-1">
+                                    Draft ready — open to review and send
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      }
+                      const conv = row.conv;
                       const isSelected = selectedId === conv.id;
                       return (
                         <button
@@ -676,6 +881,7 @@ export default function InboxPage() {
                           </div>
                         </button>
                       );
+
                     })}
                   </div>
                 )}
@@ -684,7 +890,78 @@ export default function InboxPage() {
 
             {/* Right: thread */}
             <div className={cn("flex-1 flex flex-col bg-rbai-bg", !mobileShowDetail && "hidden md:flex")}>
-              {!selectedId ? (
+              {selectedComment ? (
+                <div className="flex-1 flex flex-col bg-rbai-bg">
+                  <div className="px-4 py-3 bg-rbai-surface border-b border-rbai-border flex items-center gap-3">
+                    <button
+                      onClick={() => setSelectedComment(null)}
+                      className="md:hidden p-1.5 hover:bg-rbai-primary-50 rounded-lg transition-colors"
+                    >
+                      <ArrowLeft className="h-5 w-5 text-rbai-text" />
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-rbai-text truncate">
+                          {selectedComment.authorName || "Unknown commenter"}
+                        </h3>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700">
+                          Comment
+                        </span>
+                      </div>
+                      <p className="text-xs text-rbai-text-light">
+                        {selectedComment.channelLabel} · {selectedComment.postLabel}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-4 py-4">
+                    <p className="text-sm text-rbai-text whitespace-pre-wrap">
+                      {selectedComment.text}
+                    </p>
+                    <p className="text-xs text-rbai-text-light mt-2">
+                      {formatRelativeTime(selectedComment.createdAt)}
+                      {selectedComment.replied ? " · Already replied" : " · Awaiting reply"}
+                    </p>
+                    {globalAiOff && (
+                      <p className="text-xs text-amber-700 mt-3">
+                        AI drafts are paused while global AI is off — write the reply yourself.
+                      </p>
+                    )}
+                  </div>
+                  <div className="px-4 py-3 bg-rbai-surface border-t border-rbai-border">
+                    <label className="block text-xs font-medium text-rbai-text-light mb-1.5">
+                      Reply to this comment
+                    </label>
+                    <textarea
+                      value={commentDraft}
+                      onChange={(e) => setCommentDraft(e.target.value)}
+                      rows={3}
+                      placeholder="Write the reply yourself, or edit the AI draft"
+                      className="w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary resize-y"
+                    />
+                    <div className="flex items-center gap-2 mt-3">
+                      <button
+                        type="button"
+                        disabled={!commentDraft.trim()}
+                        onClick={() => handleApproveUnifiedComment(selectedComment.id, commentDraft)}
+                        className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-rbai-primary rounded-lg hover:bg-rbai-primary-dark disabled:opacity-50 transition-colors"
+                      >
+                        <Send className="h-4 w-4" />
+                        Send reply
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDismissUnifiedComment(selectedComment.id)}
+                        className="px-4 py-2 text-sm font-medium text-rbai-text-light border border-rbai-border rounded-lg hover:bg-rbai-bg transition-colors"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                    <p className="text-xs text-rbai-text-light mt-2">
+                      Sends as a reply to this comment on {selectedComment.platform}.
+                    </p>
+                  </div>
+                </div>
+              ) : !selectedId ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
                   <div className="p-5 rounded-full bg-rbai-surface border border-rbai-border mb-4">
                     <def.icon className="h-10 w-10 text-rbai-text-light" />
@@ -723,7 +1000,7 @@ export default function InboxPage() {
                     <AiToggle
                       enabled={thread.aiEnabled !== false}
                       onChange={handleAiToggle}
-                      disabled={togglingAi || globalAiOff}
+                      disabled={togglingAi || globalAiOff || channelControls[tab]?.mode === "owner"}
                     />
                   </div>
 
@@ -735,6 +1012,20 @@ export default function InboxPage() {
                         <span className="font-semibold">You took over.</span> The AI is silent on this
                         conversation — the customer talks directly to you. Flip the switch back on and the
                         AI resumes with full history.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Channel-held note: the channel switch outranks the
+                      per-conversation switch (precedence in channel-controls.ts).
+                      The conversation toggle above is disabled while the channel
+                      is held — flip the channel switch back on first. */}
+                  {channelControls[tab]?.mode === "owner" && (
+                    <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center gap-2">
+                      <BotOff className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                      <p className="text-xs text-amber-800">
+                        <span className="font-semibold">Channel is owner-controlled — flip the channel switch back on first.</span>{" "}
+                        The AI is silent on this whole channel, not just this conversation.
                       </p>
                     </div>
                   )}

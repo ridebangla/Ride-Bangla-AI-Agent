@@ -162,6 +162,13 @@ export interface Business {
   landingQuality?: JsonValue;
   /** Phase 2: per-business custom order fields (Order Settings). */
   orderFields?: JsonValue;
+  /**
+   * Leg A (booking): per-business booking questions (Booking Settings).
+   * Separate from orderFields on purpose — bookings are a separate record
+   * type, not orders. The agent must collect every REQUIRED booking
+   * question before request_booking creates the request.
+   */
+  bookingQuestions?: JsonValue;
   /** Courier bridge (owner directive 2026-10-21): when true, confirming
       an order automatically creates a courier booking in Ride Bangla's
       own courier system (Rider app dispatch). Absent = platform default
@@ -225,6 +232,14 @@ export interface Settings {
    */
   aiEnabled: boolean;
   /**
+   * Leg J: per-channel / per-page AI toggles (see
+   * src/lib/channel-toggles.ts for precedence). Missing/empty = all
+   * ON; only an explicit false switches a surface off. Stored on the
+   * tenant's own settings doc, never on a conversation.
+   */
+  channelAiToggles?: Record<string, boolean>;
+  pageAiToggles?: Record<string, { messages?: boolean; comments?: boolean }>;
+  /**
    * Behaviour package (owner directive 2026-10-21): per-business agent
    * behaviour switches, normalised by getBehaviourSettings() in
    * src/lib/ai/behaviour.ts. Absent = platform defaults (review asks ON,
@@ -237,6 +252,88 @@ export interface Settings {
   reviewUrl?: string;
   followUpOrderCheckInHours?: number;
   followUpDroppedHours?: number;
+  /**
+   * Leg D (video round 2) — reply approval mode, tenant-scoped, OPT-IN.
+   * replyApprovalEnabled absent/false = direct send (the default).
+   * replyApprovalWaitSeconds = seconds a draft waits for review before
+   * auto-send; the pure module clamps it to 30..86400 at read time.
+   */
+  replyApprovalEnabled?: boolean;
+  replyApprovalWaitSeconds?: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Leg D (video round 2) — a held agent reply. TEXT ONLY: a draft never
+ * creates, confirms, prices, or otherwise changes an order, booking,
+ * ticket, or courier state. Sending a draft writes one assistant
+ * message row (plus the channel send attempt for non-widget channels).
+ * Status lifecycle: pending -> sending -> sent | pending -> rejected |
+ * pending -> superseded (new customer message) | pending -> cancelled
+ * (thread closed). `sending` is the at-most-once claim state.
+ */
+export interface ReplyDraft {
+
+  [key: string]: unknown;  id: string;
+  businessId: string;
+  conversationId: string;
+  /** First 500 chars of the customer message this draft answers. */
+  customerMessage: string;
+  /** Agent-generated text (verbatim). */
+  draftText: string;
+  /** Team-edited text; wins over draftText at send time. Null = unedited. */
+  editedText: string | null;
+  status: string;
+  /** ISO timestamp at which the sweep auto-sends (snapshot at creation / edit). */
+  autoSendAt: string;
+  /** Wait seconds snapshotted when the draft (or its edit) was created. */
+  waitSecondsSnapshot: number;
+  supersedeReason: string | null;
+  supersededAt: string | null;
+  editedBy: string | null;
+  editedByName: string | null;
+  editedAt: string | null;
+  rejectedBy: string | null;
+  rejectedByName: string | null;
+  rejectedAt: string | null;
+  sentAt: string | null;
+  sentBy: string | null;
+  sentByName: string | null;
+  /** "manual" (team send-now) or "auto" (timer sweep). */
+  sentVia: string | null;
+  sentMessageId: string | null;
+  deliveryNote: string | null;
+  cancelReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * LEG G (staged): one tenant's supplementary business rules.
+ * One document per business (collection `businessRules`, unique
+ * businessId). Every field is optional: absent/null/empty = unset.
+ * deliveryCharge / minimumOrder are structured (amount + currency)
+ * because only a saved tenant figure may ever be quoted; the text
+ * fields are the tenant's own words. overridesWebsite records a
+ * tenant-confirmed answer that stands beside a website/details
+ * entry — the entry itself is never edited by this leg.
+ */
+export interface BusinessRules {
+  [key: string]: unknown;
+  id: string;
+  businessId: string;
+  deliveryCharge?: { amount: number; currency: string; note?: string } | null;
+  deliveryAreas?: string | null;
+  deliveryTime?: string | null;
+  returnPolicy?: string | null;
+  exchangePolicy?: string | null;
+  refundPolicy?: string | null;
+  paymentMethods?: string | null;
+  minimumOrder?: { amount: number; currency: string; note?: string } | null;
+  overridesWebsite?: {
+    [field: string]: { entryId?: string; excerpt: string; confirmedAt: string };
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -347,6 +444,12 @@ export interface Conversation {
    * Flipped by the Phase 5 dashboard switch + live-chat view.
    */
   aiEnabled: boolean;
+  /**
+   * Leg D (video round 2) — per-chat approval pause. true = this chat's
+   * draft auto-send timer is held (drafts stay pending, manual-only)
+   * until the team unpauses it. Independent of aiEnabled (takeover).
+   */
+  approvalPaused?: boolean;
   createdAt: Date;
   updatedAt: Date;
   messages: Message[];
@@ -376,6 +479,56 @@ export interface Message {
   deliveryNote?: string | null;
   createdAt: Date;
   conversation: Conversation;
+}
+
+/**
+ * Test-chat sandbox leg — a staff test session. TEST ONLY: a
+ * session is never a conversation, never appears in the inbox or
+ * any real-conversation count, and never becomes a live
+ * conversation (going live flips settings only). isTest is always
+ * true; startedWhileLive records the global switch state at
+ * creation (missing = ON, as the engine reads it) for display
+ * only — it is never a gate and never written back to settings.
+ */
+export interface TestChatSession {
+
+  [key: string]: unknown;  id: string;
+  businessId: string;
+  isTest: boolean;
+  /** "open" | "closed" (closed = ended test; rows are never deleted). */
+  status: string;
+  title: string;
+  createdBy: string;
+  createdByName: string;
+  startedWhileLive: boolean;
+  messageCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+  closedAt: Date | null;
+}
+
+/**
+ * Test-chat sandbox leg — one turn inside a test session. TEST
+ * ONLY: role is "tester" (never "customer") or "assistant" inside
+ * a test row; channel is always "test-chat" (a dashboard label,
+ * not a real channel). No row here is ever read by inbox,
+ * conversation, analytics, or usage code, which query the real
+ * collections.
+ */
+export interface TestChatMessage {
+
+  [key: string]: unknown;  id: string;
+  businessId: string;
+  sessionId: string;
+  isTest: boolean;
+  /** "tester" | "assistant" */
+  role: string;
+  content: string;
+  /** Always "test-chat". */
+  channel: string;
+  /** Provider model for assistant rows; "" for tester rows. */
+  model: string;
+  createdAt: Date;
 }
 
 export interface Ticket {
@@ -663,7 +816,11 @@ export interface FollowUp {
   /**
    * Behaviour package (2026-10-21): what created this follow-up —
    * "order_checkin" (engine, when an order was taken) or
-   * "dropped_revival" (follow-up processor, quiet conversation).
+   * "dropped_revival" (follow-up processor, quiet conversation),
+   * "order_rating_request" (Leg I: queued from setOrderStatus when
+   * an agent-taken order is confirmed) or "order_review_request"
+   * (Leg I: queued by the delivered-order scan, due 24h after
+   * delivery is first observed).
    * Absent/null = a customer-requested reminder (schedule_followup tool)
    * or a pre-package record.
    */
@@ -759,6 +916,14 @@ export interface SocialInteraction {
   draftReply?: string | null;
   /** Phase 5: id of the socialAccount that produced this interaction. */
   socialAccountId?: string | null;
+  /**
+   * Leg C: author + text stored separately (new rows only). Legacy rows
+   * carry only `content` ("<author>: <text>"); the unified-inbox normaliser
+   * prefers these fields and falls back to parsing `content`. Optional so
+   * legacy rows need no migration (same collection, same tenant scoping).
+   */
+  authorName?: string | null;
+  commentText?: string | null;
   createdAt: Date;
 }
 
@@ -812,6 +977,45 @@ export interface Product {
   category: ProductCategory | null;
 }
 
+export interface StockLevel {
+
+  [key: string]: unknown;  id: string;
+  businessId: string;
+  productId: string;
+  /** "" = the product itself; otherwise an opaque variant key. */
+  variantKey: string;
+  /** Whole units on hand; never negative. */
+  quantityOnHand: number;
+  /** Null = no threshold set = never low. */
+  lowStockThreshold: number | null;
+  /** Id of the most recent stockMovements entry applied, or null. */
+  lastMovementId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface StockLedgerEntry {
+
+  [key: string]: unknown;  id: string;
+  businessId: string;
+  productId: string;
+  variantKey: string;
+  type: "sales_out" | "purchase_in" | "return_in" | "transfer" | "adjustment";
+  direction: "in" | "out";
+  quantity: number;
+  previousStock: number;
+  newStock: number;
+  /** Selling-value or supplied-cost impact; null amount = unknown (see ledger.ts). */
+  valueImpact: JsonValue;
+  referenceType: "order" | "return" | "adjustment" | "transfer" | null;
+  referenceId: string | null;
+  updatedBy: string;
+  reason: string | null;
+  reversesMovementId: string | null;
+  transferGroupId: string | null;
+  createdAt: Date;
+}
+
 export interface Order {
 
   [key: string]: unknown;  id: string;
@@ -826,6 +1030,35 @@ export interface Order {
   summary: string;
   status: string; // 'pending' | 'confirmed' | 'cancelled'
   total: number | null;
+  /**
+   * LEG E field spec (orders dashboard). ALL OPTIONAL, NO WRITER in
+   * this leg — these fields are read only when present:
+   *  - channel: the order's recorded channel ("messenger", "instagram",
+   *    "whatsapp", "shopify", "woocommerce", "widget", ...). At HEAD no
+   *    writer stamps this; the dashboard resolves channel from the
+   *    linked conversation instead (see order-dashboard.ts). A future
+   *    store-integration writer may stamp it directly.
+   *  - currency: recorded currency code for the order's total (e.g.
+   *    "BDT"). At HEAD no order records a currency; sales are grouped
+   *    by this value when present and never converted.
+   *  - deliveryCharge: recorded delivery charge for this order (see the
+   *    Presswayy Leg H coupon writer, which stamps it on the coupon
+   *    path). No tenant delivery-charge configuration exists at HEAD.
+   *  - paymentMethod: recorded payment method; exactly "cod" means
+   *    cash on delivery. Absence means "not recorded", never "COD".
+   *  - priceBreakdown: recorded breakdown lines (Leg H coupon path).
+   */
+  channel?: string | null;
+  currency?: string | null;
+  deliveryCharge?: number | null;
+  paymentMethod?: string | null;
+  priceBreakdown?: JsonValue;
+  /** Leg I: star rating recorded from the customer's own chat reply
+   *  (1–5), or null when unrated. Written ONLY by the deterministic
+   *  rating capture — never by the model, never a review text. */
+  rating?: number | null;
+  /** Leg I: when the rating was recorded. */
+  ratingAt?: Date | null;
   /** Courier bridge link (owner directive 2026-10-21), written
       server-side by src/lib/courier-bridge.ts when the order is
       confirmed/cancelled. Shape: CourierBookingLink —
@@ -836,6 +1069,61 @@ export interface Order {
       has not processed this order (not confirmed, or delivery disabled
       for the business). */
   courierBooking?: JsonValue;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Leg A (booking): a booking REQUEST record — a separate record type from
+ * Order, stored in its own `bookings` collection (see firestore.ts).
+ * It is never an order with a flag. Statuses are the booking state
+ * machine (see booking-state.ts); `confirmed` is the lock point owned
+ * by Leg B. `availabilityChecked` is always false in this batch: no
+ * calendar exists, so no slot is ever recorded as free, busy, or booked.
+ */
+export interface Booking {
+
+  [key: string]: unknown;  id: string;
+  businessId: string;
+  conversationId: string | null;
+  customerId: string | null;
+  /** What is being booked, e.g. "Haircut", "Studio session". */
+  service: string;
+  /** The customer's requested slot, verbatim — a REQUEST, never a booking. */
+  requestedSlot: string;
+  /** Date as STATED by the customer (YYYY-MM-DD shape only, never verified). */
+  requestedDate: string | null;
+  /** Time as STATED by the customer (HH:MM shape only, never verified). */
+  requestedTime: string | null;
+  /** Where the booking takes place, if given. */
+  place: string | null;
+  /** What the customer should bring, if the business stated it. */
+  whatToBring: string | null;
+  /** The business's own questions + the customer's answers. */
+  questions: JsonValue;
+  customerName: string | null;
+  customerPhone: string | null;
+  /** Advance/deposit ONLY when explicitly stated; null = not stated. */
+  advanceAmount: number | null;
+  /** Currency code ONLY when explicitly stated alongside the amount. */
+  advanceCurrency: string | null;
+  /** Free-text reminder preferences. No reminder sender exists in this leg. */
+  reminders: JsonValue;
+  /** Human-proposed alternative slot (only when status is/was `proposed`). */
+  proposedSlot: string | null;
+  proposedDate: string | null;
+  proposedTime: string | null;
+  /** Human note / return reason / cancellation reason. */
+  humanNote: string | null;
+  /** 'requested' | 'proposed' | 'confirmed' | 'declined' |
+      'cancelled_by_customer' | 'cancelled_by_business' */
+  status: string;
+  /** Doc-level state history (NOT the Leg B audit trail). */
+  statusHistory: JsonValue;
+  /** Always false in this leg: no calendar, no availability check. */
+  availabilityChecked: boolean;
+  /** Short human summary for dashboard lists. */
+  summary: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -899,6 +1187,43 @@ export interface Lead {
   updatedAt: Date;
 }
 
+/**
+ * InboundLead — INBOUND pipeline only (customers of this business who
+ * showed buying/booking interest). Deliberately NOT the outbound Harvey
+ * Lead model above: different collection (`inboundLeads`), different
+ * stages, different writer (the sales agent / the team — never the
+ * outbound sidecar). A lead is interest, never an order or confirmation.
+ */
+export interface InboundLead {
+  [key: string]: unknown;
+  id: string;
+  businessId: string;
+  /** Customer name as given (may be empty when only a phone is known). */
+  name: string;
+  /** Phone as given. Matching uses a digits-only key (see inbound-leads.ts). */
+  phone: string;
+  /** What the customer wants, in their words (product / service / booking). */
+  interest: string;
+  /** Team/agent notes, appended as dated lines (history kept). */
+  note: string;
+  /** Follow-up date, YYYY-MM-DD, or null. UTC day (no tenant timezone). */
+  followUpDate: string | null;
+  /** 'agent' (create_inbound_lead tool) | 'manual' (dashboard form). */
+  source: string;
+  /** Channel the interest arrived on (widget, whatsapp, ...), if known. */
+  channel: string;
+  conversationId: string | null;
+  customerId: string | null;
+  /** 'new' | 'contacted' | 'interested' | 'quoted' | 'won' | 'lost'. */
+  stage: string;
+  /** Teammate working this lead (teamMember id), or null. */
+  assignedToId: string | null;
+  /** Denormalised teammate name at assign time (display only). */
+  assignedToName: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface LeadDraft {
   [key: string]: unknown;
   id: string;
@@ -941,6 +1266,31 @@ export interface LeadSettings {
   requireApproval: boolean;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface AgentRuleVersion {
+  [key: string]: unknown;
+  id: string;
+  businessId: string;
+  /** 1-based per business, monotonic; never reused. */
+  versionNumber: number;
+  /** 'DRAFT' | 'LIVE' | 'SUPERSEDED' | 'DISCARDED' */
+  status: string;
+  /** Owner's verbatim plain-language rules. */
+  plainText: string;
+  /** Owner's own words on what changed ("" = none given). */
+  changeNote: string;
+  /** Auth userId of the actor ("api-key:<id>" for key auth). */
+  createdBy: string;
+  createdByName: string;
+  createdAt: Date;
+  updatedAt: Date;
+  publishedAt: Date | null;
+  publishedBy: string | null;
+  /** 'draft' | 'rollback' */
+  origin: string;
+  /** versionNumber restored by a rollback row; null otherwise. */
+  restoresVersion: number | null;
 }
 
 /**
@@ -1025,5 +1375,77 @@ export interface SiteReview {
   text: string;
   /** "published" — reserved for future moderation states. */
   status: string;
+  createdAt: Date;
+}
+
+/**
+ * Agent Desk pause row (LEG D, owner controls). Separate from Leg G's
+ * AgentRuleVersion rows, which are never edited by pause/resume:
+ * a pause pins a LIVE version (versionId) and carries NO text copy,
+ * so resume restores the LIVE row's text byte-identically.
+ */
+export interface AgentRulePause {
+  [key: string]: unknown;
+  id: string;
+  businessId: string;
+  versionId: string;
+  versionNumber: number;
+  /** 'active' | 'released' — released rows are history, never deleted. */
+  status: string;
+  pausedAt: Date;
+  pausedBy: string;
+  pausedByName: string;
+  reason: string;
+  releasedAt: Date | null;
+  releasedBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Owner-editable order-status message template (LEG D). One row per
+ * business per push key ('confirmed:rider' | 'confirmed:own_delivery'
+ * | 'confirmed:unrouted' | 'cancelled'). Paused rows send nothing.
+ */
+export interface OrderStatusTemplate {
+  [key: string]: unknown;
+  id: string;
+  businessId: string;
+  key: string;
+  /** Owner's verbatim text; the only placeholder is {orderRef}. */
+  text: string;
+  /** 'active' | 'paused' */
+  status: string;
+  createdBy: string;
+  createdByName: string;
+  createdAt: Date;
+  updatedAt: Date;
+  pausedAt: Date | null;
+  pausedBy: string | null;
+}
+
+/**
+ * Owner-control audit entry (LEG D, INTERIM — see
+ * src/lib/owner-controls/owner-control-audit.ts header for the Leg E
+ * reconciliation flag: exactly one trail is the system of record
+ * at go-live; this collection is deleted or adopted by Leg E).
+ */
+export interface OwnerControlAuditEntry {
+  [key: string]: unknown;
+  id: string;
+  businessId: string;
+  auditVersion: number;
+  objectType: string;
+  objectId: string;
+  objectKey: string;
+  action: string;
+  actorId: string;
+  actorName: string;
+  actorType: string;
+  occurredAt: string;
+  beforeSummary: string;
+  afterSummary: string;
+  detail: string;
+  blockedReason: string | null;
   createdAt: Date;
 }

@@ -2,6 +2,7 @@ import { Header } from "@/components/layout/header";
 import { StatCard } from "@/components/ui/stat-card";
 import { OnboardingChecklist } from "@/components/ui/onboarding-checklist";
 import { SetupCtaCard } from "@/components/ui/setup-cta-card";
+import { LowStockCard } from "@/components/inventory/low-stock-card";
 import { prisma, runWithBusiness } from "@/lib/prisma";
 import {
   MessageSquare,
@@ -143,6 +144,8 @@ export default async function DashboardPage() {
             iconColor="bg-blue-50 text-blue-600"
           />
         </div>
+
+        <LowStockCard />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 bg-rbai-surface rounded-xl border border-rbai-border">

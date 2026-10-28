@@ -28,7 +28,8 @@ vi.mock("firebase-admin", () => ({
   auth: vi.fn(() => ({ createUser, deleteUser })),
 }));
 
-import { POST, isSignupCapacityError } from "@/app/api/auth/signup/route";
+import { POST } from "@/app/api/auth/signup/route";
+import { isSignupCapacityError } from "@/lib/signup-capacity";
 import { prisma } from "@/lib/prisma";
 
 type MockFn = ReturnType<typeof vi.fn>;

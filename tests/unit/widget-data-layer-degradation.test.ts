@@ -7,7 +7,7 @@ import { chat } from "@/lib/ai/engine";
 import {
   __resetWidgetSiteKeyCache,
   getStaleBusinessBySiteKey,
-} from "@/app/api/chat/widget/route";
+} from "@/lib/widget-sitekey-cache";
 import { createRequest, parseJsonResponse } from "../helpers/request";
 
 /**

@@ -29,9 +29,14 @@ import {
   LayoutTemplate,
   ShoppingBag,
   ClipboardList,
+  CalendarClock,
   Inbox,
+  FlaskConical,
   Target,
   UserRound,
+  Blocks,
+  UserPlus,
+  Bot,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -47,7 +52,10 @@ const sections: NavSection[] = [
       { name: "Done-for-You Setup", href: "/setup-application", icon: Sparkles },
       { name: "Profile", href: "/profile", icon: UserRound },
       { name: "Inbox", href: "/inbox", icon: Inbox },
+      { name: "Test chat", href: "/test-chat", icon: FlaskConical },
       { name: "Conversations", href: "/conversations", icon: MessageSquare },
+      { name: "Follow-up Queues", href: "/followup-queues", icon: MessageSquare },
+      { name: "Reply approvals", href: "/reply-approvals", icon: Timer },
       { name: "Customers", href: "/customers", icon: Contact },
       { name: "Tickets", href: "/tickets", icon: Ticket },
     ],
@@ -67,12 +75,14 @@ const sections: NavSection[] = [
       { name: "Landing Page", href: "/landing", icon: LayoutTemplate },
       { name: "Catalog", href: "/catalog", icon: ShoppingBag },
       { name: "Orders", href: "/orders", icon: ClipboardList },
+      { name: "Bookings", href: "/bookings", icon: CalendarClock },
     ],
   },
   {
     title: "Team",
     items: [
       { name: "Team", href: "/team", icon: Users },
+      { name: "Team Performance", href: "/team-performance", icon: BarChart3 },
       { name: "SLA Rules", href: "/sla", icon: Timer },
     ],
   },
@@ -80,6 +90,7 @@ const sections: NavSection[] = [
     title: "Channels",
     items: [
       { name: "Channels", href: "/channels", icon: Radio },
+      { name: "Integrations", href: "/integrations", icon: Blocks },
       { name: "Social Automation", href: "/social", icon: Share2 },
       { name: "Webhooks", href: "/webhooks", icon: Webhook },
     ],
@@ -88,12 +99,14 @@ const sections: NavSection[] = [
     title: "Growth",
     items: [
       { name: "Lead Engine", href: "/leads", icon: Target },
+      { name: "Inbound Leads", href: "/inbound-leads", icon: UserPlus },
     ],
   },
   {
     title: "Insights",
     items: [
       { name: "Analytics", href: "/analytics", icon: BarChart3 },
+      { name: "Attention summary", href: "/attention-summary", icon: Clock },
       { name: "Activity Log", href: "/activity", icon: ScrollText },
     ],
   },
@@ -103,6 +116,7 @@ const sections: NavSection[] = [
       { name: "Administration", href: "/admin", icon: Shield },
       { name: "API Docs", href: "/api-docs", icon: FileCode },
       { name: "Settings", href: "/settings", icon: Settings },
+      { name: "Agent Desk", href: "/agent-desk", icon: Bot },
     ],
   },
 ];

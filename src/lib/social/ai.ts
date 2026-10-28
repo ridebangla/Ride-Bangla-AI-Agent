@@ -25,7 +25,12 @@ export async function getAiSettings(): Promise<AiSettings> {
   return {
     apiKey: settings.aiApiKey,
     model: settings.aiModel || "gpt-4o-mini",
-    businessName: settings.businessName || "Ride Bangla",
+    // ID-08: NEVER fall back to the platform name here. The old fallback
+    // made every never-configured tenant's social/comment replies speak
+    // as "Ride Bangla" — the same trap as the chat prompt header, on
+    // the comment path. Empty means "unnamed": generateReply() below
+    // uses a neutral line and names no business.
+    businessName: settings.businessName || "",
     businessDesc: settings.businessDesc || "",
   };
 }

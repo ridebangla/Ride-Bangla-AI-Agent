@@ -12,6 +12,13 @@ import {
 } from "./providers";
 import { recordAiMessage } from "@/lib/billing-usage";
 import { agentTools, executeToolCall } from "./tools";
+import {
+  resolveBusinessIdentity,
+  classifyIdentityQuestion,
+  answerIdentityQuestion,
+  buildIdentityPromptLine,
+  detectIdentityLanguage,
+} from "./identity";
 import { reportActivity, clearActivity, activityKindForTool } from "./activity";
 import {
   AGENT_BEHAVIOUR_DOCTRINE,
@@ -30,6 +37,25 @@ import { classifyIntent, getIntentGuidance, RETENTION_DOCTRINE, UNAVAILABLE_PROD
 import { getCatalogBrief, matchProductsInMessage, matchCategoryProducts, findAlternatives, looksLikeProductInquiry, retainLineFor, type CatalogProduct } from "../catalog";
 import { perceiveMedia, type MediaInput } from "./media";
 import { logger } from "../logger";
+import {
+  DEFAULT_WAIT_SECONDS,
+  computeAutoSendAt,
+  normalizeWaitSeconds,
+} from "@/lib/reply-approval";
+import {
+  formatBusinessRulesForPrompt,
+  type BusinessRulesDoc,
+} from "@/lib/business-rules";
+import {
+  decideMessageReply,
+  extractPageKeys,
+  parseChannelToggles,
+  parsePageToggles,
+} from "../channel-toggles";
+import {
+  captureOrderRating,
+  prismaRatingStore,
+} from "@/lib/order-rating-requests";
 import type {
   AIMessage,
   AIConfig,
@@ -63,6 +89,15 @@ export interface ChatResult {
   products: ProductCard[];
   silent: boolean;
   /**
+   * Leg J: WHY a channel/page-gated turn was silent. "channel" = the
+   * conversation's channel switch is off; "page" = its page/site
+   * switch is off. Absent on every non-gated turn. (Leg D's separate
+   * `pausedBy` field, if it lands, covers global/takeover silence;
+   * the two fields merge into one reason field at apply time — see
+   * the leg report §8.)
+   */
+  blockedBy?: "channel" | "page";
+  /**
    * Help-Center adapter support (2026-10-20): `false` ONLY on the
    * no-provider-key graceful-degradation path below, so API consumers
    * (e.g. the main website's Help Center server function) can tell "the
@@ -71,6 +106,18 @@ export interface ChatResult {
    * Undefined/true = a brain answered.
    */
   aiConfigured?: boolean;
+  /**
+   * Leg D (video round 2) — approval-mode turn outcome. When true, the
+   * generated reply was NOT sent to the customer: it was stored as a
+   * pending draft (draftId / draftAutoSendAt) for team review, and
+   * `response` is empty. Callers must render nothing for such turns
+   * (silent is also true, so every channel's existing silent check
+   * already suppresses its send). When absent/false, the turn behaved
+   * exactly as before.
+   */
+  draftPending?: boolean;
+  draftId?: string;
+  draftAutoSendAt?: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -256,7 +303,7 @@ export function sanitizePromptLine(value: string | null | undefined): string {
 
 export function buildSystemPrompt(
   context: ConversationContext,
-  extras?: { intentGuidance?: string; catalogBrief?: string }
+  extras?: { intentGuidance?: string; catalogBrief?: string; identityLine?: string }
 ): string {
   const toneGuide: Record<string, string> = {
     friendly:
@@ -286,7 +333,7 @@ export function buildSystemPrompt(
         // path (say so + ticket/team) is the only one.
         "No knowledge base entries are available for this business yet, so you have NO verified facts about it — not its services, hours, delivery areas, prices or policies. Never state a business-specific fact as if it were true. For a business-specific question, say plainly (in the customer's language) that you do not have that detail yet, and offer the next step: connect them with the team or create a support ticket. Ordinary conversation — greetings, thanks, small talk — you may answer normally.";
 
-  return `You are the Ride Bangla AI Agent, the AI customer support assistant for ${context.businessName}.
+  return `${extras?.identityLine || `You are the AI assistant for ${context.businessName}.`}
 
 ${context.businessDesc ? `About the business: ${context.businessDesc}` : ""}
 
@@ -300,6 +347,7 @@ ${context.language !== "auto" ? `Always respond in: ${context.language}` : "Resp
 - Do not append contact details (phone, WhatsApp, email, links) to an answer unless the customer asked for them or the answer genuinely needs them.
 - If the customer asked one thing, answer that one thing — do not pad the reply with other services or offers.
 ${context.agentBehavior ? `\n## Business Behavior Instructions\nThe business owner has defined how you must behave. Follow these instructions exactly — they override the general style above where they differ:\n\n${context.agentBehavior}\n` : ""}
+${context.businessRulesSection ? `\n${context.businessRulesSection}\n` : ""}
 
 ## Your Knowledge Base
 Use the following information to answer customer questions accurately:
@@ -353,7 +401,9 @@ business's own prices, fares or offers.
 ## Order Taking
 When the customer confirms an order or booking, use the take_order tool. Pass everything you collected in customFields (keyed by the business's order fields) and items (name, qty, price) when they picked from the catalog. If the tool replies with needsFields, ask the customer for exactly those details (in their language) and call take_order again — never record the order until all required fields are collected. The order is saved for the team to fulfill — always confirm the reference back to the customer.
 ## Follow-ups
-If the customer asks to be reminded or contacted later, use the schedule_followup tool — it is persisted and a background job delivers it.}`;
+If the customer asks to be reminded or contacted later, use the schedule_followup tool — it is persisted and a background job delivers it.
+## Booking Reminders
+For a CONFIRMED booking, the system sends reminders before the appointment time where the channel allows it (a day-before reminder and a hours-before reminder, per the business's settings). Never promise a reminder in generic relative terms — never "tomorrow", never "next day" — unless the appointment itself is that day: always state the appointment's exact date and time. Never promise reminder delivery on a channel the business has not enabled for reminders, and never promise a reminder for a booking that is not confirmed. The team confirms bookings; you never confirm one yourself.}`;
 }
 
 async function getKnowledgeBase(): Promise<KnowledgeItem[]> {
@@ -387,7 +437,7 @@ async function getKnowledgeBase(): Promise<KnowledgeItem[]> {
  * particular falls back to the generic default, never to a guess.
  */
 function defaultAIConfig(): AIConfig &
-  ConversationContext & { behaviour: BehaviourSettings } {
+  ConversationContext & { behaviour: BehaviourSettings; settingsExisted: boolean } {
   return {
     provider: "openai",
     model: "gpt-4o-mini",
@@ -395,6 +445,10 @@ function defaultAIConfig(): AIConfig &
     maxTokens: 2048,
     temperature: 0.7,
     aiEnabled: true,
+    replyApprovalEnabled: false,
+    replyApprovalWaitSeconds: DEFAULT_WAIT_SECONDS,
+    channelAiToggles: {},
+    pageAiToggles: {},
     businessName: "My Business",
     businessDesc: "",
     welcomeMessage: "Hello! How can I help you today?",
@@ -406,16 +460,35 @@ function defaultAIConfig(): AIConfig &
     customerName: "",
     customerHistory: [],
     channel: "",
+    settingsExisted: false,
   };
 }
 
 /** Exported for the Phase 3 media endpoints (/api/chat/vision, /api/chat/voice). */
 export async function getAIConfig(): Promise<
-  AIConfig & ConversationContext & { behaviour: BehaviourSettings }
+  AIConfig & ConversationContext & { behaviour: BehaviourSettings; settingsExisted: boolean }
 > {
   let settings = await prisma.settings.findFirst();
+  // ID-02: record whether the row pre-existed. An auto-created row carries
+  // the "My Business" schema default and must NOT become the spoken
+  // identity (see resolveBusinessIdentity) — but the row itself is still
+  // created, so later settings reads/writes keep working.
+  const settingsExisted = !!settings;
   if (!settings) {
     settings = await prisma.settings.create({ data: withBusinessId({}) });
+  }
+
+  // LEG G (staged): supplementary business rules. Guarded: any
+  // failure (delegate not yet applied, no tenant context) yields
+  // no section — never a broken turn, never a guessed figure.
+  let businessRulesSection = "";
+  try {
+    const rules = (await prisma.businessRules.findFirst()) as unknown as
+      | BusinessRulesDoc
+      | null;
+    businessRulesSection = formatBusinessRulesForPrompt(rules);
+  } catch {
+    businessRulesSection = "";
   }
 
   return {
@@ -427,6 +500,15 @@ export async function getAIConfig(): Promise<
     // Phase 5 (user decision 17): global kill-switch. Missing = enabled
     // (all pre-Phase-5 settings keep working).
     aiEnabled: settings.aiEnabled !== false,
+    // Leg D (video round 2): reply approval mode, OPT-IN. Missing or
+    // non-true = direct send, exactly as before. The wait is clamped
+    // by the pure module (30..86400); absent = 300s default.
+    replyApprovalEnabled: settings.replyApprovalEnabled === true,
+    replyApprovalWaitSeconds: normalizeWaitSeconds(
+      settings.replyApprovalWaitSeconds
+    ),
+    channelAiToggles: parseChannelToggles(settings.channelAiToggles),
+    pageAiToggles: parsePageToggles(settings.pageAiToggles),
     businessName: settings.businessName,
     businessDesc: settings.businessDesc,
     welcomeMessage: settings.welcomeMessage,
@@ -434,6 +516,7 @@ export async function getAIConfig(): Promise<
     language: settings.language,
     // Per-business behavior instructions (settings.agentBehavior, "" = none).
     agentBehavior: (settings.agentBehavior as string) || "",
+    businessRulesSection,
     // Behaviour package (owner directive 2026-10-21): normalised
     // behaviour switches/timing from the same settings doc.
     behaviour: getBehaviourSettings(settings),
@@ -441,6 +524,7 @@ export async function getAIConfig(): Promise<
     customerName: "",
     customerHistory: [],
     channel: "",
+    settingsExisted,
   };
 }
 
@@ -582,7 +666,8 @@ export function isIdentityQuestion(message: string): boolean {
  * for the owner's review.
  */
 function buildIdentitySystemPrompt(
-  config: AIConfig & ConversationContext
+  config: AIConfig & ConversationContext,
+  identityLine?: string
 ): string {
   const toneGuide: Record<string, string> = {
     friendly:
@@ -594,7 +679,7 @@ function buildIdentitySystemPrompt(
     technical:
       "Be precise and detailed. Use technical terminology when appropriate and provide thorough explanations.",
   };
-  return `You are the Ride Bangla AI Agent, the AI customer support assistant for ${config.businessName}.
+  return `${identityLine || `You are the AI assistant for ${config.businessName}.`}
 ${config.businessDesc ? `About the business: ${config.businessDesc}` : ""}
 ${toneGuide[config.tone] || toneGuide.friendly}
 ${config.language !== "auto" ? `Always respond in: ${config.language}` : "Respond in the same language the customer uses. If the customer writes in Bengali (বাংলা), reply in Bengali. If they write in English, reply in English. Never mix languages in one reply unless the customer does."}
@@ -607,14 +692,15 @@ async function tryIdentityFastPath(
   userMessage: string,
   conversationId: string,
   keys: ProviderKeys,
-  stream?: StreamCallbacks
+  stream?: StreamCallbacks,
+  identityLine?: string
 ): Promise<string | null> {
   const startedAt = Date.now();
   try {
     await reportActivity(conversationId, "composing");
     const req = {
       messages: [
-        { role: "system" as const, content: buildIdentitySystemPrompt(config) },
+        { role: "system" as const, content: buildIdentitySystemPrompt(config, identityLine) },
         { role: "user" as const, content: userMessage },
       ],
       model: config.model,
@@ -644,11 +730,234 @@ async function tryIdentityFastPath(
   }
 }
 
+
+/**
+ * Leg D (video round 2) — one approval-mode turn. Always returns a
+ * ChatResult when approval mode is on; never falls through to the
+ * normal direct-send paths (falling through would defeat the mode).
+ *
+ * Tool-less by design: the draft completion is requested WITHOUT any
+ * tools, so no take_order / booking / ticket / courier action can
+ * execute behind a draft, and rejecting a draft can never leave an
+ * orphan pending order. The draft text is TEXT ONLY, and the draft
+ * prompt suffix (PROPOSAL wording) tells the model not to claim any
+ * action was taken — because none was. Sending the draft later writes
+ * one assistant message row via the delivery helper; it never runs a
+ * tool either, so a draft can never confirm an order or change order
+ * state. Order-taking while approval mode is on therefore needs the
+ * team: the team reads the draft, sends it, and creates any order
+ * through the dashboard orders UI. That consequence is flagged as an
+ * owner decision in LEG-REPORT.md.
+ *
+ * New-customer-message rule: any pending draft in this conversation
+ * is superseded first (fresh draft from full history, below).
+ * Metering: a generated draft counts as an AI message exactly like a
+ * normal reply (company unlimited; trial no usage quotas; free tier
+ * counts AI messages). A turn that generates nothing (brain offline,
+ * provider failure, empty completion) is silent with NO draft and NO
+ * meter — the team sees the customer message in the inbox and replies
+ * manually; nothing is faked.
+ */
+const DRAFT_MODE_SUFFIX =
+  "[Review mode: this reply will be reviewed by the team before it is sent. Do not claim that any order, booking, ticket, payment, or courier booking has been created, confirmed, or changed — no action has been taken yet. Answer in the customer's language.]";
+
+async function handleApprovalModeTurn(args: {
+  conversationId: string;
+  conversation: {
+    id: string;
+    customerName: string;
+    channel: string;
+    messages: Array<{ role: string; content: string }>;
+  };
+  config: AIConfig & ConversationContext & { behaviour: BehaviourSettings };
+  keys: ProviderKeys;
+  effectiveMessage: string;
+  brainOnline: boolean;
+  hasMedia: boolean;
+  ephemeral: boolean;
+}): Promise<ChatResult> {
+  const { conversationId, conversation, config, keys, effectiveMessage } = args;
+  const silentResult: ChatResult = { response: "", products: [], silent: true };
+  // Ephemeral mode (the conversation read failed, data layer down):
+  // every persistence attempt below throws and lands in the catch,
+  // which returns honest silence with no draft — the same fail-soft
+  // posture as the rest of the pipeline. Nothing is faked.
+  try {
+    // Supersede any pending draft: the newest message may invalidate it.
+    const pending = await prisma.replyDraft.findMany({
+      where: { conversationId, status: "pending" },
+    });
+    for (const old of pending as Array<{ id: string }>) {
+      await prisma.replyDraft.update({
+        where: { id: old.id },
+        data: {
+          status: "superseded",
+          supersedeReason: "new_customer_message",
+          supersededAt: new Date().toISOString(),
+        },
+      });
+    }
+
+    if (!args.brainOnline) {
+      // No brain, no draft — honest silence, no meter, no fake text.
+      await clearActivity(conversationId);
+      return silentResult;
+    }
+
+    const waitSeconds = normalizeWaitSeconds(config.replyApprovalWaitSeconds);
+    const businessId = getBusinessId();
+
+    // Pure-greeting drafts need no LLM: the deterministic greeting text
+    // becomes the draft (metered like the normal greeting path).
+    if (!args.hasMedia && isPureGreeting(effectiveMessage)) {
+      await reportActivity(conversationId, "composing");
+      const greeting = buildGreetingReply(
+        effectiveMessage,
+        config.businessName,
+        config.language
+      );
+      const draft = await prisma.replyDraft.create({
+        data: withBusinessId({
+          conversationId,
+          customerMessage: effectiveMessage.slice(0, 500),
+          draftText: greeting,
+          editedText: null,
+          status: "pending",
+          autoSendAt: computeAutoSendAt(Date.now(), waitSeconds),
+          waitSecondsSnapshot: waitSeconds,
+        }),
+      });
+      if (businessId) {
+        void recordAiMessage(businessId);
+      }
+      await clearActivity(conversationId);
+      return {
+        response: "",
+        products: [],
+        silent: true,
+        draftPending: true,
+        draftId: (draft as { id: string }).id,
+        draftAutoSendAt: (draft as { autoSendAt: string }).autoSendAt,
+      };
+    }
+
+    // Tool-less draft completion: knowledge + catalog brief exactly as
+    // the normal path reads them (same degradation to zero knowledge
+    // on a read failure), history replayed like the normal path, but
+    // NO tools are offered to the provider — see the header comment.
+    let knowledgeBase: KnowledgeItem[] = [];
+    let catalogBrief = "";
+    try {
+      [knowledgeBase, catalogBrief] = await Promise.all([
+        getKnowledgeBase(),
+        getCatalogBrief().catch(() => ""),
+      ]);
+    } catch (err) {
+      logger.warn("[brain] approval draft: knowledge/catalog read failed", {
+        conversationId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      knowledgeBase = [];
+      catalogBrief = "";
+    }
+    const intent = classifyIntent(effectiveMessage);
+    const context: ConversationContext = {
+      ...config,
+      knowledgeBase,
+      customerName: conversation.customerName,
+      channel: conversation.channel,
+      customerHistory: [],
+    };
+    const systemPrompt =
+      buildSystemPrompt(context, {
+        intentGuidance: getIntentGuidance(intent.intent),
+        catalogBrief,
+      }) +
+      "\n\n" +
+      DRAFT_MODE_SUFFIX;
+    const messages: AIMessage[] = [{ role: "system", content: systemPrompt }];
+    for (const msg of conversation.messages.slice(-HISTORY_MESSAGE_CAP)) {
+      if (msg.role === "customer") {
+        messages.push({ role: "user", content: msg.content });
+      } else if (msg.role === "assistant") {
+        messages.push({ role: "assistant", content: msg.content });
+      }
+    }
+    messages.push({ role: "user", content: effectiveMessage });
+
+    await reportActivity(conversationId, "composing");
+    const completion = await completeWithFallback(
+      {
+        messages: messages as ProviderChatMessage[],
+        model: config.model,
+        maxTokens: Math.min(
+          typeof config.maxTokens === "number" && config.maxTokens > 0
+            ? config.maxTokens
+            : 2048,
+          CHAT_MAX_TOKENS_CAP
+        ),
+        temperature: config.temperature,
+      },
+      {
+        keys,
+        preferredProvider: normalizePreferredProvider(config.provider),
+        label: "draft",
+      }
+    ).catch((err) => {
+      logger.warn("[brain] approval draft: completion failed", {
+        conversationId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
+    const draftText = (completion?.text ?? "").trim();
+    if (!completion || draftText.length === 0) {
+      await clearActivity(conversationId);
+      return silentResult;
+    }
+
+    const draft = await prisma.replyDraft.create({
+      data: withBusinessId({
+        conversationId,
+        customerMessage: effectiveMessage.slice(0, 500),
+        draftText,
+        editedText: null,
+        status: "pending",
+        autoSendAt: computeAutoSendAt(Date.now(), waitSeconds),
+        waitSecondsSnapshot: waitSeconds,
+      }),
+    });
+    if (businessId) {
+      void recordAiMessage(businessId);
+    }
+    await clearActivity(conversationId);
+    return {
+      response: "",
+      products: [],
+      silent: true,
+      draftPending: true,
+      draftId: (draft as { id: string }).id,
+      draftAutoSendAt: (draft as { autoSendAt: string }).autoSendAt,
+    };
+  } catch (err) {
+    logger.warn("[brain] approval draft turn failed; silent, no draft", {
+      conversationId,
+      reason: err instanceof Error ? err.message : String(err),
+    });
+    await clearActivity(conversationId).catch(() => null);
+    return silentResult;
+  }
+}
+
 export async function chat(
   conversationId: string,
   userMessage: string,
   opts?: {
     media?: MediaInput;
+    /** Registered Business.name, threaded from the widget route (ID-02). */
+    business?: { name?: string | null };
+    /** Explicit portal-surface flag; never name-derived (identity.ts). */
+    portal?: boolean;
     /**
      * Token streaming (widget chat path): when onToken is supplied, the
      * completion streams through streamWithFallback and reply text is
@@ -749,6 +1058,11 @@ export async function chat(
   // Phase 5 addition: the GLOBAL kill-switch (settings.aiEnabled) is
   // checked first — when the owner kills AI globally, EVERY conversation
   // goes silent regardless of its own switch.
+  // COMPOSED (2026-10-28): capture the raw flags BEFORE the guard below
+  // narrows them (TS narrows both to `true` past the guard, so the
+  // toggle decision must read these locals, not re-compare the fields).
+  const globalOnFlag = config.aiEnabled !== false;
+  const chatOnFlag = conversation.aiEnabled !== false;
   if (config.aiEnabled === false || conversation.aiEnabled === false) {
     // FIX-B: in ephemeral mode the conversation record could not be
     // read, so its persistence calls are skipped (the silent return
@@ -777,6 +1091,59 @@ export async function chat(
         (config.aiEnabled === false ? " (global kill-switch)" : "")
     );
     return { response: "", products: [], silent: true };
+  }
+
+  // ---- Leg J: PER-CHANNEL / PER-PAGE AI toggles ----
+  // This block runs AFTER the global + per-chat blocks above, so a
+  // "channel"/"page" reason here is exact: global-off and takeover
+  // have already had their chance to silence the turn, and an ON at
+  // this layer can never re-enable either of them (AND semantics —
+  // see src/lib/channel-toggles.ts). The turn is stored in pure
+  // silence exactly like a takeover turn: the customer message is
+  // kept, no tools run, no provider call is made, no assistant
+  // message is stored, and every channel handler that respects the
+  // `silent` result (notably the Meta handler, which only sends
+  // when `!result.silent`) therefore sends nothing. History is
+  // preserved; flipping the switch back on resumes with it intact.
+  // Ephemeral mode mirrors the takeover block: persistence is
+  // skipped with a loud warn instead of killing the turn.
+  const toggleDecision = decideMessageReply({
+    globalOn: globalOnFlag,
+    chatOn: chatOnFlag,
+    channel: conversation.channel,
+    pageKeys: extractPageKeys(conversation.metadata),
+    channelToggles: parseChannelToggles(config.channelAiToggles),
+    pageToggles: parsePageToggles(config.pageAiToggles),
+  });
+  if (!toggleDecision.allowed) {
+    if (ephemeral) {
+      logger.warn(
+        "[brain] ephemeral conversation: channel-gated message not persisted",
+        { conversationId }
+      );
+    } else {
+      await prisma.message.create({
+        data: withBusinessId({
+          conversationId,
+          role: "customer",
+          content: userMessage,
+        }),
+      });
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { updatedAt: new Date() },
+      });
+    }
+    logger.info(
+      `[brain] channel toggle: stored customer message silently for conversation ${conversationId}` +
+        ` (blockedBy=${toggleDecision.blockedBy}, channel=${conversation.channel})`
+    );
+    return {
+      response: "",
+      products: [],
+      silent: true,
+      blockedBy: toggleDecision.blockedBy as "channel" | "page",
+    };
   }
 
   // Provider keys were resolved in the parallel prep block above
@@ -906,6 +1273,89 @@ export async function chat(
     }
   }
 
+  // ---- Leg I: deterministic star-rating capture (staged-only) ----
+  // A customer reply of "5", "★★★★★", or "5 stars" in a conversation
+  // with a pending rating request records the rating on that order
+  // — deterministically, with no model call and no provider key
+  // (like the handoff path above, this runs before the brain-offline
+  // fallback). The RAW customer message is parsed, never the
+  // perception-augmented effectiveMessage: a photo description
+  // mentioning stars must not become a rating. Handoff above takes
+  // precedence (a serious problem is never swallowed as a rating),
+  // and human-takeover threads never reach this point (the silent
+  // takeover return above). A failed capture falls through to the
+  // normal flow — the reply is ordinary chat, never a broken turn.
+  if (!ephemeral) {
+    try {
+      const ratingCapture = await captureOrderRating(
+        conversationId,
+        userMessage,
+        {
+          businessName: config.businessName,
+          lang: resolveBehaviourLang(config.language, userMessage),
+        },
+        prismaRatingStore(prisma, withBusinessId)
+      );
+      if (ratingCapture.captured) {
+        const savedRatingReply = await prisma.message.create({
+          data: withBusinessId({
+            conversationId,
+            role: "assistant",
+            content: ratingCapture.confirmation,
+          }),
+        });
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { updatedAt: new Date() },
+        });
+        emitNewMessage(conversationId, {
+          id: savedRatingReply.id,
+          role: "assistant",
+          content: ratingCapture.confirmation,
+        });
+        await clearActivity(conversationId);
+        return { response: ratingCapture.confirmation, products: [], silent: false };
+      }
+    } catch (err) {
+      logger.warn("[brain] order rating capture failed; continuing with normal AI flow", {
+        conversationId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      await clearActivity(conversationId);
+    }
+  }
+  // COMPOSED (2026-10-28): rating capture runs BEFORE approval mode:
+  // the rating confirmation is deterministic (no model call, no agent
+  // wording) — same class as handoff messages, which already bypass
+  // approval by design. Approval still governs every agent reply.
+
+  // ---- Reply approval mode (Leg D, video round 2) ----
+  // When the tenant opted in, the turn below NEVER sends a reply
+  // directly: handleApprovalModeTurn generates the reply text
+  // tool-less, stores it as a pending draft, and returns a silent
+  // draft-pending result. The customer message is already stored
+  // above; the team reviews the draft on the Reply approvals page
+  // and the sweep auto-sends it when its timer expires.
+  // Deliberate ordering: this branch sits AFTER the handoff block, so
+  // an urgent handoff (ticket + human takeover) still goes out
+  // immediately — holding it for review would delay help. It sits
+  // BEFORE the brain-offline / greeting / identity / normal paths, so
+  // no path below can leak a direct reply while approval mode is on.
+  // Streaming callers are safe too: the helper never calls onToken,
+  // so no draft text ever streams to the visitor before review.
+  if (config.replyApprovalEnabled === true) {
+    return await handleApprovalModeTurn({
+      conversationId,
+      conversation,
+      config,
+      keys,
+      effectiveMessage,
+      brainOnline,
+      hasMedia: !!opts?.media,
+      ephemeral,
+    });
+  }
+
   if (!brainOnline) {
     // Graceful degradation: an honest message, never a faked AI reply.
     // Deterministic product cards still attach when the customer names a
@@ -980,6 +1430,77 @@ export async function chat(
     return { response: greeting, products: [], silent: false };
   }
 
+  // ---- Identity (ID-02, rewritten for the HEAD engine): resolve BEFORE
+  // any LLM call, and answer identity questions from templates, never
+  // from the model. A template answer cannot leak another business's
+  // name or services, which is exactly how the portal trap ("তুমি কি
+  // Ride Bangla?") escaped before: it fell through to a prompt headed
+  // with the platform name. Early resolution uses knowledge/catalog
+  // counts of 0 (knowledge loads below, after this block); that is
+  // behaviour-identical for template answers: `configured` only
+  // changes the services answer when a description exists, and a
+  // description alone already makes `configured` true. The main
+  // prompt below re-resolves with the real counts.
+  // Placement preserves HEAD's offline semantics: the brainOffline
+  // honest fallback above still answers first when no provider key
+  // resolves, so template answers need no provider but only run on
+  // brain-online turns — exactly where the leak could occur.
+  const earlyIdentity = resolveBusinessIdentity({
+    businessName: opts?.business?.name ?? null,
+    settingsName: config.businessName,
+    settingsExisted: config.settingsExisted,
+    businessDesc: config.businessDesc,
+    knowledgeCount: 0,
+    catalogCount: 0,
+    portal: opts?.portal,
+  });
+  const identityQuestion = classifyIdentityQuestion(effectiveMessage);
+  if (!opts?.media && identityQuestion) {
+    const templateAnswer = answerIdentityQuestion(
+      identityQuestion,
+      earlyIdentity,
+      detectIdentityLanguage(effectiveMessage),
+      { businessDesc: config.businessDesc }
+    );
+    await reportActivity(conversationId, "composing");
+    if (opts?.onToken) {
+      try {
+        opts.onToken(templateAnswer);
+      } catch {
+        /* stream sink gone — the reply still returns + persists */
+      }
+    }
+    try {
+      const savedTemplate = await prisma.message.create({
+        data: withBusinessId({
+          conversationId,
+          role: "assistant",
+          content: templateAnswer,
+        }),
+      });
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { updatedAt: new Date() },
+      });
+      emitNewMessage(conversationId, {
+        id: savedTemplate.id,
+        role: "assistant",
+        content: templateAnswer,
+      });
+    } catch (err) {
+      logger.warn("[brain] could not persist identity template reply; returning it anyway", {
+        conversationId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+    const templateBusinessId = getBusinessId();
+    if (templateBusinessId) {
+      void recordAiMessage(templateBusinessId);
+    }
+    await clearActivity(conversationId);
+    return { response: templateAnswer, products: [], silent: false };
+  }
+
   // ---- Identity fast path (owner acceptance case, 2026-10-22) ----
   // A message that ONLY asks who the agent is gets the same small
   // tool-less completion as a greeting — a short professional
@@ -994,7 +1515,8 @@ export async function chat(
       effectiveMessage,
       conversationId,
       keys,
-      identityStream
+      identityStream,
+      buildIdentityPromptLine(earlyIdentity)
     );
     if (identity) {
       try {
@@ -1068,6 +1590,18 @@ export async function chat(
   const intent = classifyIntent(effectiveMessage);
   const intentGuidance = getIntentGuidance(intent.intent);
 
+  const identity = resolveBusinessIdentity({
+    businessName: opts?.business?.name ?? null,
+    settingsName: config.businessName,
+    settingsExisted: config.settingsExisted,
+    businessDesc: config.businessDesc,
+    knowledgeCount: knowledgeBase.length,
+    catalogCount: catalogBrief.startsWith("PRODUCT CATALOG (available now)")
+      ? 1
+      : 0,
+    portal: opts?.portal,
+  });
+
   const context: ConversationContext = {
     ...config,
     knowledgeBase,
@@ -1082,7 +1616,14 @@ export async function chat(
   // messages made long threads spend the whole provider token
   // budget on history instead of the answer.
   const messages: AIMessage[] = [
-    { role: "system", content: buildSystemPrompt(context, { intentGuidance, catalogBrief }) },
+    {
+      role: "system",
+      content: buildSystemPrompt(context, {
+        intentGuidance,
+        catalogBrief,
+        identityLine: buildIdentityPromptLine(identity),
+      }),
+    },
   ];
 
   const recentMessages = conversation.messages.slice(-HISTORY_MESSAGE_CAP);
@@ -1133,12 +1674,49 @@ export async function chat(
     : undefined;
   const aiResult = await callAI(config, messages, conversationId, keys, 0, [], { taken: false, ref: "" }, stream);
 
+  // ---- Self-problem handling (ID-07, owner rule 2026-10-25 ~00:54 §6).
+  // callAI swallows provider failures into two canned strings. When one
+  // of them comes back, this IS an agent-side problem: file it in the
+  // team's own ticket pipeline (prisma.ticket, as behaviour.ts's
+  // performHandoff evidences at HEAD) and disclose it to the customer
+  // ONLY if the report was actually created. Never claim a report
+  // that does not exist.
+  let aiResponse = aiResult.response;
+  if (
+    aiResult.response ===
+      "I'm temporarily unable to process your request. Please try again in a moment, or I can connect you with a team member." ||
+    aiResult.response ===
+      "I apologize, but I'm having trouble processing your request. Let me connect you with a team member."
+  ) {
+    try {
+      const ticket = await prisma.ticket.create({
+        data: withBusinessId({
+          conversationId,
+          title: "[Agent report] AI provider failure during customer chat",
+          description:
+            `The agent could not complete a turn for conversation ${conversationId} ` +
+            `because the AI provider failed. Customer message: ${effectiveMessage.slice(0, 500)}`,
+          status: "open",
+          priority: "high",
+        }),
+      });
+      const lang = detectIdentityLanguage(effectiveMessage);
+      aiResponse =
+        lang === "bn"
+          ? `এখানে যে সমস্যাটা হচ্ছে — আমি সে সম্পর্কে আমার টিমকে তথ্য পাঠাচ্ছি। (রিপোর্ট: ${ticket.id})`
+          : `The problem happening here — I am sending information about it to my team. (Report: ${ticket.id})`;
+    } catch {
+      // Report creation failed: keep the plain failure string and claim
+      // nothing. A failed disclosure is worse than no disclosure.
+    }
+  }
+
   // Phase 3: deterministic product cards. Merge the AI's tool-chosen cards
   // with name-matched cards from the conversation text (the customer may
   // name a product the model didn't card, or vice versa), then category-
   // intent matches, then the budget-aware retain path. Deduped, max 3.
   const attached = await attachMentionedProducts(
-    `${effectiveMessage}\n${aiResult.response}`,
+    `${effectiveMessage}\n${aiResponse}`,
     aiResult.products,
     conversationId
   );
@@ -1147,7 +1725,7 @@ export async function chat(
   // Confidence scoring (unchanged inputs). Computed BEFORE the behaviour
   // appends below so a turn that is about to escalate never receives a
   // review ask.
-  const confidence = estimateConfidence(aiResult.response, knowledgeBase.length, false);
+  const confidence = estimateConfidence(aiResponse, knowledgeBase.length, false);
 
   // ---- Behaviour package (owner directive 2026-10-21) ----
   // Success-path behaviours driven by REAL turn signals only: an order
@@ -1187,7 +1765,7 @@ export async function chat(
   }
   const finalResponse = await maybeAppendReviewAsk({
     conversation,
-    response: aiResult.response,
+    response: aiResponse,
     customerMessage: effectiveMessage,
     orderTaken: aiResult.orderTaken,
     escalated: approval.required || confidence.shouldEscalate,

@@ -78,7 +78,13 @@ export async function POST(request: NextRequest) {
       });
 
       // Bootstrap per-business rows.
-      await db.settings.create({ data: { businessId: business.id } });
+      // ID-05 (one agent per account): same seeding as the setup route —
+      // the new account's agent row carries the business's own name from
+      // birth, never the "My Business" default. Settings.businessId is
+      // @unique, so exactly one agent configuration exists per business.
+      await db.settings.create({
+        data: { businessId: business.id, businessName: business.name },
+      });
       await db.businessHours.create({ data: { businessId: business.id, timezone: "Asia/Dhaka" } });
       for (const type of ["whatsapp", "email", "phone", "telegram"]) {
         await db.channel.create({

@@ -238,7 +238,7 @@
     mode: script.getAttribute("data-mode") || "",
     inlineTarget: script.getAttribute("data-inline-target") || "#rbai-chat-inline",
     greeting: script.getAttribute("data-greeting") || "Hi! How can we help you today?",
-    title: script.getAttribute("data-title") || "Ride Bangla AI Agent",
+    title: script.getAttribute("data-title") || "AI Assistant",
     // Base UI language: explicit data-lang wins, then the host page's
     // own lang, then English (the embed UI's long-standing default).
     // This is only the STARTING language — uiLang (below) follows the

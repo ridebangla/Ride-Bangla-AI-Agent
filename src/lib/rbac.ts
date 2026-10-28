@@ -16,6 +16,9 @@ export const PERMISSIONS = {
   "conversations:delete": ["supervisor", "admin"],
   "conversations:assign": ["supervisor", "admin"],
   "conversations:transfer": ["agent", "supervisor", "admin"],
+  // Required by the takeover revert-expired sweep (non-cron path).
+  // Staff-only, like delete/assign: a bulk revert is not an agent action.
+  "conversations:takeover": ["supervisor", "admin"],
 
   // Messages
   "messages:read": ["viewer", "agent", "supervisor", "admin"],
@@ -27,9 +30,26 @@ export const PERMISSIONS = {
   "tickets:update": ["agent", "supervisor", "admin"],
   "tickets:delete": ["supervisor", "admin"],
 
+  // Bookings (Leg A: separate record type from orders — own permissions,
+  // own screens, own API routes. bookings:update is the HUMAN confirm /
+  // propose / return / cancel path; no agent tool holds it.)
+  "bookings:read": ["viewer", "agent", "supervisor", "admin"],
+  "bookings:write": ["supervisor", "admin"],
+  "bookings:update": ["agent", "supervisor", "admin"],
+
   // Lead Engine (Harvey outbound)
   "leads:read": ["viewer", "agent", "supervisor", "admin"],
   "leads:write": ["supervisor", "admin"],
+
+  // Inbound leads (customers of THIS business showing buying/booking
+  // interest) — a separate pipeline from the outbound Lead Engine above.
+  // Read: everyone on the team. Write: agents and up. Assign: supervisors
+  // and admins only (assignment decides who works a lead). Export:
+  // supervisors and admins only (same bar as customers:export).
+  "inbound-leads:read": ["viewer", "agent", "supervisor", "admin"],
+  "inbound-leads:write": ["agent", "supervisor", "admin"],
+  "inbound-leads:assign": ["supervisor", "admin"],
+  "inbound-leads:export": ["supervisor", "admin"],
 
   // Customers
   "customers:read": ["viewer", "agent", "supervisor", "admin"],
@@ -67,6 +87,15 @@ export const PERMISSIONS = {
   "settings:read": ["admin"],
   "settings:update": ["admin"],
 
+  // Business rules (LEG G, supplementary profile prompts)
+  "business-rules:read": ["viewer", "agent", "supervisor", "admin"],
+  "business-rules:update": ["admin"],
+  // Agent Desk (LEG G: plain-language rules, preview-before-live, rollback)
+  "agent-desk:read": ["viewer", "agent", "supervisor", "admin"],
+  "agent-desk:write": ["supervisor", "admin"],
+  "agent-desk:publish": ["admin"],
+  "agent-desk:rollback": ["admin"],
+
   // Admin (users, API keys)
   "admin:read": ["admin"],
   "admin:create": ["admin"],
@@ -84,6 +113,16 @@ export const PERMISSIONS = {
   "channels:read": ["supervisor", "admin"],
   "channels:update": ["admin"],
 
+  // Test chat (sandbox leg): staff test sessions. Read = viewer and
+  // up (test data only, no customer data); write = supervisor and
+  // admin (a test turn spends provider tokens). Going live uses
+  // the EXISTING settings:update permission via the Settings PUT —
+  // no new permission is invented for it.
+  "test-chat:read": ["viewer", "agent", "supervisor", "admin"],
+  "test-chat:write": ["supervisor", "admin"],
+  // Integrations Hub (display only; same roles as channels:read)
+  "integrations:read": ["supervisor", "admin"],
+
   // SLA
   "sla:read": ["viewer", "agent", "supervisor", "admin"],
   "sla:create": ["admin"],
@@ -100,8 +139,25 @@ export const PERMISSIONS = {
   "canned:update": ["supervisor", "admin"],
   "canned:delete": ["admin"],
 
+  // Owner controls (LEG D: Desk pause/resume + status templates)
+  "agent-desk:pause": ["admin"],
+  "agent-desk:resume": ["admin"],
+  "order-status-templates:read": ["viewer", "agent", "supervisor", "admin"],
+  "order-status-templates:write": ["supervisor", "admin"],
+
   // Export
   "export:read": ["supervisor", "admin"],
+
+  // Reply approvals (Leg D video round 2): review drafts before they
+  // send. Read = viewer and up; manage (send-now / reject / edit /
+  // per-chat pause / sweep trigger) = agent and up. Viewers never act.
+  "reply-approvals:read": ["viewer", "agent", "supervisor", "admin"],
+  "reply-approvals:manage": ["agent", "supervisor", "admin"],
+  // Inventory alerts (Leg E, staged)
+  "inventory:read": ["viewer", "agent", "supervisor", "admin"],
+  // Advance payments (manual transaction-ID check — Leg C)
+  "payments:read": ["viewer", "agent", "supervisor", "admin"],
+  "payments:write": ["supervisor", "admin"],
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

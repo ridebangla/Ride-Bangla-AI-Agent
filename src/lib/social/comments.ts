@@ -19,11 +19,24 @@ import { logger } from "@/lib/logger";
 import { getOpenAI, getKnowledgeContext } from "@/lib/social/ai";
 import { getActiveAccounts, getDecryptedToken } from "@/lib/social/accounts";
 import { postReply as postPlatformReply } from "@/lib/social/engagement";
+import { decideCommentAutoPost } from "@/lib/owner-controls/send-path-gate";
+import { getSettingsOwnerControlAdapter } from "@/lib/owner-controls/settings-owner-control-adapter";
+import {
+  decideCommentReplyGate,
+  isSameTenant,
+  resolveCommentAccount,
+} from "@/lib/social/comment-inbox";
 import {
   requireActiveSubscription,
   SubscriptionInactiveError,
 } from "@/lib/subscription";
 import type { SocialAccount } from "@/lib/models";
+import {
+  commentPageKey,
+  decideCommentReply,
+  parsePageToggles,
+  type PageToggles,
+} from "@/lib/channel-toggles";
 
 export interface CommentEvent {
   platform: "facebook" | "instagram";
@@ -124,6 +137,9 @@ export async function handleCommentEvent(event: CommentEvent): Promise<{
         parentRef,
         customerRef: authorRef,
         content: `${authorName}: ${text}`.slice(0, 1000),
+        // Leg C: keep author + text separate for the inbox normaliser.
+        authorName,
+        commentText: text,
         likes: 0,
         replied: false,
         repliedAt: null,
@@ -159,7 +175,62 @@ export async function handleCommentEvent(event: CommentEvent): Promise<{
     return blocked;
   }
 
+  // Leg C: the global kill-switch gates AI draft + auto-post for comments
+  // exactly as it gates every channel message (engine: settings.aiEnabled
+  // !== false). A global-off comment is still stored honestly, with no
+  // draft and no auto-post; staff may still reply manually from the inbox
+  // (manual replies are the takeover path — see comment-inbox.ts).
+  const settingsRow = await prisma.settings
+    .findFirst({ select: { aiEnabled: true } })
+    .catch(() => null);
+  const globalAiEnabled =
+    (settingsRow as { aiEnabled?: boolean } | null)?.aiEnabled ?? null;  if (globalAiEnabled === false) {
+    const stored = await storeWithoutDraft();
+    logger.warn(
+      "[comments] global AI off — stored comment without AI draft and without auto-post"
+    );
+    return stored;
+  }
+
   const account = await findAccountForComment(platform, parentRef);
+
+  // Leg J: per-page COMMENT toggle + global switch. This gate is
+  // independent of the message-reply toggles: it consults neither
+  // the channel switch nor the message switch for this page. While
+  // it blocks, the comment is stored WITHOUT a draft (the existing
+  // store-without-draft path) — history is preserved, no agent reply
+  // is drafted, and nothing can auto-send. A settings-read failure
+  // reads as all-ON (the same missing-means-on rule as the other
+  // switches), never as a silent kill.
+  let commentPageToggles: PageToggles = {};
+  let commentGlobalOn = true;
+  try {
+    const commentSettings = await prisma.settings.findFirst();
+    const commentRaw = (commentSettings || {}) as Record<string, unknown>;
+    commentPageToggles = parsePageToggles(commentRaw.pageAiToggles);
+    commentGlobalOn = commentRaw.aiEnabled !== false;
+  } catch (err) {
+    logger.warn("[comments] toggle settings read failed; treating as all ON", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  const commentKey = commentPageKey({
+    accountRef: account?.accountRef,
+    parentRef,
+    platform,
+  });
+  const commentDecision = decideCommentReply({
+    globalOn: commentGlobalOn,
+    pageKey: commentKey,
+    pageToggles: commentPageToggles,
+  });
+  if (!commentDecision.allowed) {
+    const stored = await storeWithoutDraft();
+    logger.warn(
+      `[comments] comment-reply toggle blocked draft for ${platform} ${commentId} (blockedBy=${commentDecision.blockedBy})`
+    );
+    return stored;
+  }
 
   // Draft the reply (stored, not sent). If the AI isn't configured, the
   // comment is still stored — the draft is just empty, and the business
@@ -177,8 +248,52 @@ export async function handleCommentEvent(event: CommentEvent): Promise<{
   let replyRef = "";
   let repliedAt: Date | null = null;
 
-  // Auto-post ONLY when the business enabled it on this account.
-  if (draft && account?.autoReply) {
+  // Auto-post ONLY when the business enabled it on this account AND the
+  // reply gate allows it (global on + autoReply on). The gate is the single
+  // authority; no auto-post default is introduced by this leg.
+  // Owner-controls gate (settled 2026-10-28 model; lands ONLY in the
+  // same batch as the wiring set, which provides both imports above).
+  // Channel-held (facebook/instagram) or comment mode owner/approval
+  // blocks the auto-post; the draft is still stored and the approval
+  // queue still shows it. An adapter throw also blocks (fail-closed:
+  // a corrupt owner-held entry must never read back as AI). Owner
+  // dashboard approvals (approveCommentReply below) are NOT gated —
+  // owner posting is always allowed. HEAD behaviour is unchanged
+  // when mode is "auto" and the account enabled autoReply.
+  let ownerControlsDoc: {
+    businessId: string;
+    channelControls: Record<string, { mode: "ai" | "owner" }>;
+    commentMode: "auto" | "approval" | "owner";
+  } | null = null;
+  let ownerControlsError = false;
+  try {
+    ownerControlsDoc = (await getSettingsOwnerControlAdapter().getDoc(
+      businessId
+    )) as typeof ownerControlsDoc;
+  } catch {
+    ownerControlsError = true;
+  }
+  const commentGate = decideCommentAutoPost({
+    doc: ownerControlsDoc,
+    docError: ownerControlsError,
+    platform,
+    accountAutoReply: account?.autoReply === true,
+  });
+  // Auto-post ONLY when the business enabled it on this account AND
+  // the owner-controls gate allows it.
+  const autoGate = decideCommentReplyGate({
+    globalAiEnabled,
+    perThreadAiEnabled: null,
+    // Per-channel gate: null until the toggles leg supplies it (LC-04
+    // integration point). Null is never a block.
+    perChannelEnabled: null,
+    autoReplyEnabled: account?.autoReply ?? false,
+    action: "auto_post",
+  });
+  // COMPOSED (2026-10-28): ALL THREE gates must allow — video-2 Leg C
+  // reply gate, the owner-controls gate, AND video-2 Leg J's toggle
+  // gate. Either gate blocking => no auto-post.
+  if (draft && account && autoGate.allowed && commentGate.post && commentDecision.allowed) {
     try {
       const token = getDecryptedToken(account);
       replyRef = await postPlatformReply(
@@ -204,6 +319,9 @@ export async function handleCommentEvent(event: CommentEvent): Promise<{
       parentRef,
       customerRef: authorRef,
       content: `${authorName}: ${text}`.slice(0, 1000),
+      // Leg C: keep author + text separate for the inbox normaliser.
+      authorName,
+      commentText: text,
       likes: 0,
       replied: autoReplied,
       repliedAt,
@@ -229,27 +347,92 @@ export async function handleCommentEvent(event: CommentEvent): Promise<{
  */
 export async function approveCommentReply(
   interactionId: string,
-  text: string
+  text: string,
+  // Leg C: the caller's tenant id. When supplied, a foreign-tenant row is
+  // reported as "not found" (never leaked). The route (LC-04) always
+  // supplies it and rejects a null businessId before calling.
+  expectedBusinessId?: string
 ): Promise<{ replyId: string }> {
   const interaction = await prisma.socialInteraction.findUnique({
     where: { id: interactionId },
   });
   if (!interaction) throw new Error("Comment not found.");
   if (interaction.kind !== "comment") throw new Error("Not a comment ticket.");
+  if (
+    expectedBusinessId !== undefined &&
+    !isSameTenant(expectedBusinessId, interaction.businessId)
+  ) {
+    throw new Error("Comment not found.");
+  }
   if (interaction.replied) throw new Error("This comment was already replied to.");
 
+  // Leg C: STRICT account resolution (see comment-inbox.ts). HEAD fell back
+  // to the first account of the platform, which misroutes when several
+  // Pages/profiles are connected. A stored account that is gone, or several
+  // accounts with no stored id, is an error — never a guessed account.
+  // (The manual-reply AI gate is checked by the route, LC-04, not here.)
   const accounts = await getActiveAccounts();
-  const account =
-    (interaction as { socialAccountId?: string }).socialAccountId
-      ? accounts.find(
-          (a) => a.id === (interaction as { socialAccountId?: string }).socialAccountId
-        )
-      : accounts.find((a) => a.platform === interaction.platform);
-  if (!account) {
+  const resolved = resolveCommentAccount(accounts, {
+    platform: interaction.platform,
+    socialAccountId: (interaction as { socialAccountId?: string }).socialAccountId,
+  });
+  if ("error" in resolved) {
+    if (resolved.error === "account_ambiguous") {
+      throw new Error(
+        `Several connected ${interaction.platform} accounts and this comment has no stored account — the reply account is ambiguous. Open the comment's account in Channels first.`
+      );
+    }
     throw new Error(
       `No connected ${interaction.platform} account. Connect one in Channels first.`
     );
   }
+  // COMPOSED (fix 2026-10-28): the resolver returns only {id, platform}
+  // by design (strict routing); the full SocialAccount record is looked
+  // up by that resolved id in the same active-accounts array — never a
+  // fallback to another account, and a missing row fails closed.
+  const account = accounts.find((a) => a.id === resolved.account.id);
+  if (!account) {
+    throw new Error(
+      `Resolved ${interaction.platform} account is no longer active. Reconnect it in Channels first.`
+    );
+  }
+  // Leg J (approval-mode integration point): an UNMODIFIED AI draft
+  // is an agent reply, so if comment replies are off for this page
+  // (or globally), approving it as-is must not send it — otherwise a
+  // page switched off would still emit an agent reply through the
+  // inbox. A human's own edited or written text is NOT an agent
+  // reply and still passes: that is the team handling the comment,
+  // exactly what global-off and takeover mean elsewhere. (Edge,
+  // stated plainly: text a human retypes byte-identically to the
+  // draft is indistinguishable from the draft and is blocked;
+  // changing one character, or re-enabling the page, unblocks it.)
+  const storedDraft =
+    typeof (interaction as { draftReply?: unknown }).draftReply === "string"
+      ? ((interaction as { draftReply: string }).draftReply as string)
+      : "";
+  if (storedDraft && text === storedDraft) {
+    let approveToggles: PageToggles = {};
+    let approveGlobalOn = true;
+    try {
+      const approveSettings = await prisma.settings.findFirst();
+      const approveRaw = (approveSettings || {}) as Record<string, unknown>;
+      approveToggles = parsePageToggles(approveRaw.pageAiToggles);
+      approveGlobalOn = approveRaw.aiEnabled !== false;
+    } catch (err) {
+      logger.warn("[comments] approve toggle read failed; treating as all ON", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    const approveDecision = decideCommentReply({
+      globalOn: approveGlobalOn,
+      pageKey: account.accountRef || null,
+      pageToggles: approveToggles,
+    });
+    if (!approveDecision.allowed) {
+      throw new Error(
+        "COMMENT_REPLY_DISABLED: comment replies are switched off for this page."
+      );
+    }  }
 
   const token = getDecryptedToken(account);
   const replyId = await postPlatformReply(

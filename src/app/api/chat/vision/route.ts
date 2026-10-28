@@ -12,12 +12,23 @@ import { perceiveMedia, perceiveVideoFrames, type MediaInput } from "@/lib/ai/me
 import { resolveBehaviourLang, type BehaviourLang } from "@/lib/ai/behaviour";
 import {
   getCatalogBrief,
-  matchProductsInMessage,
+  listAvailableProducts,
   type CatalogProduct,
 } from "@/lib/catalog";
+import {
+  buildPhotoMatchAnswer,
+  matchPhotoToCatalog,
+  stripPriceClaims,
+} from "@/lib/ai/photo-match";
 import { logger } from "@/lib/logger";
 import { checkMessageLimitExceeded } from "@/lib/billing-usage";
 import { parseActivityToken, bindActivityToken } from "@/lib/ai/activity";
+import {
+  decideMessageReply,
+  extractPageKeys,
+  parseChannelToggles,
+  parsePageToggles,
+} from "@/lib/channel-toggles";
 
 /**
  * Phase 3 — photo/video understanding endpoint (user decisions 14 + 15).
@@ -261,6 +272,10 @@ export async function POST(request: NextRequest) {
       // the widget chat: one visitor cannot read another's thread).
       let convId = typeof conversationId === "string" ? conversationId : "";
       let takeover = false;
+      // Leg J: page keys of the existing thread (if any) for the
+      // toggle gate below. A newly created thread has no metadata
+      // yet, so only the widget channel switch gates it.
+      let visionPageKeys: string[] = [];
       if (convId) {
         const existing = await prisma.conversation.findUnique({ where: { id: convId } });
         if (!existing || existing.customerContact !== visitor) {
@@ -269,6 +284,7 @@ export async function POST(request: NextRequest) {
           // Human takeover (user decision 17): owner switched the AI off —
           // store the message below and stay silent, no AI reply of any kind.
           takeover = existing.aiEnabled === false;
+          visionPageKeys = extractPageKeys(existing.metadata);
           if (activityToken) {
             await bindActivityToken(convId, activityToken, existing.activityToken);
           }
@@ -328,6 +344,36 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      // Leg J: vision never enters chat(), so the engine gate cannot
+      // cover it — this route needs its own gate, in the same shape
+      // as the takeover block above. The customer note is already
+      // stored (history preserved); when the widget channel or this
+      // site is switched off — or globally — no perception runs, no
+      // product cards are produced, and no assistant message is
+      // stored. (chatOn is !takeover because the takeover block
+      // above already returned; globalOn comes from the same
+      // getAIConfig() the route already reads.)
+      const visionDecision = decideMessageReply({
+        globalOn: config.aiEnabled !== false,
+        chatOn: !takeover,
+        channel: "widget",
+        pageKeys: visionPageKeys,
+        channelToggles: parseChannelToggles(config.channelAiToggles),
+        pageToggles: parsePageToggles(config.pageAiToggles),
+      });
+      if (!visionDecision.allowed) {
+        logger.info(
+          `[vision] channel toggle: staying silent for conversation ${convId} (blockedBy=${visionDecision.blockedBy})`
+        );
+        return NextResponse.json({
+          conversationId: convId,
+          response: "",
+          products: [],
+          silent: true,
+          blockedBy: visionDecision.blockedBy,
+        });
+      }
+
       const keys = await resolveSiteKeys();
 
       if (!hasAnyProviderKey(keys)) {
@@ -353,24 +399,51 @@ export async function POST(request: NextRequest) {
         const perception = hasFrames
           ? await perceiveVideoFrames(keys, config.model, frameInputs, catalogHint || undefined)
           : await perceiveMedia(keys, config.model, media as MediaInput, catalogHint || undefined);
-        const seen = perception.description.replace(/^\[(Photo|Video)\]:\s*/, "");
+        const seenRaw = perception.description.replace(/^\[(Photo|Video)\]:\s*/, "");
+        // LEG-H: never echo a price vision read off a screenshot — the
+        // catalog price in the match answer is the only price shown.
+        const seen = stripPriceClaims(seenRaw).text;
 
-        // Photo-to-catalog matching (user decision 15): deterministic text
-        // similarity over name/description/tags — no new dependencies.
+        // LEG-H (staged): photo/screenshot -> ONE catalog match, not a
+        // top-3 guess list. matchPhotoToCatalog() enforces the photo
+        // threshold (score >= 6), the runner-up margin (>= 3), and a
+        // name-or-tag hit; anything weaker or tied is "no_match" and
+        // the reply says so plainly and asks for the product name.
+        // The answer's photo, price, and description come from the
+        // matched catalog row only (toProductCard below); vision text
+        // is never a price source (see the strip above).
         let products: ProductCard[] = [];
+        let matchLines: string[] = [];
         try {
-          products = (await matchProductsInMessage(perception.description, 3)).map(
-            toProductCard
+          const catalogProducts = (await listAvailableProducts(50)).map((p) => ({
+            ...p,
+            businessId: business.id,
+          }));
+          const match = matchPhotoToCatalog(
+            perception.description,
+            catalogProducts,
+            business.id,
+            "photo"
           );
+          // LEG-H INTEGRATION (inventory batch, staged not landed):
+          // stock is null here until the stockLevels lookup lands;
+          // buildPhotoMatchAnswer() turns null into "unknown" (team
+          // will confirm) — it never claims "in stock" by guess.
+          const answer = buildPhotoMatchAnswer(match, null);
+          products = answer.product ? [toProductCard(answer.product)] : [];
+          matchLines = answer.replyLines;
         } catch (matchErr) {
           logger.warn("[vision] catalog matching failed", {
             reason: matchErr instanceof Error ? matchErr.message : String(matchErr),
           });
+          matchLines = [
+            "I couldn't find a matching product in our catalog from this photo.",
+            "Could you please tell me the product name?",
+          ];
         }
 
         const intro = strings.intro;
-        const outro = products.length > 0 ? strings.outro : "";
-        const reply = [intro, seen, outro].filter(Boolean).join("\n\n");
+        const reply = [intro, seen, ...matchLines].filter(Boolean).join("\n\n");
 
         await prisma.message.create({
           data: withBusinessId({

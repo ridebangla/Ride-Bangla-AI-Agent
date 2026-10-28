@@ -24,11 +24,80 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await processDueFollowUps();
-    return NextResponse.json({ success: true, ...result });
+    // Leg I: delivered-order review scan (fail-soft — a scan failure
+    // never fails the cron response; see processDeliveredReviewScan
+    // below). Additive `reviewScan` field; existing fields unchanged.
+    let reviewScan = null;
+    try {
+      reviewScan = await processDeliveredReviewScan();
+    } catch (err) {
+      logger.warn("[followups] delivered-review scan failed", {
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      reviewScan = { scanned: 0, queued: 0, skipped: 0, reasons: {} };
+    }
+    return NextResponse.json({ success: true, ...result, reviewScan });
   } catch (error) {
     logger.error("Follow-up processing failed:", error);
     return NextResponse.json({ error: "Failed to process follow-ups" }, { status: 500 });
   }
+}
+
+/**
+ * Leg I: scan every active business for confirmed, chat-linked orders
+ * whose courier phase is exactly "delivered", and queue ONE review
+ * follow-up per such order due 24h after this first observation
+ * (see scanBusinessDeliveredReviews in @/lib/order-rating-requests).
+ * The scan itself is per-business tenant-scoped (runWithBusiness),
+ * mirroring processDueFollowUps; one business's failure never stops
+ * the others. Dynamic imports follow this file's existing precedent
+ * (the GET handler below) so no top-level import changes are needed.
+ */
+async function processDeliveredReviewScan(): Promise<{
+  scanned: number;
+  queued: number;
+  skipped: number;
+  reasons: Record<string, number>;
+}> {
+  const { prisma, withBusinessId, getUnscopedPrisma, runWithBusiness } = await import("@/lib/prisma");
+  const { prismaRatingStore, scanBusinessDeliveredReviews } = await import("@/lib/order-rating-requests");
+  const { getCourierDeliveryStatus } = await import("@/lib/courier-bridge");
+  const raw = getUnscopedPrisma();
+  const businesses = await raw.business.findMany({
+    where: { isActive: true },
+    select: { id: true },
+  });
+  const totals = { scanned: 0, queued: 0, skipped: 0, reasons: {} as Record<string, number> };
+  for (const b of businesses) {
+    try {
+      const r = await runWithBusiness(b.id, async () => {
+        const store = {
+          ...prismaRatingStore(prisma, withBusinessId),
+          readCourierPhase: async (orderId: string) => {
+            try {
+              const s = await getCourierDeliveryStatus(orderId);
+              return s?.phase ?? null;
+            } catch {
+              return null;
+            }
+          },
+        };
+        return scanBusinessDeliveredReviews(store);
+      });
+      totals.scanned += r.scanned;
+      totals.queued += r.queued;
+      totals.skipped += r.skipped;
+      for (const [reason, count] of Object.entries(r.reasons)) {
+        totals.reasons[reason] = (totals.reasons[reason] ?? 0) + count;
+      }
+    } catch (err) {
+      logger.warn("[followups] delivered-review scan business failed", {
+        businessId: b.id,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return totals;
 }
 
 export async function GET(request: NextRequest) {

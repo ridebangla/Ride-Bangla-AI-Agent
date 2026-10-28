@@ -40,6 +40,21 @@ export interface AIConfig {
    * false = the chat pipeline stays silent on every conversation.
    */
   aiEnabled: boolean;
+  /**
+   * Leg D (video round 2) — reply approval mode, read from settings by
+   * getAIConfig. Optional so older config objects still type-check:
+   * absent = direct send (approval off), the platform default.
+   */
+  replyApprovalEnabled?: boolean;
+  replyApprovalWaitSeconds?: number;
+  /**
+   * Leg J: per-channel / per-page AI toggles from the tenant's
+   * settings doc (see src/lib/channel-toggles.ts). Missing/empty =
+   * everything ON. Populated by getAIConfig(); defaultAIConfig()
+   * returns empty objects (all ON) on a settings-read outage.
+   */
+  channelAiToggles?: Record<string, boolean>;
+  pageAiToggles?: Record<string, { messages?: boolean; comments?: boolean }>;
 }
 
 export interface ConversationContext {
@@ -55,6 +70,12 @@ export interface ConversationContext {
    * honesty guardrails without code changes.
    */
   agentBehavior: string;
+  /**
+   * Supplementary business rules section (LEG G, staged): formatted
+   * from the tenant's saved business rules, or "" when none are
+   * set. Optional so older call sites keep working.
+   */
+  businessRulesSection?: string;
   knowledgeBase: KnowledgeItem[];
   customerName: string;
   customerHistory: string[];

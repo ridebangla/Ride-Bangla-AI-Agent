@@ -69,6 +69,9 @@ import type {
   AutomationRule,
   BusinessHours,
   ApiKey,
+  AgentRulePause,
+  OrderStatusTemplate,
+  OwnerControlAuditEntry,
   InternalNote,
   Campaign,
   Flow,
@@ -81,14 +84,23 @@ import type {
   AgentCommand,
   ProductCategory,
   Product,
+  StockLevel,
+  StockLedgerEntry,
   Order,
+  Booking,
   LeadScan,
   Lead,
+  InboundLead,
   LeadDraft,
   LeadSettings,
   SetupApplication,
   WebsiteCreationRequest,
   SiteReview,
+  TestChatSession,
+  TestChatMessage,
+  ReplyDraft,
+  BusinessRules,
+  AgentRuleVersion,
 } from "./models";
 
 // ---------------------------------------------------------------------------
@@ -219,6 +231,9 @@ const MODEL_META: Record<string, ModelMeta> = {
       whatsappPhone: "",
       telegramBotToken: "",
       telegramWebhookSecret: "",
+      // Leg J: per-channel / per-page AI toggles — empty = all ON.
+      channelAiToggles: {},
+      pageAiToggles: {},
       // Behaviour package (owner directive 2026-10-21): review asks +
       // proactive follow-ups ON by default with conservative timing;
       // reviewUrl empty = the agent links the business's primary
@@ -230,6 +245,13 @@ const MODEL_META: Record<string, ModelMeta> = {
       followUpOrderCheckInHours: 24,
       followUpDroppedHours: 48,
     },
+    uniques: ["businessId"],
+  }),
+  // LEG G (staged): supplementary business rules — one doc per
+  // business, tenant-scoped by the M() default, like settings.
+  businessRules: M("businessRules", {
+    hasUpdatedAt: true,
+    defaults: {},
     uniques: ["businessId"],
   }),
   admin: M("admins", {
@@ -265,9 +287,29 @@ const MODEL_META: Record<string, ModelMeta> = {
       // Phase 3 (user decision 17): AI replies ON by default; the Phase 5
       // dashboard switch flips this to false for human takeover.
       aiEnabled: true,
+      // Leg D (video round 2): per-chat approval pause, off by default.
+      approvalPaused: false,
     },
   }),
   message: M("messages"),
+  // Test-chat sandbox leg — separate collections, tenant-scoped by
+  // the M() default. Real conversation/message queries never touch
+  // these collections, so test rows cannot leak into inbox counts,
+  // usage, or analytics even if a UI filter fails.
+  testChatSession: M("testChatSessions", {
+    hasUpdatedAt: true,
+    defaults: {
+      isTest: true,
+      status: "open",
+      title: "",
+      startedWhileLive: false,
+      messageCount: 0,
+      closedAt: null,
+    },
+  }),
+  testChatMessage: M("testChatMessages", {
+    defaults: { isTest: true, channel: "test-chat", model: "" },
+  }),
   ticket: M("tickets", {
     hasUpdatedAt: true,
     defaults: { status: "open", priority: "medium", resolution: "" },
@@ -369,6 +411,17 @@ const MODEL_META: Record<string, ModelMeta> = {
     uniques: [["businessId", "externalId"]],
     compoundKeys: { businessId_externalId: ["businessId", "externalId"] },
   }),
+  // Inbound leads (LEG H) — own collection, own stages. NEVER the
+  // outbound `leads` collection: the two pipelines must not mix.
+  inboundLead: M("inboundLeads", {
+    hasUpdatedAt: true,
+    defaults: {
+      name: "", phone: "", interest: "", note: "", followUpDate: null,
+      source: "manual", channel: "", conversationId: null,
+      customerId: null, stage: "new", assignedToId: null,
+      assignedToName: "",
+    },
+  }),
   leadDraft: M("leadDrafts", {
     hasUpdatedAt: true,
     defaults: {
@@ -416,6 +469,17 @@ const MODEL_META: Record<string, ModelMeta> = {
   // Public site reviews (ai / tools / studio). Public, cross-business data
   // keyed by `site` — deliberately NOT tenant-scoped; always read/write via
   // getUnscopedPrisma() from the /api/public/reviews route.
+  agentRuleVersion: M("agentRuleVersions", {
+    hasUpdatedAt: true,
+    defaults: {
+      status: "DRAFT",
+      changeNote: "",
+      publishedAt: null,
+      publishedBy: null,
+      origin: "draft",
+      restoresVersion: null,
+    },
+  }),
   siteReview: M("site_reviews", {
     defaults: { photoURL: "", verifiedGoogle: false, status: "published" },
   }),
@@ -438,6 +502,37 @@ const MODEL_META: Record<string, ModelMeta> = {
   followUp: M("followUps", {
     hasUpdatedAt: true,
     defaults: { status: "pending" },
+  }),
+  // Leg D (video round 2) — held agent replies. Tenant-scoped by the
+  // M() default; text only, never an order/booking/ticket record.
+  replyDraft: M("replyDrafts", {
+    hasUpdatedAt: true,
+    defaults: {
+      status: "pending",
+      customerMessage: "",
+      editedText: null,
+      waitSecondsSnapshot: 300,
+      supersedeReason: null,
+    },
+  }),
+  // Owner controls (LEG D): tenant-scoped. Pause rows are released,
+  // never deleted; templates are paused, never deleted; audit rows
+  // are append-only in app code (see LD-04 for the rules side).
+  agentRulePause: M("agentRulePauses", {
+    hasUpdatedAt: true,
+    defaults: {
+      status: "active",
+      reason: "",
+      releasedAt: null,
+      releasedBy: null,
+    },
+  }),
+  orderStatusTemplate: M("orderStatusTemplates", {
+    hasUpdatedAt: true,
+    defaults: { status: "active", pausedAt: null, pausedBy: null },
+  }),
+  ownerControlAudit: M("ownerControlAudits", {
+    defaults: { blockedReason: null },
   }),
   reviewAsk: M("reviewAsks", {
     hasUpdatedAt: true,
@@ -510,6 +605,65 @@ const MODEL_META: Record<string, ModelMeta> = {
       total: null,
     },
   }),
+  // LEG A (inventory batch, STAGED ONLY): stock + ledger.
+  // One stockLevels doc per (businessId, productId, variantKey);
+  // the compound unique is what keeps a tenant from holding two
+  // live rows for the same product/variant. Ledger entries are
+  // append-only by convention (no mutating writer exists) and carry
+  // no updatedAt field, so nothing implies they may change.
+  stockLevel: M("stockLevels", {
+    hasUpdatedAt: true,
+    defaults: {
+      variantKey: "",
+      quantityOnHand: 0,
+      lowStockThreshold: null,
+      lastMovementId: null,
+    },
+    uniques: [["businessId", "productId", "variantKey"]],
+    compoundKeys: {
+      businessId_productId_variantKey: ["businessId", "productId", "variantKey"],
+    },
+  }),
+  stockMovement: M("stockMovements", {
+    defaults: {
+      variantKey: "",
+      referenceType: null,
+      referenceId: null,
+      reason: null,
+      reversesMovementId: null,
+      transferGroupId: null,
+    },
+  }),
+  // Leg A (booking): tenant bookings — a SEPARATE collection from orders.
+  // A booking is never an order with a flag. Defaults mirror the order
+  // entry's shape discipline: status always starts `requested` (the agent
+  // never confirms), and availabilityChecked is always false in this
+  // batch (no calendar exists — see booking-state.ts).
+  booking: M("bookings", {
+    hasUpdatedAt: true,
+    defaults: {
+      conversationId: null,
+      customerId: null,
+      requestedDate: null,
+      requestedTime: null,
+      place: null,
+      whatToBring: null,
+      questions: [],
+      customerName: null,
+      customerPhone: null,
+      advanceAmount: null,
+      advanceCurrency: null,
+      reminders: [],
+      proposedSlot: null,
+      proposedDate: null,
+      proposedTime: null,
+      humanNote: null,
+      status: "requested",
+      statusHistory: [],
+      availabilityChecked: false,
+      summary: "",
+    },
+  }),
 };
 
 // ---------------------------------------------------------------------------
@@ -533,6 +687,7 @@ const RELATIONS: Record<string, Record<string, Relation>> = {
     notes: { model: "internalNote", kind: "many", fk: "conversationId" },
     followUps: { model: "followUp", kind: "many", fk: "conversationId" },
     orders: { model: "order", kind: "many", fk: "conversationId" },
+    bookings: { model: "booking", kind: "many", fk: "conversationId" },
   },
   message: {
     conversation: { model: "conversation", kind: "one", fk: "conversationId" },
@@ -589,6 +744,10 @@ const RELATIONS: Record<string, Record<string, Relation>> = {
     products: { model: "product", kind: "many", fk: "categoryId" },
   },
   order: {
+    conversation: { model: "conversation", kind: "one", fk: "conversationId" },
+    customer: { model: "customer", kind: "one", fk: "customerId" },
+  },
+  booking: {
     conversation: { model: "conversation", kind: "one", fk: "conversationId" },
     customer: { model: "customer", kind: "one", fk: "customerId" },
   },
@@ -1884,6 +2043,8 @@ export interface DbClient {
   teamMember: ModelDelegate<TeamMember>;
   conversation: ModelDelegate<Conversation>;
   message: ModelDelegate<Message>;
+  testChatSession: ModelDelegate<TestChatSession>;
+  testChatMessage: ModelDelegate<TestChatMessage>;
   ticket: ModelDelegate<Ticket>;
   tag: ModelDelegate<Tag>;
   conversationTag: ModelDelegate<ConversationTag>;
@@ -1899,11 +2060,16 @@ export interface DbClient {
   customerNote: ModelDelegate<CustomerNote>;
   automationRule: ModelDelegate<AutomationRule>;
   businessHours: ModelDelegate<BusinessHours>;
+  businessRules: ModelDelegate<BusinessRules>;
   apiKey: ModelDelegate<ApiKey>;
   internalNote: ModelDelegate<InternalNote>;
   campaign: ModelDelegate<Campaign>;
   flow: ModelDelegate<Flow>;
   followUp: ModelDelegate<FollowUp>;
+  replyDraft: ModelDelegate<ReplyDraft>;
+  agentRulePause: ModelDelegate<AgentRulePause>;
+  orderStatusTemplate: ModelDelegate<OrderStatusTemplate>;
+  ownerControlAudit: ModelDelegate<OwnerControlAuditEntry>;
   reviewAsk: ModelDelegate<ReviewAsk>;
   socialAccount: ModelDelegate<SocialAccount>;
   scheduledPost: ModelDelegate<ScheduledPost>;
@@ -1913,13 +2079,18 @@ export interface DbClient {
   productCategory: ModelDelegate<ProductCategory>;
   product: ModelDelegate<Product>;
   order: ModelDelegate<Order>;
+  stockLevel: ModelDelegate<StockLevel>;
+  stockMovement: ModelDelegate<StockLedgerEntry>;
+  booking: ModelDelegate<Booking>;
   leadScan: ModelDelegate<LeadScan>;
   lead: ModelDelegate<Lead>;
+  inboundLead: ModelDelegate<InboundLead>;
   leadDraft: ModelDelegate<LeadDraft>;
   leadSettings: ModelDelegate<LeadSettings>;
   setupApplication: ModelDelegate<SetupApplication>;
   websiteCreationRequest: ModelDelegate<WebsiteCreationRequest>;
   siteReview: ModelDelegate<SiteReview>;
+  agentRuleVersion: ModelDelegate<AgentRuleVersion>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   $queryRaw(...args: any[]): Promise<any>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1984,6 +2155,8 @@ const TENANT_MODELS = new Set([
   "teamMember",
   "conversation",
   "message",
+  "testChatSession",
+  "testChatMessage",
   "ticket",
   "tag",
   "conversationTag",
@@ -1998,16 +2171,20 @@ const TENANT_MODELS = new Set([
   "customerNote",
   "automationRule",
   "businessHours",
+  "businessRules",
   "apiKey",
   "internalNote",
   "campaign",
   "flow",
   "schedule",
   "followUp",
+  "replyDraft",
   "reviewAsk",
   "productCategory",
   "product",
   "order",
+  "stockLevel",
+  "stockMovement",
   "socialAccount",
   "scheduledPost",
   "socialInteraction",
@@ -2015,10 +2192,15 @@ const TENANT_MODELS = new Set([
   "agentCommand",
   "leadScan",
   "lead",
+  "inboundLead",
   "leadDraft",
+  "agentRulePause",
+  "orderStatusTemplate",
+  "ownerControlAudit",
   "leadSettings",
   "setupApplication",
   "websiteCreationRequest",
+  "agentRuleVersion",
 ]);
 
 export class TenantContextError extends Error {

@@ -28,7 +28,8 @@
  *
  * Behaviour settings live on the business's Settings doc
  * (`reviewRequestsEnabled`, `followUpsEnabled`, `reviewUrl`,
- * `followUpOrderCheckInHours`, `followUpDroppedHours`) with the defaults
+ * `followUpOrderCheckInHours`, `followUpDroppedHours`,
+ * `orderReviewRequestsEnabled`) with the defaults
  * normalised by `getBehaviourSettings` — missing fields mean the
  * platform defaults below, so pre-existing businesses behave correctly
  * with zero migration.
@@ -83,6 +84,13 @@ export interface BehaviourSettings {
   /** Hours a conversation may sit quiet (last word was the agent's)
    *  before one revival message is sent. */
   followUpDroppedHours: number;
+  /** Leg I: next-day review request after a DELIVERED order, with
+   *  the business's own tenant-configured review link. Default OFF:
+   *  unlike reviewRequestsEnabled / followUpsEnabled (ON), this
+   *  switch sends nothing until the tenant switches it on. It
+   *  governs ONLY the delivered-order review request — the generic
+   *  review ask (maybeAppendReviewAsk) is untouched. */
+  orderReviewRequestsEnabled: boolean;
 }
 
 export const BEHAVIOUR_DEFAULTS: BehaviourSettings = {
@@ -91,6 +99,7 @@ export const BEHAVIOUR_DEFAULTS: BehaviourSettings = {
   reviewUrl: "",
   followUpOrderCheckInHours: 24,
   followUpDroppedHours: 48,
+  orderReviewRequestsEnabled: false,
 };
 
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
@@ -120,6 +129,11 @@ export function getBehaviourSettings(settings: unknown): BehaviourSettings {
       336,
       BEHAVIOUR_DEFAULTS.followUpDroppedHours
     ),
+    // Leg I: OFF unless the tenant explicitly set true — missing
+    // field = platform default = OFF, so pre-existing businesses
+    // never start receiving delivered-review requests they did not
+    // switch on.
+    orderReviewRequestsEnabled: s.orderReviewRequestsEnabled === true,
   };
 }
 

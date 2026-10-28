@@ -27,7 +27,22 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           { status: 400 }
         );
       }
-      const order = await setOrderStatus(id, status);
+      // LEG B (staged): the dashboard caller is a verified human actor.
+      // requireAuth above already guarantees dashboard/API-key auth (chat
+      // sessions carry neither), and the actor id below is what the audit
+      // trail records — agent/chat callers can never reach this route
+      // with a human actor, and setOrderStatus refuses non-human actors
+      // even if one did. `reason` is optional and stays null when the
+      // dashboard sends none (today's buttons send none); a missing
+      // reason on a post-confirmation change is flagged reasonMissing
+      // in the audit entry, never invented.
+      const reasonRaw =
+        typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : "";
+      const order = await setOrderStatus(id, status, {
+        actorType: "human",
+        actorId: auth.userId,
+        reason: reasonRaw === "" ? null : reasonRaw,
+      });
       return NextResponse.json({ order });
     } catch (error) {
       // Unknown id (or another tenant's id — the update is tenant-scoped,

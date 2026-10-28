@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/agent-brand.png" alt="Ride Bangla AI Agent — the product's own logo: the AI agent mascot with laptop and chat bubble, “Ride Bangla AI Agent”, ai.ridebangla.bd" width="420" />
+  <img src="public/rbai-logo.png" alt="Ride Bangla AI Agent — the project's standalone logo mark (RB chat-bubble mark), from public/rbai-logo.png" width="160" />
 </p>
 
 <h1 align="center">Ride Bangla AI Agent</h1>
@@ -14,10 +14,20 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo/ai-live-demo.gif" alt="Live demo — recorded from ai.ridebangla.bd, 24 October 2026: the landing hero, a scroll through the three setup steps and the feature cards, ending with the chat widget opened to its greeting “Hi! How can we help you today?”" width="390" />
+  <img alt="Next.js 16.3.6" src="https://img.shields.io/badge/Next.js-16.3.6-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" />
+  <img alt="React 19.2.4" src="https://img.shields.io/badge/React-19.2.4-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" />
+  <img alt="TypeScript 5.9.3" src="https://img.shields.io/badge/TypeScript-5.9.3-3178C6?style=for-the-badge&logo=typescript&logoColor=white" />
+  <img alt="Tailwind CSS 4.2.2" src="https://img.shields.io/badge/Tailwind_CSS-4.2.2-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" />
+  <img alt="Firebase 11.10.0" src="https://img.shields.io/badge/Firebase-11.10.0-FF6F00?style=for-the-badge&logo=firebase&logoColor=white" />
+  <img alt="Stripe 23.0.0" src="https://img.shields.io/badge/Stripe-23.0.0-635BFF?style=for-the-badge&logo=stripe&logoColor=white" />
+  <img alt="Vitest 4.1.2" src="https://img.shields.io/badge/Vitest-4.1.2-6E9F18?style=for-the-badge&logo=vitest&logoColor=white" />
 </p>
 
-<p align="center"><sub>Live demo — recorded from the live site at ai.ridebangla.bd on 24 October 2026 (phone viewport): hero → setup steps → features → the chat widget opened to its greeting. No chat message was sent for this recording.</sub></p>
+<p align="center">
+  <img src="docs/demo/ai-live-demo-laptop.gif" alt="Live demo — recorded from ai.ridebangla.bd, 24 October 2026 (laptop viewport 1280×800): the landing hero, a scroll through the three setup steps and the feature cards, ending with the chat widget opened to its greeting “Hi! How can we help you today?”" width="640" />
+</p>
+
+<p align="center"><sub>Live demo — recorded from the live site at ai.ridebangla.bd on 24 October 2026 (laptop/desktop viewport 1280×800): hero → setup steps → features → the chat widget opened to its greeting. No chat message was sent for this recording.</sub></p>
 
 > **Service status:** the platform is live at [ai.ridebangla.bd](https://ai.ridebangla.bd). Live answer capacity is currently being upgraded (data-store quota and AI-provider budget), so the public widget may temporarily return an apology instead of a full answer. Everything below describes the product as it is built and evidenced in this repository — not a roadmap.
 
@@ -131,18 +141,18 @@ Ride Bangla's own business runs on this same platform. Company accounts sit outs
 
 ## Tech stack
 
-*From `package.json` in this repository — nothing more, nothing less.*
+*From `package.json` and `package-lock.json` in this repository — versions below are the lockfile-resolved versions; nothing more, nothing less.*
 
 | Layer | Technology |
 |---|---|
 | Framework | Next.js 16.3.6 (App Router) |
-| UI | React 19.2.4 · Tailwind CSS 4 · Radix UI · Lucide icons |
-| Language | TypeScript 5 |
-| Data & auth | Firebase — Cloud Firestore · Firebase Admin SDK 13.5 |
-| Payments | Stripe 23 |
+| UI | React 19.2.4 · Tailwind CSS 4.2.2 · Radix UI · Lucide icons |
+| Language | TypeScript 5.9.3 |
+| Data & auth | Firebase 11.10.0 — Cloud Firestore · Firebase Admin SDK 13.10.0 |
+| Payments | Stripe 23.0.0 |
 | Channels / messaging | Twilio 5 · WhatsApp Web.js · Nodemailer / IMAP |
-| State & validation | Zustand 5 · Zod 4 |
-| Testing | Vitest 4 |
+| State & validation | Zustand 5.0.12 · Zod 4.3.6 |
+| Testing | Vitest 4.1.2 |
 
 ---
 

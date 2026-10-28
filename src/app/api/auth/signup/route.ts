@@ -8,6 +8,7 @@ import {
   isDatastoreQuotaError,
   setSessionCookies,
 } from "@/lib/auth";
+import { isSignupCapacityError } from "@/lib/signup-capacity";
 import { TRIAL_MS, TRIAL_DAYS } from "@/lib/subscription";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
@@ -31,25 +32,6 @@ function getFirebaseAdminAuth(): admin.auth.Auth {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-/**
- * Capacity-class failure (re-audit #3, R3-ai-1): the same honest-503
- * contract as /api/auth/google and /api/public/firebase-config. The
- * signup path's data layer is Firestore (via the Prisma shim) plus
- * Firebase Auth, so capacity surfaces as gRPC codes 8
- * (RESOURCE_EXHAUSTED) / 14 (UNAVAILABLE) — as a number, as a string,
- * or inside the message — or as the shared isDatastoreQuotaError
- * shapes. Anything else keeps the generic 500 below.
- */
-export function isSignupCapacityError(err: unknown): boolean {
-  if (isDatastoreQuotaError(err)) return true;
-  const code =
-    typeof err === "object" && err !== null && "code" in err
-      ? String((err as { code: unknown }).code).toLowerCase()
-      : "";
-  if (code === "8" || code === "14" || code === "unavailable") return true;
-  const msg = err instanceof Error ? err.message : String(err ?? "");
-  return /UNAVAILABLE/i.test(msg);
-}
 
 function slugify(name: string): string {
   return (
