@@ -139,7 +139,6 @@ Ride Bangla AI Agent is now running at [http://localhost:3000](http://localhost:
 
 When you open Ride Bangla AI Agent for the first time, you will be redirected to the setup wizard. This is a 4-step process that configures the essential settings.
 
-![Login Page](../screenshots/01-login.png)
 *The Ride Bangla AI Agent login page. On first launch, you will be redirected to the setup wizard instead.*
 
 ### Step 1: Create Admin Account

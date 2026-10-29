@@ -117,7 +117,6 @@ From the sidebar, click **Knowledge Base**. You will see the knowledge base mana
 
 Add at least 3-5 entries to give the AI enough context to handle basic questions.
 
-![Knowledge Base](../screenshots/05-knowledge-base.png)
 
 ---
 
@@ -144,7 +143,6 @@ Before connecting a live channel, test that the AI is responding correctly using
 3. Use the **Test** feature to ask a question that your knowledge base should be able to answer.
 4. Verify that the AI response is accurate and uses information from your entries.
 
-![Knowledge Base Detail with Test](../screenshots/20-knowledge-detail.png)
 
 If the response is not accurate:
 
@@ -182,7 +180,6 @@ Email is the quickest channel to set up if you have IMAP/SMTP credentials:
 
 Phone requires Twilio and ElevenLabs API keys. See [Channel Setup](Channel-Setup) for the full guide.
 
-![Channels Page](../screenshots/12-channels.png)
 
 ---
 
@@ -194,7 +191,6 @@ Go back to the **Dashboard**. You should see:
 - Stat cards with initial values (likely all zeros until real conversations come in).
 - The Channel Overview widget showing your connected channel(s).
 
-![Dashboard](../screenshots/02-dashboard.png)
 
 Send a test message through your connected channel and confirm that:
 

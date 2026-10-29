@@ -2,7 +2,6 @@
 
 Webhooks allow Ride Bangla AI Agent to notify external systems in real time when specific events occur. Instead of polling the API for changes, your applications receive HTTP requests automatically when events like ticket creation, conversation start, or escalation happen.
 
-![Webhooks Page](../screenshots/13-webhooks.png)
 
 ---
 

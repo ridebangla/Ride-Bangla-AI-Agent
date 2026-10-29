@@ -2,7 +2,6 @@
 
 The Analytics page provides a comprehensive overview of your customer support operations. It aggregates data from conversations, tickets, and team performance into visual charts and summary statistics.
 
-![Analytics Page](../screenshots/14-analytics.png)
 
 ---
 

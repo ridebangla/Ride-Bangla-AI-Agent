@@ -2,7 +2,6 @@
 
 The Customers page is Ride Bangla AI Agent's built-in CRM (Customer Relationship Management) system. It provides a centralized view of every customer who has contacted your business, with their contact details, conversation history, tags, and internal notes.
 
-![Customers](../screenshots/04-customers.png)
 *The Customer Management page showing customer profiles with contact information, tags, and action buttons.*
 
 ---

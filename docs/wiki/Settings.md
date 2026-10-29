@@ -2,7 +2,6 @@
 
 The Settings page is the central configuration hub for your Ride Bangla AI Agent instance. It controls how the AI behaves, which communication channels are active, and how your business is represented to customers.
 
-![Settings Page](../screenshots/18-settings.png)
 
 ---
 

@@ -8,7 +8,6 @@ Business Hours and SLA (Service Level Agreement) rules work together to define w
 
 Business hours define your weekly availability schedule. When business hours are enabled, Ride Bangla AI Agent can automatically send offline messages to customers who contact you outside of your schedule.
 
-![Business Hours](../screenshots/08-business-hours.png)
 *The Business Hours configuration page showing the weekly schedule with time ranges, timezone selection, and offline message.*
 
 ### Setting Up Business Hours
@@ -67,7 +66,6 @@ When a customer sends a message outside of your configured business hours:
 
 SLA rules define response time targets for your support team. They help you measure and maintain consistent service quality.
 
-![SLA Rules](../screenshots/11-sla-rules.png)
 *The SLA Rules page showing rules with first response time targets, resolution time targets, and channel/priority filters.*
 
 ### Creating an SLA Rule

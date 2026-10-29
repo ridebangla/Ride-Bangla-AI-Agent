@@ -2,7 +2,6 @@
 
 The Ticket System tracks customer issues that require structured follow-up beyond a single conversation reply. Tickets provide a formal record of problems, their priority, who is responsible for resolving them, and how they were ultimately addressed. They can be created manually by administrators or automatically by the AI during conversations.
 
-![Tickets Overview](../screenshots/10-tickets.png)
 *The Tickets page showing a list of tickets with priority levels, status counters, department assignments, and team member assignments.*
 
 ---

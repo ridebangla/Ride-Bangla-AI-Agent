@@ -2,7 +2,6 @@
 
 Ride Bangla AI Agent provides a REST API for programmatic access to all major features. This page documents every available endpoint, including request and response formats.
 
-![API Documentation Page](../screenshots/17-api-docs.png)
 
 ---
 

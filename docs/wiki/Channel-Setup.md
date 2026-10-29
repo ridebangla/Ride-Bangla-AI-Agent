@@ -2,7 +2,6 @@
 
 Channels are the communication pathways through which customers contact your business. Ride Bangla AI Agent supports three channels: WhatsApp, Email, and Phone. Each channel can be configured independently from the Channels page.
 
-![Channels](../screenshots/12-channels.png)
 *The Channels page showing WhatsApp, Email, and Phone channel cards with their connection status and configuration options.*
 
 ---

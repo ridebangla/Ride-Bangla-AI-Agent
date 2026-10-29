@@ -2,7 +2,6 @@
 
 The Team page lets you organize your support staff into departments and manage individual team members. This structure is essential for ticket routing, AI-powered issue assignment, and workload distribution.
 
-![Team Management](../screenshots/09-team.png)
 *The Team page showing departments with their members, expertise areas, roles, and availability toggles.*
 
 ---

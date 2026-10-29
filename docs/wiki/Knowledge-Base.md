@@ -2,7 +2,6 @@
 
 The knowledge base is the foundation of your AI support agent. Every answer Ride Bangla AI Agent gives to a customer is derived from the knowledge entries you create and maintain. A well-structured, accurately prioritized knowledge base directly translates to better, more reliable AI responses. A neglected one leads to incorrect answers, frustrated customers, and unnecessary escalations.
 
-![Knowledge Base Overview](../screenshots/05-knowledge-base.png)
 *The Knowledge Base page showing categories with entry counts, descriptions, and color-coded icons.*
 
 ---
@@ -99,7 +98,6 @@ Choose colors that are visually distinct from one another so you can identify ca
 
 Each category contains individual knowledge entries. An entry is a single piece of information that the AI can use to answer customer questions.
 
-![Knowledge Entry Detail](../screenshots/20-knowledge-detail.png)
 *A category detail view showing individual knowledge entries with their titles, priority levels, and active status.*
 
 ### Adding an Entry

@@ -4,7 +4,6 @@
 
 The Business Hours configuration defines when your support team is available to handle customer inquiries. When enabled, the system tracks your current operating status (open or closed) based on the configured schedule and timezone, and displays an appropriate offline message to customers who reach out outside of business hours.
 
-![Business Hours](../screenshots/08-business-hours.png)
 *The Business Hours page showing the current status indicator, enable toggle, timezone selector, weekly schedule configuration, and offline message editor.*
 
 ---

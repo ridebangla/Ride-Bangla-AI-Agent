@@ -2,7 +2,6 @@
 
 The Dashboard is the first page you see after logging into Ride Bangla AI Agent. It provides a real-time overview of your customer support activity, including conversation statistics, recent activity, channel status, and an onboarding checklist for new installations.
 
-![Ride Bangla AI Agent Dashboard](../screenshots/02-dashboard.png)
 
 ---
 

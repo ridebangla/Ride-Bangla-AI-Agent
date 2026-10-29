@@ -2,7 +2,6 @@
 
 The Admin page provides user account management and API key administration for your Ride Bangla AI Agent instance. This page is accessible from the sidebar under the "Admin" section.
 
-![Admin Page](../screenshots/16-admin.png)
 
 ---
 

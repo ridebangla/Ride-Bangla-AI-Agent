@@ -6,7 +6,6 @@ The Email channel enables Ride Bangla AI Agent to receive incoming customer emai
 
 The email integration uses industry-standard protocols (IMAP for receiving, SMTP for sending) and is compatible with virtually any email provider, including Gmail, Outlook, Yahoo, and custom mail servers.
 
-![Channels](../screenshots/12-channels.png)
 *The Channels page showing WhatsApp, Email, and Phone channel cards with connection status indicators.*
 
 ---

@@ -2,7 +2,6 @@
 
 The Ticket System tracks customer issues that require attention beyond a single conversation. Tickets can be created manually by administrators or automatically by the AI when it detects a problem that needs human intervention.
 
-![Tickets](../screenshots/10-tickets.png)
 *The Tickets page showing a list of tickets with priority levels, status counters, department assignments, and team member assignments.*
 
 ---

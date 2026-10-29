@@ -6,7 +6,6 @@ The WhatsApp channel allows Ride Bangla AI Agent to receive and respond to custo
 
 Ride Bangla AI Agent supports two connection methods: WhatsApp Web (QR code scanning) and WhatsApp Business API (API key authentication). Both methods enable full bidirectional messaging with AI-powered responses.
 
-![Channels](../screenshots/12-channels.png)
 *The Channels page displaying WhatsApp, Email, and Phone channel cards with their connection status and configuration options.*
 
 ---

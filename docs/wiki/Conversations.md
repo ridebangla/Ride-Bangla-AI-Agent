@@ -2,7 +2,6 @@
 
 The Conversations page is the operational heart of Ride Bangla AI Agent. It provides a unified inbox where every customer interaction -- whether it arrives via WhatsApp, Email, Phone, or the REST API -- is consolidated into a single, manageable view. From here, administrators monitor AI responses, intervene when necessary, manage conversation lifecycles, apply tags, leave internal notes, and track customer satisfaction.
 
-![Conversations Overview](../screenshots/03-conversations.png)
 *The unified inbox displaying conversations from all channels with status indicators, channel badges, and message previews.*
 
 ---

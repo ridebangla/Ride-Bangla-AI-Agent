@@ -6,7 +6,6 @@ SLA (Service Level Agreement) rules define response time targets for your suppor
 
 SLA rules help ensure consistent service quality by setting clear expectations. When targets are defined, you can track performance against those benchmarks and identify areas where response times need improvement.
 
-![SLA Rules](../screenshots/11-sla-rules.png)
 *The SLA Rules page displaying rule cards with channel scope, priority level, first response time, resolution time, and active/inactive status.*
 
 ---

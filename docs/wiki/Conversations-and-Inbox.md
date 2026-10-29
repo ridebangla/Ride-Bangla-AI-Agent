@@ -2,7 +2,6 @@
 
 The Conversations page is your unified inbox where all customer interactions across WhatsApp, Email, Phone, and API are consolidated into a single view. This is where you monitor AI responses, intervene when needed, and manage the lifecycle of each conversation.
 
-![Conversations](../screenshots/03-conversations.png)
 *The unified inbox showing conversations across all channels with filtering, status indicators, and message previews.*
 
 ---

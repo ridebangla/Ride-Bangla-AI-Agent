@@ -150,7 +150,6 @@ Click **Go to Dashboard** to leave the wizard and enter the main application. Yo
 
 Once you complete the setup wizard and log in, Ride Bangla AI Agent redirects you to the Dashboard. You will see the **Onboarding Checklist** widget with your progress:
 
-![Login Page](../screenshots/01-login.png)
 
 The onboarding checklist tracks six milestones:
 

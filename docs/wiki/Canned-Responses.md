@@ -6,7 +6,6 @@ Canned responses are pre-written reply templates that allow your support team to
 
 Each canned response has a title, content body, category for organization, an optional keyboard shortcut, usage tracking, and an active/inactive toggle.
 
-![Canned Responses](../screenshots/06-canned-responses.png)
 *The Canned Responses page showing response cards organized in a grid, with category badges, shortcut indicators, usage counts, and active/inactive toggles.*
 
 ---

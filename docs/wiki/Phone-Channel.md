@@ -4,7 +4,6 @@
 
 The Phone channel enables Ride Bangla AI Agent to handle incoming voice calls with AI-powered responses. The integration combines three services: Twilio for telephony infrastructure, OpenAI Whisper for speech-to-text transcription, and ElevenLabs for natural text-to-speech synthesis. Together, these create a seamless voice support experience where customers call your number, speak naturally, and receive spoken AI responses.
 
-![Channels](../screenshots/12-channels.png)
 *The Channels page showing WhatsApp, Email, and Phone channel cards with their connection status and configuration options.*
 
 ---

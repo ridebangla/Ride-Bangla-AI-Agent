@@ -327,7 +327,6 @@ apk add --no-cache \
 
 Once everything is running, you should see the Ride Bangla AI Agent dashboard after completing the setup wizard:
 
-![Ride Bangla AI Agent Dashboard](../screenshots/02-dashboard.png)
 
 From here, proceed to the [Setup Wizard](Setup-Wizard) guide to configure your admin account, business profile, and AI provider.
 

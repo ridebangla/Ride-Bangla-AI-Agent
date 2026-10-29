@@ -6,7 +6,6 @@ Automation rules allow you to define conditions and actions that are executed au
 
 Rules are evaluated against every incoming message. When a message matches a rule's conditions, the associated action is triggered. Each rule tracks how many times it has been triggered, giving you visibility into how frequently each automation fires.
 
-![Automation](../screenshots/07-automation.png)
 *The Automation page showing rule cards with type indicators, trigger counts, priority levels, and active/inactive toggles.*
 
 ---
