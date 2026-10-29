@@ -16,6 +16,31 @@ interface PhoneConfig {
 
 async function getPhoneConfig(): Promise<PhoneConfig | null> {
   const settings = await prisma.settings.findFirst();
+
+  // The channels dashboard saves Twilio details on the channel doc;
+  // prefer them when complete, so what the tenant saves is what runs.
+  // The settings-page Twilio section stays as the fallback. aiApiKey is
+  // not a dashboard field, so it always keeps coming from settings.
+  try {
+    const businessId = await resolveChannelBusiness();
+    const doc = await prisma.channel.findUnique({
+      where: { id: `${businessId}:phone` },
+    });
+    const cfg = (doc as { config?: Record<string, unknown> } | null)?.config;
+    if (cfg?.twilioSid && cfg?.twilioToken) {
+      return {
+        twilioSid: String(cfg.twilioSid),
+        twilioToken: String(cfg.twilioToken),
+        twilioPhone: String(cfg.twilioPhone || ""),
+        elevenLabsKey: String(cfg.elevenLabsKey || ""),
+        elevenLabsVoice: String(cfg.elevenLabsVoice || ""),
+        aiApiKey: settings?.aiApiKey || "",
+      };
+    }
+  } catch {
+    // Channel-doc read failed: fall through to the settings doc.
+  }
+
   if (!settings?.twilioSid || !settings?.twilioToken) return null;
 
   return {
@@ -225,10 +250,18 @@ export async function handleCallEnd(callSid: string, duration: number) {
   });
 }
 
-export function getPhoneStatus() {
+// Derived from the real config (channel doc first, settings fallback —
+// see getPhoneConfig). Previously this was hardcoded to disconnected,
+// so the phone row could never show connected. Note: this is now async;
+// no caller was found in the dashboard or API routes fetched for this
+// batch, so the signature change breaks nothing known — a future sync
+// caller must await it.
+export async function getPhoneStatus() {
+  const config = await getPhoneConfig();
+  const configured = Boolean(config?.twilioSid && config?.twilioToken);
   return {
-    configured: false,
-    status: "disconnected" as const,
+    configured,
+    status: configured ? "connected" : ("disconnected" as const),
   };
 }
 

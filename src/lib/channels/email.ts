@@ -26,6 +26,32 @@ let imapConnection: Imap | null = null;
 let isListening = false;
 
 async function getEmailConfig(): Promise<EmailConfig | null> {
+  // The channels dashboard saves SMTP/IMAP details on the channel doc;
+  // prefer them when complete, so what the tenant saves is what runs.
+  // The settings-page email section stays as the fallback.
+  try {
+    const businessId = await resolveChannelBusiness();
+    const doc = await prisma.channel.findUnique({
+      where: { id: `${businessId}:email` },
+    });
+    const cfg = (doc as { config?: Record<string, unknown> } | null)?.config;
+    if (cfg?.imapHost && cfg?.smtpHost) {
+      return {
+        imapHost: String(cfg.imapHost),
+        imapPort: Number(cfg.imapPort) || 993,
+        imapUser: String(cfg.imapUser || ""),
+        imapPass: String(cfg.imapPass || ""),
+        smtpHost: String(cfg.smtpHost),
+        smtpPort: Number(cfg.smtpPort) || 587,
+        smtpUser: String(cfg.smtpUser || ""),
+        smtpPass: String(cfg.smtpPass || ""),
+        smtpFrom: String(cfg.smtpFrom || cfg.smtpUser || ""),
+      };
+    }
+  } catch {
+    // Channel-doc read failed: fall through to the settings doc.
+  }
+
   const settings = await prisma.settings.findFirst();
   if (!settings?.imapHost || !settings?.smtpHost) return null;
 
@@ -40,6 +66,29 @@ async function getEmailConfig(): Promise<EmailConfig | null> {
     smtpPass: settings.smtpPass,
     smtpFrom: settings.smtpFrom || settings.smtpUser,
   };
+}
+
+// Dashboard truth: the channel row's status follows the real IMAP state
+// (mirrors the WhatsApp ready/disconnected handlers). Best-effort only:
+// a doc-update failure must never break the listener.
+async function markEmailChannelStatus(status: "connected" | "disconnected") {
+  try {
+    const businessId = await resolveChannelBusiness();
+    await prisma.channel.upsert({
+      where: { id: `${businessId}:email` },
+      update: { status },
+      create: {
+        id: `${businessId}:email`,
+        businessId,
+        type: "email",
+        config: {},
+        isActive: false,
+        status,
+      },
+    });
+  } catch (e) {
+    logger.error("[Email] Failed to update channel status:", e);
+  }
 }
 
 function createImapConnection(config: EmailConfig): Imap {
@@ -193,6 +242,7 @@ export async function startEmailListener() {
   imap.once("ready", () => {
     logger.info("[Email] IMAP connected");
     isListening = true;
+    void markEmailChannelStatus("connected");
 
     imap.openBox("INBOX", false, (err) => {
       if (err) {
@@ -227,11 +277,13 @@ export async function startEmailListener() {
   imap.once("error", (err: Error) => {
     logger.error("[Email] IMAP error:", err);
     isListening = false;
+    void markEmailChannelStatus("disconnected");
   });
 
   imap.once("end", () => {
     logger.info("[Email] IMAP disconnected");
     isListening = false;
+    void markEmailChannelStatus("disconnected");
   });
 
   imapConnection = imap;
@@ -244,6 +296,107 @@ export async function stopEmailListener() {
     imapConnection = null;
     isListening = false;
   }
+}
+
+// Tests a connection without changing anything: no listener is started,
+// no mail is sent, and the channel row's status is untouched. By default
+// the SAVED config is tested; when the dashboard passes the form's
+// current values, those are tested instead (still never saved).
+export async function testEmailConnection(
+  override?: Record<string, unknown>
+): Promise<{ ok: boolean; message: string }> {
+  let config: EmailConfig | null = null;
+  if (override?.imapHost && override?.smtpHost) {
+    config = {
+      imapHost: String(override.imapHost),
+      imapPort: Number(override.imapPort) || 993,
+      imapUser: String(override.imapUser || ""),
+      imapPass: String(override.imapPass || ""),
+      smtpHost: String(override.smtpHost),
+      smtpPort: Number(override.smtpPort) || 587,
+      smtpUser: String(override.smtpUser || ""),
+      smtpPass: String(override.smtpPass || ""),
+      smtpFrom: String(override.smtpFrom || override.smtpUser || ""),
+    };
+  } else {
+    config = await getEmailConfig();
+  }
+  if (!config) {
+    return {
+      ok: false,
+      message: "Enter the SMTP and IMAP details first, then test.",
+    };
+  }
+  const effective = config;
+
+  // IMAP: connect + open the inbox, then close. 15 s cap so a hung
+  // server cannot hang the dashboard.
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const imap = createImapConnection(effective);
+      const timer = setTimeout(() => {
+        try {
+          imap.end();
+        } catch {
+          /* already closed */
+        }
+        reject(new Error("IMAP connection timed out"));
+      }, 15000);
+      imap.once("ready", () => {
+        imap.openBox("INBOX", true, (err) => {
+          clearTimeout(timer);
+          try {
+            imap.end();
+          } catch {
+            /* already closed */
+          }
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      imap.once("error", (err: Error) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+      imap.connect();
+    });
+  } catch (e) {
+    logger.error("[Email] Test IMAP failed:", e);
+    return {
+      ok: false,
+      message: `Email test failed: could not open the IMAP inbox (${
+        e instanceof Error ? e.message : "unknown error"
+      }). Check the host, port, username and password.`,
+    };
+  }
+
+  // SMTP: verify the transporter (no mail is sent). Same 15 s cap.
+  try {
+    const transporter = getSmtpTransporter(effective);
+    await Promise.race([
+      transporter.verify(),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("SMTP verification timed out")),
+          15000
+        )
+      ),
+    ]);
+  } catch (e) {
+    logger.error("[Email] Test SMTP failed:", e);
+    return {
+      ok: false,
+      message: `Email test failed: SMTP verification failed (${
+        e instanceof Error ? e.message : "unknown error"
+      }). Check the host, port, username and password.`,
+    };
+  }
+
+  return {
+    ok: true,
+    message:
+      "Email connection works — IMAP inbox opened and SMTP verified. Nothing was sent.",
+  };
 }
 
 export async function sendEmail(

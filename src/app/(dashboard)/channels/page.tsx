@@ -601,11 +601,13 @@ function EmailCard({
   onSave,
   onAction,
   saving,
+  onRefresh,
 }: {
   channel: ChannelData;
   onSave: (type: string, config: Record<string, unknown>, isActive: boolean) => void;
   onAction: (type: string, action: string) => void;
   saving: boolean;
+  onRefresh?: () => void;
 }) {
   const cfg = channel.config as Record<string, string>;
   const [isActive, setIsActive] = useState(channel.isActive);
@@ -622,12 +624,97 @@ function EmailCard({
   const [imapPass, setImapPass] = useState(cfg.imapPass || "");
 
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  // Connect starts the listener from the SAVED details, so unsaved edits
+  // must be saved first — otherwise Connect would run the old details.
+  const isDirty =
+    smtpHost !== (cfg.smtpHost || "") ||
+    smtpPort !== (cfg.smtpPort || "587") ||
+    smtpUser !== (cfg.smtpUser || "") ||
+    smtpPass !== (cfg.smtpPass || "") ||
+    smtpFrom !== (cfg.smtpFrom || "") ||
+    imapHost !== (cfg.imapHost || "") ||
+    imapPort !== (cfg.imapPort || "993") ||
+    imapUser !== (cfg.imapUser || "") ||
+    imapPass !== (cfg.imapPass || "");
 
   const handleTest = async () => {
+    // Tests exactly what is typed (the test itself never saves anything).
+    setTestResult("Testing…");
+    try {
+      const res = await fetch("/api/channels/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "test",
+          config: {
+            smtpHost,
+            smtpPort,
+            smtpUser,
+            smtpPass,
+            smtpFrom,
+            imapHost,
+            imapPort,
+            imapUser,
+            imapPass,
+          },
+        }),
+      });
+      const data = await res.json();
+      setTestResult(
+        data.message ||
+          data.error ||
+          (res.ok ? "Connection works." : "Connection failed.")
+      );
+    } catch {
+      setTestResult("Test failed. Check the details and try again.");
+    }
+    setTimeout(() => setTestResult(null), 8000);
+  };
+
+  const handleConnect = () => {
+    if (isDirty) {
+      setTestResult("Save your details first, then Connect.");
+      setTimeout(() => setTestResult(null), 8000);
+      return;
+    }
+    setConnecting(true);
     setTestResult(null);
-    onAction("email", "test");
-    setTestResult("Test initiated - check server logs for results");
-    setTimeout(() => setTestResult(null), 4000);
+    onAction("email", "connect");
+    // IMAP connects asynchronously: poll the channel row until it flips
+    // to connected (60 s cap), then refresh the page's channel list so
+    // the badge updates. Mirrors the WhatsApp card's QR polling.
+    if (pollRef.current) clearInterval(pollRef.current);
+    const pollStartedAt = Date.now();
+    pollRef.current = setInterval(async () => {
+      if (Date.now() - pollStartedAt > 60 * 1000) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        setConnecting(false);
+        return;
+      }
+      if (document.visibilityState === "hidden") return;
+      try {
+        const statusRes = await fetch("/api/channels/email");
+        if (statusRes.ok) {
+          const doc = await statusRes.json();
+          if (doc.status === "connected") {
+            if (pollRef.current) clearInterval(pollRef.current);
+            setConnecting(false);
+            onRefresh?.();
+          }
+        }
+      } catch {
+        /* ignore polling errors */
+      }
+    }, 3000);
   };
 
   return (
@@ -665,7 +752,7 @@ function EmailCard({
               label="Host"
               value={smtpHost}
               onChange={setSmtpHost}
-              placeholder="smtp.example.com"
+              placeholder="Your SMTP server address"
             />
             <FieldInput
               label="Port"
@@ -678,7 +765,7 @@ function EmailCard({
               label="Username"
               value={smtpUser}
               onChange={setSmtpUser}
-              placeholder="user@example.com"
+              placeholder="Your SMTP username"
             />
             <FieldInput
               label="Password"
@@ -693,7 +780,7 @@ function EmailCard({
               label="From Address"
               value={smtpFrom}
               onChange={setSmtpFrom}
-              placeholder="noreply@example.com"
+              placeholder="Sender email address"
             />
           </div>
         </div>
@@ -708,7 +795,7 @@ function EmailCard({
               label="Host"
               value={imapHost}
               onChange={setImapHost}
-              placeholder="imap.example.com"
+              placeholder="Your IMAP server address"
             />
             <FieldInput
               label="Port"
@@ -721,7 +808,7 @@ function EmailCard({
               label="Username"
               value={imapUser}
               onChange={setImapUser}
-              placeholder="user@example.com"
+              placeholder="Your IMAP username"
             />
             <FieldInput
               label="Password"
@@ -743,7 +830,7 @@ function EmailCard({
       </div>
 
       {/* Footer */}
-      <div className="px-5 py-3 border-t border-rbai-border bg-rbai-bg/50 flex items-center gap-2">
+      <div className="px-5 py-3 border-t border-rbai-border bg-rbai-bg/50 flex flex-wrap items-center gap-2">
         <button
           type="button"
           disabled={saving}
@@ -772,6 +859,15 @@ function EmailCard({
             <Save className="h-4 w-4" />
           )}
           Save
+        </button>
+        <button
+          type="button"
+          disabled={connecting}
+          onClick={handleConnect}
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-50 transition-colors"
+        >
+          <Wifi className="h-4 w-4" />
+          {connecting ? "Connecting…" : "Connect"}
         </button>
         <button
           type="button"
@@ -824,11 +920,47 @@ function PhoneCard({
 
   const [testResult, setTestResult] = useState<string | null>(null);
 
-  const handleTestCall = () => {
-    setTestResult(null);
-    onAction("phone", "test");
-    setTestResult("Test call initiated - check Twilio dashboard for status");
-    setTimeout(() => setTestResult(null), 4000);
+  // Connect verifies the SAVED Twilio details, so unsaved edits must be
+  // saved first — otherwise Connect would verify the old details.
+  // (The ElevenLabs voice is not part of this check: it does not affect
+  // whether Twilio connects.)
+  const isTwilioDirty =
+    twilioSid !== (cfg.twilioSid || "") ||
+    twilioToken !== (cfg.twilioToken || "") ||
+    twilioPhone !== (cfg.twilioPhone || "");
+
+  const handleTestCall = async () => {
+    // Verifies exactly what is typed: a read-only Twilio credential
+    // check. It never saves anything, and no call is placed.
+    setTestResult("Verifying…");
+    try {
+      const res = await fetch("/api/channels/phone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "test",
+          config: { twilioSid, twilioToken, twilioPhone },
+        }),
+      });
+      const data = await res.json();
+      setTestResult(
+        data.message ||
+          data.error ||
+          (res.ok ? "Twilio credentials verified." : "Verification failed.")
+      );
+    } catch {
+      setTestResult("Verification failed. Check the details and try again.");
+    }
+    setTimeout(() => setTestResult(null), 8000);
+  };
+
+  const handlePhoneConnect = () => {
+    if (isTwilioDirty) {
+      setTestResult("Save your details first, then Connect.");
+      setTimeout(() => setTestResult(null), 8000);
+      return;
+    }
+    onAction("phone", "connect");
   };
 
   return (
@@ -926,7 +1058,7 @@ function PhoneCard({
       </div>
 
       {/* Footer */}
-      <div className="px-5 py-3 border-t border-rbai-border bg-rbai-bg/50 flex items-center gap-2">
+      <div className="px-5 py-3 border-t border-rbai-border bg-rbai-bg/50 flex flex-wrap items-center gap-2">
         <button
           type="button"
           disabled={saving}
@@ -954,11 +1086,19 @@ function PhoneCard({
         </button>
         <button
           type="button"
+          onClick={handlePhoneConnect}
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
+        >
+          <Wifi className="h-4 w-4" />
+          Connect
+        </button>
+        <button
+          type="button"
           onClick={handleTestCall}
           className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-purple-600 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors"
         >
           <PhoneCall className="h-4 w-4" />
-          Test Call
+          Verify Credentials
         </button>
       </div>
     </div>
@@ -1632,6 +1772,9 @@ export default function ChannelsPage() {
         setChannels((prev) =>
           prev.map((ch) => (ch.type === type ? { ...ch, ...data } : ch))
         );
+        // State-changing actions (connect/disconnect) return the channel
+        // row: re-read the list so the badges show the server truth.
+        fetchChannels();
       }
       showToast(data.message || "Action completed");
     } catch (err) {
@@ -1695,6 +1838,7 @@ export default function ChannelsPage() {
               onSave={handleSave}
               onAction={handleAction}
               saving={saving}
+              onRefresh={fetchChannels}
             />
             <PhoneCard
               channel={getChannel("phone")}
