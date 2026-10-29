@@ -134,7 +134,7 @@ export default function LoginPage() {
       <video
         src="/login-hero.mp4"
         className="mb-6 rounded-2xl shadow-lg"
-        style={{ width: 300, height: 400, objectFit: "cover" }}
+        style={{ width: 300, height: 400, objectFit: "cover", objectPosition: "50% 15%" }}
         muted
         loop
         playsInline

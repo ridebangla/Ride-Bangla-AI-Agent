@@ -672,21 +672,22 @@
   var MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 
   // Mascot framing. The STILL (agent-avatar.png) is the bust asset
-  // (since v2026-10-22.2 the ASSET ITSELF is the bust: the 432x432
-  // crop at (296,186) of the 1024x1024 mascot artwork, exported at
-  // 512x512 — measured figure bounds x 4.5-94% / y 4-100% of the
-  // frame). The fallback <img> stays plain cover-fit: it is only
-  // the poster / failure fallback. The VIDEO clips are 480x854
+  // (woman model 2026-10-29: the ASSET ITSELF is the bust: the 380x380
+  // crop at (87,20) of the 512x512 owner still, exported at 512x512
+  // — still-measured face x 192-356, y 81-317; shoulders x 163-391,
+  // y 236-374.). The fallback <img> stays plain cover-fit: it is only
+  // the poster / failure fallback. The VIDEO clips are 720x1280
   // FULL SCENES; the working clip is framed as a scene (owner directive
   // 2026-10-22, superseding the v.2 bust-centred video crop, which
   // centred the face and cut the laptop — the point of the working
   // scene — out of the circular slots entirely). Measured on the
   // shipped clips (composition is stable across each 10s loop):
-  //   idle    — standing figure x 55-425, y 107-838, no props;
-  //   working — head y 105-375, torso to y ~600, laptop screen
-  //             x 0-125 / y 445-640, hands + keyboard y 530-650.
+  //   idle (51, standing) — head x 240-500, y 137-616; tablet x 125-300,
+  //             y 645-758; hands y 690-791;
+  //   working (a4, seated) — head x 171-390, y 433-742; laptop x 241-713,
+  //             y 778-1018; typing hand x 215-393, y 892-978.
   // In a square slot, cover-fit on a full-width <video> can only
-  // ever show a 480x480 band of the 854-tall frame. The WORKING
+  // ever show a 720x720 band of the 1280-tall frame. The WORKING
   // class below therefore NARROWs the element (kept centred):
   // cover maps the full 480 width into the narrower box, which
   // stretches the visible window vertically. The IDLE class does
@@ -694,13 +695,15 @@
   // v.5 whole-figure idle window read TOO BIG in the front
   // slots, so the idle clip is back to the smaller chest-up bust
   // of the pre-v.5 presentation —
-  //   idle:    full width, object-position 17% -> window 480x480
-  //            -> band y 64-544: head + chest (a bust), at the
+  //   idle:    full width, object-position 17% -> window 720x720
+  //            -> band y 95-815: head, tablet and hands (chest-up), at the
   //            smaller scale the owner preferred.
-  //   working: width 84% -> window 480x571, object-position 32%
-  //            -> band y 90-662: head, torso, typing hands AND
-  //            the full laptop (screen 445-640) inside the frame.
+  //   working: width 84% -> window 720x857, object-position 32%
+  //            -> band y 135-992: head, torso, typing hands AND
+  //            the laptop screen/keyboard inside the frame (bottom edge trimmed ~26px).
   // Launcher (56px) and header (36px) wrap sizes are unchanged.
+  //   done: 51 excerpt 5.0-6.2s (camera-facing standing pose); replace with a
+  //            dedicated completion clip when the owner supplies one.
   function createStyles() {
     var style = document.createElement("style");
     style.textContent = "\n\

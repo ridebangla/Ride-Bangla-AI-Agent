@@ -59,8 +59,8 @@ export const metadata: Metadata = {
   },
   manifest: "/manifest.webmanifest",
     icons: {
-    // New agent-mascot favicon (multi-size .ico + PNG fallbacks). Brand
-    // artwork (agent-avatar.png) is untouched elsewhere on purpose.
+    // Agent-character bust (woman model, 2026-10-29): the same bust
+    // artwork serves agent-avatar.png, the favicon set and the manifest icons.
     icon: [
       { url: "/favicon.ico", sizes: "any" },
       { url: "/favicon-48x48.png", sizes: "48x48", type: "image/png" },
