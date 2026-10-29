@@ -906,14 +906,16 @@ function PhoneCard({
 
   const [elevenLabsKey, setElevenLabsKey] = useState(cfg.elevenLabsKey || "");
   const [elevenLabsVoice, setElevenLabsVoice] = useState(
-    cfg.elevenLabsVoice || ""
+    // Female voices only (owner rule): a previously saved male voice
+    // shows as Rachel, the first female voice, until the next Save.
+    cfg.elevenLabsVoice === "drew" || cfg.elevenLabsVoice === "clyde"
+      ? "rachel"
+      : cfg.elevenLabsVoice || ""
   );
 
   const voiceOptions = [
     { id: "", label: "Select a voice..." },
     { id: "rachel", label: "Rachel - Calm, professional" },
-    { id: "drew", label: "Drew - Friendly, warm" },
-    { id: "clyde", label: "Clyde - Authoritative" },
     { id: "domi", label: "Domi - Energetic, upbeat" },
     { id: "bella", label: "Bella - Soft, gentle" },
   ];

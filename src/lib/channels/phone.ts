@@ -70,14 +70,21 @@ export async function transcribeAudio(
   return transcription.text;
 }
 
-// Text-to-Speech using ElevenLabs
+// Text-to-Speech using ElevenLabs — female voices only (owner rule).
+// A saved male voice id from the old dashboard list can never speak:
+// it maps to Rachel, the first female voice, at the single choke point
+// here, so every present and future caller is covered.
+const MALE_VOICE_IDS = new Set(["drew", "clyde"]);
 export async function synthesizeSpeech(
   text: string,
   apiKey: string,
   voiceId: string
 ): Promise<Buffer> {
+  const safeVoiceId = MALE_VOICE_IDS.has(voiceId.toLowerCase())
+    ? "rachel"
+    : voiceId;
   const response = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+    `https://api.elevenlabs.io/v1/text-to-speech/${safeVoiceId}`,
     {
       method: "POST",
       headers: {
