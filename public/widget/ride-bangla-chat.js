@@ -1,6 +1,19 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
- * CANONICAL EMBED — v2026-10-23.3 (quota polling diet
+ * CANONICAL EMBED — v2026-10-29 (male voice fallback removed
+ * 2026-10-29: owner rule — the whole voice is female, no male
+ * voice ever. The picker's pass 3 (an identifiably-male voice
+ * at pitch 1.25 as a last resort) is removed entirely, and the
+ * browser default is never left to speak either: when no
+ * female-named or unlabelled voice exists for the reply's
+ * language, the widget does NOT speak and shows the
+ * voice-unavailable system note instead (the text reply stays
+ * readable). Pass 1 (identifiable female, pitch 1.0) and pass 2
+ * (unlabelled same-language voice, pitch 1.1) are unchanged.
+ * Prompt hardening in the same batch (engine.ts, not this
+ * file): the whole reply must be in the reply language and
+ * knowledge facts must be translated, never quoted verbatim.)
+ * Prior: v2026-10-23.3 (quota polling diet
  * 2026-10-23: the thread sync no longer polls at a fixed 4 s for as
  * long as the panel is open. It syncs immediately on open, then
  * backs off while nothing new arrives (5 s → 8 s → … → 30 s cap),
@@ -472,6 +485,7 @@
       micBlocked: "Microphone is blocked for this site. Allow it from the browser's site settings, then tap the mic again.",
       listenReply: "Listen to this reply",
       stopListening: "Stop listening",
+      voiceUnavailable: "Voice playback isn't available on this device — no female voice was found for this language. Please read the reply above.",
       micNotFound: "No microphone was found. Please check your device and try again.",
       micBusy: "The microphone is being used by another app. Please close it and try again.",
     },
@@ -515,6 +529,7 @@
       micBlocked: "এই সাইটের জন্য মাইক্রোফোন বন্ধ আছে। ব্রাউজারের সাইট সেটিংস থেকে অনুমতি দিয়ে আবার মাইকে চাপ দিন।",
       listenReply: "উত্তরটি শুনুন",
       stopListening: "শোনা থামান",
+      voiceUnavailable: "এই ডিভাইসে ভয়েস শোনা যাচ্ছে না — এই ভাষার জন্য মেয়ে কন্ঠ পাওয়া যায়নি। উপরের লেখা উত্তরটি পড়ুন।",
       micNotFound: "কোনো মাইক্রোফোন পাওয়া যায়নি। আপনার ডিভাইস দেখে আবার চেষ্টা করুন।",
       micBusy: "মাইক্রোফোনটি অন্য অ্যাপে ব্যবহৃত হচ্ছে। সেটি বন্ধ করে আবার চেষ্টা করুন।",
     },
@@ -1486,14 +1501,13 @@
   //     language that is NOT identifiably male (unlabelled
   //     platform voices) -> pitch 1.1 (a slightly raised,
   //     feminizing nudge inside the 1.05-1.15 band).
-  //   Pass 3 — LAST RESORT: only identifiably-male voices exist
-  //     for the language -> the first of them at pitch 1.25
-  //     (raised, inside the 1.2-1.3 band) rather than silently
-  //     accepting the browser default at pitch 1.0.
-  //   No voice object at all (empty list, or none for the
-  //     language): the utterance still carries its lang AND
-  //     pitch 1.1 — never pitch 1.0, and a pitch is NEVER
-  //     lowered anywhere in this picker.
+  //   NO pass 3 any more (owner rule, 2026-10-29: no male voice
+  //     ever): when only identifiably-male voices exist for the
+  //     language, or no voice exists for it at all, the picker
+  //     returns null and the caller does NOT speak — it shows
+  //     the voice-unavailable note instead. The browser default
+  //     is never left to speak either (it may be male).
+  //   A pitch is NEVER lowered anywhere in this picker.
   // A name is always tested FEMALE first: an identifiably-female
   // name can never be reclassified male ("female" itself
   // contains "male"; "Danielle" contains "Daniel"; "Alexandra"
@@ -1517,8 +1531,8 @@
     "kanya", "tanisha", "nabanita",
   ];
   // Identifiably-MALE voice names (kept SEPARATE from the female
-  // list). Pass 2 skips these; pass 3 uses one only as the last
-  // resort, at raised pitch.
+  // list). Pass 2 skips these; they are NEVER spoken (no male
+  // last resort — see the picker contract below).
   var MALE_VOICE_NAME_PARTS = [
     "david", "daniel", "guy", "christopher", "ryan", "mark",
     "alex", "fred", "george", "arthur", "madhur", "hemant",
@@ -1563,32 +1577,29 @@
       }
     } catch (e) {}
   }
-  // Returns { voice, pitch }: voice is null only when no voice
-  // object can serve the language at all (empty list, or no
-  // voice for it) — the caller still sets lang + pitch 1.1.
+  // Returns { voice, pitch }: voice is a female-named (pass 1)
+  // or unlabelled (pass 2) voice for the language, or null when
+  // NO female or unlabelled voice exists for it (empty list,
+  // male-only list, or no voice for the language). A null voice
+  // means DO NOT SPEAK: the caller shows the voice-unavailable
+  // note instead. There is no male fallback and no browser-
+  // default fallback — a male voice is never spoken, and the
+  // browser default (possibly male) is never left to speak.
   function pickVoiceForLang(langTag) {
     refreshVoices();
     var lang = String(langTag || "").toLowerCase().split("-")[0];
     if (!lang || !cachedVoices.length) return { voice: null, pitch: 1.1 };
     var firstUnlabelled = null;
-    var firstMale = null;
     for (var i = 0; i < cachedVoices.length; i++) {
       var v = cachedVoices[i];
       var vLang = String(v.lang || "").toLowerCase();
       if (vLang.indexOf(lang) !== 0) continue;
       var name = String(v.name || "").toLowerCase();
       if (isFemaleVoiceName(name)) return { voice: v, pitch: 1.0 };
-      if (isMaleVoiceName(name)) {
-        if (!firstMale) firstMale = v;
-        continue;
-      }
+      if (isMaleVoiceName(name)) continue;
       if (!firstUnlabelled) firstUnlabelled = v;
     }
     if (firstUnlabelled) return { voice: firstUnlabelled, pitch: 1.1 };
-    // Last resort (pass 3): only identifiable-male voices exist
-    // for this language — use the first at raised pitch 1.25
-    // rather than the browser default at pitch 1.0.
-    if (firstMale) return { voice: firstMale, pitch: 1.25 };
     return { voice: null, pitch: 1.1 };
   }
 
@@ -1619,6 +1630,16 @@
       // pending speak must not fire after the user stopped it.
       if (speakingBtn !== btn) return;
       var pick = pickVoiceForLang(lang);
+      // Fail-closed (owner rule, no male voice ever): no female
+      // or unlabelled voice for this language means DO NOT
+      // SPEAK — never a male voice, never the browser default.
+      // The text reply stays readable; the note below says
+      // plainly why there is no audio.
+      if (!pick.voice) {
+        stopSpeaking();
+        addSystemNotice(t("voiceUnavailable"));
+        return;
+      }
       queue.forEach(function (part, i) {
         var u = new SpeechSynthesisUtterance(part);
         u.lang = lang;
@@ -1636,8 +1657,10 @@
     // Empty list at speak time: browsers load voices
     // asynchronously, so wait ONCE, briefly — a voiceschanged
     // fast-path plus a 50ms poll, with a hard ~350ms cap — then
-    // speak regardless (lang + raised pitch, no voice object).
-    // Never blocked, never silent, never a noticeable delay.
+    // doSpeak runs: it speaks only if a female or unlabelled
+    // voice was found, otherwise it shows the voice-unavailable
+    // note (never a male voice, never the browser default).
+    // Never blocked, never a noticeable delay.
     // fireOnce guarantees exactly one speak however the wait
     // resolves, and doSpeak's own guard drops it entirely if
     // the user stopped playback while waiting.
