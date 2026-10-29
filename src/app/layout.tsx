@@ -86,7 +86,7 @@ const ORGANIZATION_JSON_LD = {
   "@type": "Organization",
   name: "Ride Bangla",
   url: "https://ridebangla.bd",
-  logo: SITE_URL + "/agent-avatar.png",
+  logo: SITE_URL + "/agent-logo-white.png",
   sameAs: [
     "https://facebook.com/ridebangla",
     "https://www.youtube.com/@ridebangla-0",

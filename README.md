@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/rbai-logo.png" alt="Ride Bangla AI Agent — the project's standalone logo mark (RB chat-bubble mark), from public/rbai-logo.png" width="160" />
+  <img src="public/agent-avatar.png" alt="Ride Bangla AI Agent — the platform's own agent character (woman agent bust, from public/agent-avatar.png)" width="160" />
 </p>
 
 <h1 align="center">Ride Bangla AI Agent</h1>
@@ -32,6 +32,23 @@
 > **Service status:** the platform is live at [ai.ridebangla.bd](https://ai.ridebangla.bd). Live answer capacity is currently being upgraded (data-store quota and AI-provider budget), so the public widget may temporarily return an apology instead of a full answer. Everything below describes the product as it is built and evidenced in this repository — not a roadmap.
 
 ---
+
+### Agent-character placement — updated version, 29 October 2026
+
+Same model everywhere (owner decision 29 October 2026): the platform's own
+agent character, in white-composite form where a transparent background
+would break. `public/og-image.png` now carries the white composite of the
+character (centred, 1200×630); new `public/agent-logo-white.png` (512×512)
+backs the JSON-LD `logo` (layout) and `image` (landing page) references,
+which previously pointed at the bust photo. Unchanged on purpose: the bust
+avatar in landing, login, sidebar and widget; the public favicon set,
+manifest icons and Apple touch icon (small-size legibility — tiny
+full-body renders were rejected by the owner). The old-robot
+`src/app/favicon.ico` flagged in the placement pass was replaced separately
+by the gaps batch with the new-woman bust ICO. Live-drive check of the
+share card and search result is still owed before this is called fully
+verified. `public/rbai-logo.png` (RB chat-bubble mark) is unreferenced by
+site code and is kept, not deleted.
 
 ## About
 

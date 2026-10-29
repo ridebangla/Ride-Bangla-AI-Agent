@@ -35,7 +35,7 @@ const SOFTWARE_APP_JSON_LD = {
   applicationCategory: "BusinessApplication",
   operatingSystem: "Web",
   url: "https://ai.ridebangla.bd",
-  image: "https://ai.ridebangla.bd/agent-avatar.png",
+  image: "https://ai.ridebangla.bd/agent-logo-white.png",
   description:
     "AI customer-service agent SaaS for businesses: 24/7 instant chat support, WhatsApp/Facebook/Instagram/Telegram automation, website & landing-page builder, product catalog, order handling, and a lead engine — one subscription, everything included.",
   offers: {
