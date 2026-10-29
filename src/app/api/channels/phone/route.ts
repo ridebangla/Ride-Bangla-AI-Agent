@@ -82,11 +82,15 @@ async function verifyTwilio(
   return { ok: true, message: "Twilio credentials verified." };
 }
 
-async function readSavedPhoneConfig(businessId: string): Promise<{
+async function readSavedPhoneConfig(businessId: string | null): Promise<{
   twilioSid: string;
   twilioToken: string;
   twilioPhone: string;
 } | null> {
+  // A null businessId means no saved config exists for this session;
+  // callers already handle null with the "Save your details first" error,
+  // so this stays fail-closed instead of querying with a null id.
+  if (!businessId) return null;
   const doc = await prisma.channel.findUnique({
     where: { id: `${businessId}:phone` },
   });
