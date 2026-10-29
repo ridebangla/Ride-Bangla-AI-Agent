@@ -1678,7 +1678,15 @@ export default function ChannelsPage() {
   const fetchChannels = useCallback(async () => {
     try {
       setFetchError(null);
-      const res = await fetch("/api/channels");
+      // Forward the selected business to the list call: a Super Admin
+      // session with several businesses has none auto-selected, so a
+      // bare /api/channels call fails (BUSINESS_REQUIRED) and the page
+      // can never load. Same URLSearchParams pattern as line 1331.
+      const business = new URLSearchParams(window.location.search).get("business");
+      const url = business
+        ? `/api/channels?business=${encodeURIComponent(business)}`
+        : "/api/channels";
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
       setChannels(data);
