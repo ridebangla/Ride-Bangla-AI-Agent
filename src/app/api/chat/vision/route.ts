@@ -36,7 +36,13 @@ import {
  * The widget POSTs a customer photo or short video here:
  *   { siteKey, visitorId?, conversationId?,
  *     image?: { mimeType, base64 }, video?: { mimeType, base64 },
- *     frames?: [{ mimeType, base64 }] }
+ *     frames?: [{ mimeType, base64 }],
+ *     message?: string }
+ * `message` is the caption the visitor typed with the media: it is
+ * stored as the ONE customer message for the turn (with a media
+ * note appended) and handed to perception as the customer's
+ * question about the media, so media + caption are one message
+ * end to end. Without it the old media-only behaviour is unchanged.
  *
  * With a provider key: the vision model describes what it sees, the
  * description is matched (deterministic text similarity, no new deps)
@@ -127,6 +133,13 @@ export async function POST(request: NextRequest) {
       video?: Attachment;
       frames?: Attachment[];
     };
+    // Caption typed with the media (widget-ux-identity batch): the
+    // 5000-char cap mirrors the widget-chat text cap, so a caption
+    // can never exceed what a plain text message may carry.
+    const caption =
+      typeof (body as { message?: unknown }).message === "string"
+        ? ((body as { message: string }).message.trim().slice(0, 5000))
+        : "";
     const activityToken = parseActivityToken(
       (body as { activityToken?: unknown }).activityToken
     );
@@ -324,7 +337,11 @@ export async function POST(request: NextRequest) {
       }
       const strings = visionStrings(lang, mediaKind);
 
-      const customerNote = mediaKind === "image" ? "(sent a photo)" : "(sent a video)";
+      // ONE customer message per media turn: a caption, when present,
+      // IS the message (media note appended so the Inbox still sees
+      // that media was sent); without a caption the old note stands.
+      const mediaNote = mediaKind === "image" ? "(sent a photo)" : "(sent a video)";
+      const customerNote = caption ? `${caption} ${mediaNote}` : mediaNote;
       await prisma.message.create({
         data: withBusinessId({
           conversationId: convId,
@@ -397,8 +414,8 @@ export async function POST(request: NextRequest) {
       try {
         const catalogHint = await getCatalogBrief().catch(() => "");
         const perception = hasFrames
-          ? await perceiveVideoFrames(keys, config.model, frameInputs, catalogHint || undefined)
-          : await perceiveMedia(keys, config.model, media as MediaInput, catalogHint || undefined);
+          ? await perceiveVideoFrames(keys, config.model, frameInputs, catalogHint || undefined, caption || undefined)
+          : await perceiveMedia(keys, config.model, media as MediaInput, catalogHint || undefined, caption || undefined);
         const seenRaw = perception.description.replace(/^\[(Photo|Video)\]:\s*/, "");
         // LEG-H: never echo a price vision read off a screenshot — the
         // catalog price in the match answer is the only price shown.
@@ -419,6 +436,32 @@ export async function POST(request: NextRequest) {
             ...p,
             businessId: business.id,
           }));
+          // Catalog gate (widget-ux-identity batch): a business with
+          // NO catalog gets NO catalog step at all — no match attempt
+          // and, crucially, no "couldn't find a matching product in
+          // our catalog" line, which misframes a non-shop (e.g.
+          // Tools) as a shop. The reply is then just intro + what
+          // was seen. A business WITH a catalog keeps the old path
+          // below, including its no-match lines, unchanged.
+          if (catalogProducts.length === 0) {
+            products = [];
+            matchLines = [];
+            const introOnly = strings.intro;
+            const replyOnly = [introOnly, seen].filter(Boolean).join("\n\n");
+            await prisma.message.create({
+              data: withBusinessId({
+                conversationId: convId,
+                role: "assistant",
+                content: replyOnly,
+              }),
+            });
+            return NextResponse.json({
+              conversationId: convId,
+              response: replyOnly,
+              products,
+              silent: false,
+            });
+          }
           const match = matchPhotoToCatalog(
             perception.description,
             catalogProducts,

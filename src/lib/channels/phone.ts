@@ -70,19 +70,25 @@ export async function transcribeAudio(
   return transcription.text;
 }
 
-// Text-to-Speech using ElevenLabs — female voices only (owner rule).
-// A saved male voice id from the old dashboard list can never speak:
-// it maps to Rachel, the first female voice, at the single choke point
-// here, so every present and future caller is covered.
-const MALE_VOICE_IDS = new Set(["drew", "clyde"]);
+// Text-to-Speech using ElevenLabs — female voices ONLY (owner rule,
+// 2026-10-29, firmest form): an ALLOWLIST, not a denylist. The old
+// choke point mapped only the two known male ids (drew, clyde) to
+// Rachel and passed every other saved id through unchecked — any
+// other male ElevenLabs voice id a tenant pasted in would have
+// spoken. Now only the three female voices the dashboard itself
+// offers (Rachel / Domi / Bella) can ever speak; anything else —
+// an old male id, an unknown id, an empty string — resolves to
+// Rachel, the first female voice. No male voice can enter here,
+// in any path, in any language.
+const FEMALE_VOICE_IDS = new Set(["rachel", "domi", "bella"]);
 export async function synthesizeSpeech(
   text: string,
   apiKey: string,
   voiceId: string
 ): Promise<Buffer> {
-  const safeVoiceId = MALE_VOICE_IDS.has(voiceId.toLowerCase())
-    ? "rachel"
-    : voiceId;
+  const safeVoiceId = FEMALE_VOICE_IDS.has(voiceId.toLowerCase())
+    ? voiceId.toLowerCase()
+    : "rachel";
   const response = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${safeVoiceId}`,
     {

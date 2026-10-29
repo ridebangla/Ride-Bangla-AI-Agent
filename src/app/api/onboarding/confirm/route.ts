@@ -4,6 +4,11 @@ import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { runWithBusiness } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { invalidateCatalogBrief } from "@/lib/catalog";
+import {
+  RESERVED_NAME_ERROR,
+  isReservedBusinessName,
+} from "@/lib/reserved-names";
+import { isCompanyBusiness } from "@/lib/company-identity";
 
 // POST /api/onboarding/confirm — save the reviewed onboarding result into the
 // tenant's own collections: knowledgeEntries (+ a "General" category) and
@@ -13,6 +18,11 @@ import { invalidateCatalogBrief } from "@/lib/catalog";
 // Body:
 //   { qa: [{ question, answer }], products: [{ name, price, currency, category? }],
 //     websites?: [{ url, pageCount?, entryCount? }] }
+//   businessName?: the business name the owner confirmed on the wizard's
+//     review screen (typed, or scraped from their own website and shown
+//     for editing before Save). When valid it flips BOTH Business.name
+//     and Settings.businessName (owner 2026-10-29: setup completion must
+//     flip identity automatically, trial and paid alike).
 // `websites` lists the sites the wizard's URL method just learned from,
 // so the business's website list (Settings > Websites) records them as
 // indexed with the counts the scrape actually produced.
@@ -79,6 +89,37 @@ export async function POST(request: NextRequest) {
         question: e.question.trim().slice(0, 160),
         answer: e.answer.trim().slice(0, 2000),
       }));
+
+    const rawBusinessName =
+      typeof body.businessName === "string"
+        ? body.businessName.trim().slice(0, 100)
+        : "";
+    // A setup-completion name must be real: non-empty, 2+ chars, never
+    // the "My Business" schema sentinel. Anything else is ignored (not
+    // an error) — the wizard sends no name on text/file paths.
+    const validBusinessName =
+      rawBusinessName.length >= 2 && rawBusinessName !== "My Business"
+        ? rawBusinessName
+        : null;
+
+    // Platform-name reservation (owner 2026-10-29 ~23:53): a tenant
+    // may not ONBOARD with the name "Ride Bangla". Unlike an absent
+    // or sentinel name (ignored above), a reserved name is an
+    // explicit error — checked BEFORE any knowledge/product/identity
+    // write, so a blocked confirm saves nothing at all. EXEMPTION:
+    // the company's own business is skipped (it already is Ride
+    // Bangla); on an exemption-check failure the business is treated
+    // as non-company (block applies).
+    if (
+      rawBusinessName.length >= 2 &&
+      isReservedBusinessName(rawBusinessName) &&
+      !(await isCompanyBusiness(auth.businessId))
+    ) {
+      return NextResponse.json(
+        { error: RESERVED_NAME_ERROR },
+        { status: 400 }
+      );
+    }
 
     const cleanProducts = products
       .filter(
@@ -174,7 +215,29 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      return { knowledgeCreated, productsCreated };
+      let identityUpdated = false;
+      if (validBusinessName) {
+        await prisma.business.update({
+          where: { id: auth.businessId },
+          data: { name: validBusinessName },
+        });
+        await prisma.settings.upsert({
+          where: { businessId: auth.businessId },
+          update: { businessName: validBusinessName },
+          create: {
+            businessId: auth.businessId,
+            businessName: validBusinessName,
+          },
+        });
+        identityUpdated = true;
+      }
+
+      return {
+        knowledgeCreated,
+        productsCreated,
+        identityUpdated,
+        identityName: validBusinessName,
+      };
     });
 
     // The writes above created productCategory/product rows directly,

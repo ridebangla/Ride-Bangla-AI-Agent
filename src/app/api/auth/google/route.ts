@@ -48,6 +48,10 @@ import {
 import { TRIAL_MS, TRIAL_DAYS } from "@/lib/subscription";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
+import {
+  RESERVED_NAME_ERROR,
+  isReservedBusinessName,
+} from "@/lib/reserved-names";
 
 function getFirebaseAdminAuth(): admin.auth.Auth {
   if (!admin.apps.length) {
@@ -195,6 +199,21 @@ export async function POST(request: NextRequest) {
       decoded.name as string | undefined,
       email
     );
+    // Platform-name reservation (owner 2026-10-29 ~23:53): the Google
+    // profile name (or email-derived fallback) may not be "Ride
+    // Bangla" for a NEW business. Checked BEFORE any business/admin/
+    // settings row is created, so a blocked attempt mints nothing.
+    // The Firebase identity itself is untouched — the person can
+    // still sign in later to a legitimate business; they simply
+    // cannot mint a squat business here. Returning accounts never
+    // reach this point (they returned above), so the company's own
+    // sign-in is unaffected.
+    if (isReservedBusinessName(businessName)) {
+      return NextResponse.json(
+        { error: RESERVED_NAME_ERROR },
+        { status: 400 }
+      );
+    }
     const firebaseUid = decoded.uid;
     let businessId: string | null = null;
 

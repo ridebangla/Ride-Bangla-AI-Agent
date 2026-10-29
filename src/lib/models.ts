@@ -853,6 +853,22 @@ export interface ReviewAsk {
   updatedAt: Date;
 }
 
+export interface ChatFeedback {
+  [key: string]: unknown;
+  id: string;
+  businessId: string;
+  conversationId: string;
+  visitorId: string;
+  /** "like" | "dislike" — one tap per visitor per reply, updated on change. */
+  value: string;
+  /** First 2000 chars of the AI reply the tap belongs to. */
+  replyText: string;
+  /** SHA-256 of replyText — the dedupe key (responses carry no message id). */
+  replyHash: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface SocialAccount {
 
   [key: string]: unknown;  id: string;

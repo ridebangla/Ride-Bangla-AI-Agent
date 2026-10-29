@@ -77,7 +77,8 @@ export async function describeVideo(
   keys: ProviderKeys,
   model: string,
   bytes: Buffer,
-  mimeType: string
+  mimeType: string,
+  question?: string
 ): Promise<string> {
   const workDir = join(tmpdir(), `rbai-video-${randomUUID()}`);
   await mkdir(workDir, { recursive: true });
@@ -146,7 +147,9 @@ export async function describeVideo(
       keys,
       "These are descriptions of 3 frames (start/middle/end) from a customer's video message to a business support agent. " +
         "Summarize what the video shows in 2-4 sentences, focusing on anything the customer might be asking about " +
-        "(a product, a problem, a place, a person). If the frames suggest a product category, name it.\n\n" +
+        "(a product, a problem, a place, a person). If the frames suggest a product category, name it." +
+        (question ? ` The customer wrote this with the video: "${question}". Answer that about the video.` : "") +
+        "\n\n" +
         frameDescriptions.join("\n"),
       { maxTokens: 400, model, label: "video-synthesis" }
     );
@@ -189,7 +192,8 @@ export async function perceiveVideoFrames(
   keys: ProviderKeys,
   model: string,
   frames: Array<{ bytes: Buffer; mimeType: string }>,
-  catalogHint?: string
+  catalogHint?: string,
+  question?: string
 ): Promise<Perception> {
   if (frames.length === 0) {
     throw new Error("No video frames were provided");
@@ -202,7 +206,8 @@ export async function perceiveVideoFrames(
       frames[i].bytes,
       frames[i].mimeType || "image/jpeg",
       `This is frame ${i + 1} of ${frames.length} from a customer's video message. ` +
-        `Describe what is visible: objects, people, products, text/signs, setting. Be concrete.` +
+        `Describe what is visible: objects, people, products, text/signs, setting. Be concrete. ` +
+        `Describe only what is actually visible — do not name a country, place, brand or person from a shape or resemblance alone; name it only if text, a label or another visible identifier confirms it.` +
         (catalogHint ? ` The business sells: ${catalogHint}. If the frame matches one of these, say which.` : "")
     );
     frameDescriptions.push(`Frame ${i + 1}: ${desc}`);
@@ -212,7 +217,9 @@ export async function perceiveVideoFrames(
     keys,
     "These are descriptions of frames (start/middle/end) from a customer's video message to a business support agent. " +
       "Summarize what the video shows in 2-4 sentences, focusing on anything the customer might be asking about " +
-      "(a product, a problem, a place, a person). If the frames suggest a product category, name it.\n\n" +
+      "(a product, a problem, a place, a person). If the frames suggest a product category, name it." +
+      (question ? ` The customer wrote this with the video: "${question}". Answer that about the video.` : "") +
+      "\n\n" +
       frameDescriptions.join("\n"),
     { maxTokens: 400, model, label: "video-synthesis" }
   );
@@ -232,7 +239,8 @@ export async function perceiveMedia(
   keys: ProviderKeys,
   model: string,
   media: MediaInput,
-  catalogHint?: string
+  catalogHint?: string,
+  question?: string
 ): Promise<Perception> {
   if (media.kind === "audio") {
     const transcript = await transcribeAudio(keys, media.bytes, media.mimeType);
@@ -250,12 +258,15 @@ export async function perceiveMedia(
       media.mimeType,
       "A customer sent this photo to a business support agent. " +
         "Describe exactly what you see: the main object/product, brand or text visible, colors, condition, setting. " +
+        "Keep it to 2-3 short sentences, no headings, no numbered sections, no brochure list. " +
+        "Describe only what is actually visible — do not name a country, place, brand or person from a shape or resemblance alone; name it only if text, a label or another visible identifier confirms it. " +
         "If it looks like a purchasable product, state which category of product it most likely is. " +
+        (question ? `The customer wrote this with the photo: "${question}". Answer that about the photo. ` : "") +
         (catalogHint ? `The business sells: ${catalogHint}. If the photo matches one of these, say which.` : "")
     );
     return { kind: "image", description: `[Photo]: ${seen}` };
   }
 
-  const understood = await describeVideo(keys, model, media.bytes, media.mimeType);
+  const understood = await describeVideo(keys, model, media.bytes, media.mimeType, question);
   return { kind: "video", description: `[Video]: ${understood}` };
 }

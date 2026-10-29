@@ -301,6 +301,58 @@ export function sanitizePromptLine(value: string | null | undefined): string {
   return (value || "").replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
+/**
+ * GREETING PERSONALIZATION (owner doctrine 2026-10-30): a greeting may
+ * address the visitor BY NAME only when the name comes from the
+ * channel/platform identity of THIS conversation itself. Verified
+ * sources (conversation.customerName as written by each channel
+ * worker): WhatsApp contact.pushname/name, email parsed From display
+ * name, Telegram first_name + last_name. Everything else is NOT a
+ * platform name and is refused here, however it got into the row:
+ * widget "Website Visitor" (visitorId only, no name exists), phone
+ * "Phone Caller", SMS "SMS User", API-caller-supplied "API User",
+ * the "Unknown" default, an email address standing in for a missing
+ * display name (never invent a name from an email local-part),
+ * a bare phone number, and "My Business" (a business sentinel, not
+ * a person). Channel gating is deliberate: the same customerName
+ * string on a non-listed channel is NOT trusted, because only the
+ * listed workers write platform-supplied names. Returns "" when
+ * unusable; callers then use the plain greeting (no honorific).
+ * No name is stored, copied, or shared here — this only reads the
+ * conversation's own already-stored customerName for this turn.
+ * Rendering safety: angle brackets and "&" are stripped so a crafted
+ * display name cannot inject markup into a rendered bubble.
+ */
+const GREETING_PERSONALIZATION_CHANNELS = new Set([
+  "whatsapp",
+  "email",
+  "telegram",
+]);
+const GREETING_NAME_PLACEHOLDERS = new Set([
+  "",
+  "unknown",
+  "website visitor",
+  "api user",
+  "phone caller",
+  "sms user",
+  "my business",
+]);
+export function resolveVisitorDisplayName(
+  customerName: string | null | undefined,
+  channel: string | null | undefined
+): string {
+  if (!GREETING_PERSONALIZATION_CHANNELS.has((channel || "").trim().toLowerCase())) return "";
+  const cleaned = sanitizePromptLine(customerName)
+    .replace(/[<>&]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  if (GREETING_NAME_PLACEHOLDERS.has(cleaned.toLowerCase())) return "";
+  if (cleaned.indexOf("@") >= 0) return "";
+  if (/^\+?[\d\s\-()]+$/.test(cleaned)) return "";
+  return cleaned;
+}
+
 export function buildSystemPrompt(
   context: ConversationContext,
   extras?: { intentGuidance?: string; catalogBrief?: string; identityLine?: string }
@@ -346,6 +398,14 @@ ${context.language !== "auto" ? `Always respond in: ${context.language}. The ENT
 - Never recite the whole plan catalogue, price list or feature list unless the customer actually asked about plans or pricing — and even then give a compact summary, not the full brochure.
 - Do not append contact details (phone, WhatsApp, email, links) to an answer unless the customer asked for them or the answer genuinely needs them.
 - If the customer asked one thing, answer that one thing — do not pad the reply with other services or offers.
+
+## Salesman Intent — a real, genuine salesman, inside the short form above
+The form above does not change: replies stay small, beautiful and organized, one organized reply for many messages, answer then stop. What changes is the intent and tone inside that form. Speak exactly like a real, genuine salesman of THIS business only, with great seriousness and care toward the customer:
+- Respect and sincerity first. Every customer is very important — give THIS customer full importance, listen to what they actually need, and answer for their need, not with a generic reply.
+- Persuade by being genuinely helpful: show, in a few lines, why this business's own product or service fits this customer's need, using only verified facts from the knowledge base and catalog below. Never invent a claim, price, discount, feature, or stock level to sound convincing.
+- End with a convincing close inside the same short reply: one clear, helpful next step — help them choose, arrange the details, or pass it to the team — so the customer stays, the owner's business grows, and no customer slips away.
+- Never pressure, rush, guilt, or repeat the same pitch after a no. Never fake urgency or scarcity unless it is a verified fact the owner enabled.
+- Guards unchanged: never send an offer, place an order, or ask for a review unless the owner enabled it; you never confirm an order yourself — the team confirms; stock truth governs what you may sell; never state a fare figure; give price plus delivery charge plus total together only when both are actually known, and say honestly when a charge is not known.
 ${context.agentBehavior ? `\n## Business Behavior Instructions\nThe business owner has defined how you must behave. Follow these instructions exactly — they override the general style above where they differ:\n\n${context.agentBehavior}\n` : ""}
 ${context.businessRulesSection ? `\n${context.businessRulesSection}\n` : ""}
 
@@ -537,19 +597,30 @@ export async function getAIConfig(): Promise<
  * owner's live probe: greeting in, failure text out). These
  * texts are agent speech: they are printed VERBATIM in the
  * round log (agent-voice-video-round.md, Item F) for the
- * owner's review. Rules mirrored from the system prompt: warm
- * and short (one line), language-matched (the greeting's own
- * language decides; a business language setting wins), the
- * স্যার/ম্যাডাম / Sir/Madam honorific for a visitor of unknown
- * gender, a salam answered with its traditional reply, a
- * time-of-day greeting echoed with its own phrase. Nothing
- * else: no services, no prices, no contact push.
+ * owner's review. Rules: warm and short (one line),
+ * language-matched (the greeting's own language decides; a
+ * business language setting wins), a salam answered with its
+ * traditional reply, a time-of-day greeting echoed with its own
+ * phrase. Nothing else: no services, no prices, no contact push.
+ * PERSONALIZATION (owner doctrine 2026-10-30, SUPERSEDES the old
+ * greeting honorific): when the visitor's platform display name
+ * is known (see resolveVisitorDisplayName), the greeting addresses
+ * them by that name — "Hello {name}, how can I help you?" /
+ * "হ্যালো {name}, আমি আপনাকে কীভাবে সাহায্য করতে পারি?". When
+ * unknown, the greeting is PLAIN with NO honorific — the old
+ * "স্যার/ম্যাডাম / Sir/Madam for unknown visitors" rule is RETIRED
+ * FOR GREETINGS ONLY; the system prompt's honorific line for
+ * ordinary (non-greeting) replies is deliberately untouched here.
+ * The visitor is never asked for their name to feed this — the
+ * name is detected from the channel identity only.
  * Exported for tests.
  */
 export function buildGreetingReply(
   message: string,
   businessName: string,
-  configLanguage?: string | null
+  configLanguage?: string | null,
+  visitorName?: string | null,
+  visitorChannel?: string | null
 ): string {
   const normalized = (message || "")
     .trim()
@@ -557,7 +628,13 @@ export function buildGreetingReply(
     .replace(/[\p{Extended_Pictographic}\p{So}\uFE0F]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
-  const name = sanitizePromptLine(businessName);
+  const visitor = resolveVisitorDisplayName(visitorName, visitorChannel);
+  const rawGreetingName = sanitizePromptLine(businessName);
+  // The "My Business" schema default is a sentinel, never a real name
+  // (see resolveBusinessIdentity): a greeting must never say
+  // "Welcome to My Business" on a data-layer outage or an empty-settings
+  // row. Empty name => the greeting's nameless form ("Welcome!").
+  const name = rawGreetingName === "My Business" ? "" : rawGreetingName;
   const cfg = (configLanguage || "").trim().toLowerCase();
   const lang: "bn" | "en" =
     cfg.indexOf("bn") === 0 || cfg === "bangla" || cfg === "bengali"
@@ -593,11 +670,14 @@ export function buildGreetingReply(
             : isNight
               ? "শুভ রাত"
               : "হ্যালো";
+    if (visitor) {
+      return open + ", " + visitor + "! আমি আপনাকে কীভাবে সাহায্য করতে পারি?";
+    }
     return (
       open +
-      ", স্যার/ম্যাডাম! " +
-      (name ? name + "-এ " : "") +
-      "স্বাগতম। আমি আপনাকে কীভাবে সাহায্য করতে পারি?"
+      "! " +
+      (name ? name + "-এ স্বাগতম। " : "") +
+      "আমি আপনাকে কীভাবে সাহায্য করতে পারি?"
     );
   }
   const open = isSalam
@@ -609,9 +689,12 @@ export function buildGreetingReply(
         : isEvening
           ? "Good evening"
           : "Hello";
+  if (visitor) {
+    return open + ", " + visitor + "! How can I help you today?";
+  }
   return (
     open +
-    ", Sir/Madam! " +
+    "! " +
     (name ? "Welcome to " + name + ". " : "Welcome! ") +
     "How can I help you today?"
   );
@@ -814,7 +897,9 @@ async function handleApprovalModeTurn(args: {
       const greeting = buildGreetingReply(
         effectiveMessage,
         config.businessName,
-        config.language
+        config.language,
+        args.conversation.customerName,
+        args.conversation.channel
       );
       const draft = await prisma.replyDraft.create({
         data: withBusinessId({
@@ -1389,7 +1474,9 @@ export async function chat(
     const greeting = buildGreetingReply(
       effectiveMessage,
       config.businessName,
-      config.language
+      config.language,
+      conversation.customerName,
+      conversation.channel
     );
     await reportActivity(conversationId, "composing");
     if (opts?.onToken) {

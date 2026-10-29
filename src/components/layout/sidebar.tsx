@@ -37,6 +37,7 @@ import {
   Blocks,
   UserPlus,
   Bot,
+  ThumbsUp,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -108,6 +109,7 @@ const sections: NavSection[] = [
       { name: "Analytics", href: "/analytics", icon: BarChart3 },
       { name: "Attention summary", href: "/attention-summary", icon: Clock },
       { name: "Activity Log", href: "/activity", icon: ScrollText },
+      { name: "Reply Feedback", href: "/feedback", icon: ThumbsUp },
     ],
   },
   {

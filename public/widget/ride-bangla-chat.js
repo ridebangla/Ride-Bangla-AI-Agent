@@ -1,5 +1,7 @@
 /**
  * Ride Bangla AI Agent - Live Chat Widget
+ * 2026-10-29 media+feedback batch (on top of voice-fix + UX/identity):
+ * video/audio bubbles, reply like/dislike, typing-only status strip.
  * CANONICAL EMBED — v2026-10-29 (male voice fallback removed
  * 2026-10-29: owner rule — the whole voice is female, no male
  * voice ever. The picker's pass 3 (an identifiably-male voice
@@ -263,6 +265,13 @@
   // greeting is embed chrome and localizes with uiLang; a host-supplied
   // data-greeting is the host's own copy and is always shown verbatim.
   var greetingIsDefault = !script.getAttribute("data-greeting");
+  // True when the host supplied an explicit per-business/per-site
+  // header title (data-title): the header AND the default greeting
+  // then use that title, so the agent introduces itself as THAT
+  // site's/business's assistant — never a generic name. Without an
+  // explicit title the generic header ("AI Assistant") and the
+  // generic greeting stay, exactly as before.
+  var titleIsExplicit = !!script.getAttribute("data-title");
 
   // ---- Agent character assets (ONE place) ----
   // The agent character is a PLATFORM asset: the bust still (also
@@ -350,6 +359,61 @@
     }
     try {
       // Timeout = fail-soft defaults: the widget never waits on this.
+      setTimeout(function () { finish(null); }, 2500);
+      fetch(endpoint, { credentials: "omit" }).then(function (r) {
+        return (r && r.ok) ? r.json() : null;
+      }).then(finish).catch(function () { finish(null); });
+    } catch (e2) { /* fetch unavailable -- the defaults stay */ }
+  }
+  // ---- Tenant identity (auto-switch, owner 2026-10-29) ----
+  // When the host did not supply its own title, the header must still
+  // show the business's own name, resolved server-side from the siteKey
+  // (GET /api/widget/identity). Host-supplied data-title always wins:
+  // a host title is never overwritten, so per-site titles and tenant
+  // custom titles keep working. Same for greeting: a host data-greeting
+  // always wins; otherwise an owner-set welcomeMessage (when the owner
+  // actually changed it from the platform default) replaces the generic
+  // greeting for brand-new threads. KNOWN LIMIT: a snippet copied BEFORE
+  // a rename keeps its old data-title until the tenant re-copies it --
+  // host copy wins by design, so already-embedded old titles are NOT
+  // rewritten from the server. Fail-soft by contract: a dead endpoint,
+  // a timeout, or an empty name changes NOTHING -- the generic defaults
+  // stay live, and the widget never waits on this fetch. The server
+  // strips the "My Business" schema sentinel; the client strips it too,
+  // so a sentinel can never reach the header even if the endpoint ever
+  // returned one raw.
+  // Owner-set welcome text resolved from the server (below). Empty
+  // until the identity fetch answers; the generic greeting stays live
+  // until then and forever if the owner never set one.
+  var serverGreeting = "";
+  var titleIsDefault = !titleIsExplicit;
+  function applyTenantIdentity(rec) {
+    if (!rec || typeof rec !== "object") return;
+    var name = (typeof rec.businessName === "string") ? rec.businessName.trim() : "";
+    if (name === "My Business") name = "";
+    if (titleIsDefault && name) {
+      config.title = name;
+      if (widgetContainer) {
+        var h = widgetContainer.querySelector("#rbai-widget-header h3");
+        if (h) h.textContent = name;
+      }
+    }
+    if (greetingIsDefault && typeof rec.welcomeMessage === "string" && rec.welcomeMessage.trim()) {
+      serverGreeting = rec.welcomeMessage.trim();
+    }
+  }
+  function fetchTenantIdentity() {
+    if (!config.siteKey) return;
+    var endpoint;
+    try { endpoint = config.server.replace(/\/$/, "") + "/api/widget/identity?siteKey=" + encodeURIComponent(config.siteKey); }
+    catch (e0) { return; }
+    var settled = false;
+    function finish(rec) {
+      if (settled) return;
+      settled = true;
+      if (rec) applyTenantIdentity(rec);
+    }
+    try {
       setTimeout(function () { finish(null); }, 2500);
       fetch(endpoint, { credentials: "omit" }).then(function (r) {
         return (r && r.ok) ? r.json() : null;
@@ -447,6 +511,10 @@
   var UI_STRINGS = {
     en: {
       greeting: "Hi! How can we help you today?",
+      // Default greeting with the resolved per-site/business title
+      // substituted: used ONLY when the host supplied data-title and
+      // no data-greeting. {title} is replaced verbatim at render.
+      greetingNamed: "Hi! I'm {title}. How can we help you today?",
       typeMessage: "Type a message...",
       send: "Send",
       sendPhoto: "Send a photo",
@@ -457,9 +525,8 @@
       productFallback: "Product",
       order: "Order",
       typing: "Typing...",
-      lookingPhoto: "Looking at your photo...",
-      watchingVideo: "Watching your video...",
-      listening: "Listening...",
+      feedbackLike: "Good answer",
+      feedbackDislike: "Wrong answer",
       videoSent: "Video sent",
       voiceSent: "Voice message sent",
       pausedTitle: "Chat paused",
@@ -491,6 +558,7 @@
     },
     bn: {
       greeting: "হাই! আজ কীভাবে সাহায্য করতে পারি?",
+      greetingNamed: "হাই! আমি {title}। আজ কীভাবে সাহায্য করতে পারি?",
       typeMessage: "মেসেজ লিখুন...",
       send: "পাঠান",
       sendPhoto: "ছবি পাঠান",
@@ -501,9 +569,8 @@
       productFallback: "পণ্য",
       order: "অর্ডার করুন",
       typing: "টাইপ করছে...",
-      lookingPhoto: "আপনার ছবি দেখছি...",
-      watchingVideo: "আপনার ভিডিও দেখছি...",
-      listening: "শুনছি...",
+      feedbackLike: "ভালো উত্তর",
+      feedbackDislike: "ভুল উত্তর",
       videoSent: "ভিডিও পাঠানো হয়েছে",
       voiceSent: "ভয়েস মেসেজ পাঠানো হয়েছে",
       pausedTitle: "চ্যাট বন্ধ আছে",
@@ -538,6 +605,39 @@
   function t(key) {
     var table = UI_STRINGS[uiLang] || UI_STRINGS.en;
     return table[key] || UI_STRINGS.en[key] || key;
+  }
+
+  // The greeting the widget itself speaks on a brand-new thread:
+  // a host-supplied data-greeting is verbatim (unchanged rule); the
+  // default greeting uses the resolved per-site/business title when
+  // the host supplied data-title, and stays generic otherwise.
+  // Exact rendered strings (head confirmation, see REPORT.md):
+  //   EN titled: "Hi! I'm {title}. How can we help you today?"
+  //   BN titled: "হাই! আমি {title}। আজ কীভাবে সাহায্য করতে পারি?"
+  function greetingText() {
+    if (!greetingIsDefault) return config.greeting;
+    if (serverGreeting) return serverGreeting;
+    if (titleIsExplicit) return t("greetingNamed").split("{title}").join(config.title);
+    return t("greeting");
+  }
+
+  // Every send path clears through here, so no path can leave text
+  // behind: text send (sendMessage), photo/video send (the composer
+  // draft becomes the caption and is consumed), voice send, and the
+  // product Order button (both bypass the composer otherwise).
+  function clearComposer() {
+    var input = document.getElementById("rbai-widget-text");
+    if (!input) return;
+    input.value = "";
+    autoGrowInput();
+  }
+
+  // Read the composer draft WITHOUT clearing it: media sends clear
+  // only once the media actually posts (see uploadPhoto/uploadVideo),
+  // so a failed read keeps the visitor's caption for a retry.
+  function readCaptionDraft() {
+    var input = document.getElementById("rbai-widget-text");
+    return input ? input.value.trim() : "";
   }
 
   // Conversation-language signal: Bengali script anywhere in the text
@@ -615,73 +715,15 @@
     return null;
   }
 
-  // Action-specific captions, keyed by the engine's REAL activity kinds
-  // (src/lib/ai/activity.ts). A specific caption appears only while the
-  // matching action genuinely runs server-side; anything unobserved
-  // falls back to the plain typing caption — never a fabricated claim.
-  var ACTIVITY_CAPTIONS = {
-    en: {
-      composing: "Typing…",
-      consulting_knowledge: "Checking the knowledge base…",
-      perceiving_media: "Looking at your media…",
-      searching_catalog: "Searching the catalog…",
-      searching_website: "Searching the website…",
-      recommending_alternatives: "Looking for alternatives…",
-      finding_products: "Finding products for you…",
-      creating_ticket: "Creating a support ticket…",
-      assigning_ticket: "Assigning this to the team…",
-      sending_email: "Emailing the team…",
-      checking_history: "Checking your history…",
-      scheduling_followup: "Scheduling a follow-up…",
-      taking_order: "Placing your order…",
-      triggering_webhook: "Notifying the business system…",
-      sending_reply: "Sending the reply…",
-    },
-    bn: {
-      composing: "টাইপ করছে…",
-      consulting_knowledge: "জ্ঞানভাণ্ডারে খুঁজছে…",
-      perceiving_media: "আপনার মিডিয়া দেখছে…",
-      searching_catalog: "ক্যাটালগে খুঁজছে…",
-      searching_website: "ওয়েবসাইট সার্চ করছে…",
-      recommending_alternatives: "বিকল্প খুঁজছে…",
-      finding_products: "আপনার জন্য পণ্য খুঁজছে…",
-      creating_ticket: "সাপোর্ট টিকিট তৈরি করছে…",
-      assigning_ticket: "টিমের কাছে পাঠাচ্ছে…",
-      sending_email: "টিমকে ইমেইল পাঠাচ্ছে…",
-      checking_history: "আপনার আগের বার্তা দেখছে…",
-      scheduling_followup: "ফলো-আপ ঠিক করছে…",
-      taking_order: "আপনার অর্ডার নিচ্ছে…",
-      triggering_webhook: "ব্যবসার সিস্টেমে জানাচ্ছে…",
-      sending_reply: "উত্তর পাঠাচ্ছে…",
-    },
-  };
-  var SEND_CHANNEL_CAPTIONS = {
-    en: {
-      whatsapp: "Messaging on WhatsApp…",
-      facebook: "Messaging on Facebook…",
-      instagram: "Messaging on Instagram…",
-      messenger: "Messaging on Messenger…",
-      telegram: "Messaging on Telegram…",
-      email: "Sending an email…",
-    },
-    bn: {
-      whatsapp: "WhatsApp-এ মেসেজ করছে…",
-      facebook: "Facebook-এ মেসেজ করছে…",
-      instagram: "Instagram-এ মেসেজ করছে…",
-      messenger: "Messenger-এ মেসেজ করছে…",
-      telegram: "Telegram-এ মেসেজ করছে…",
-      email: "ইমেইল পাঠাচ্ছে…",
-    },
-  };
-  function captionForActivity(a) {
-    var lang = ACTIVITY_CAPTIONS[uiLang] ? uiLang : "en";
-    if (a && a.kind === "sending_reply" && a.channel) {
-      var perChannel = SEND_CHANNEL_CAPTIONS[lang][a.channel];
-      if (perChannel) return perChannel;
-    }
-    if (a && ACTIVITY_CAPTIONS[lang][a.kind]) return ACTIVITY_CAPTIONS[lang][a.kind];
-    return ACTIVITY_CAPTIONS[lang].composing;
-  }
+  // 2026-10-29 (owner, FIRM): above the chat ONLY the typing indicator
+  // may ever appear. The activity-caption tables that used to render
+  // knowledge/searching/catalog/ticket/email labels in the strip above
+  // the messages are DELETED here, not merely hidden: renderStatus()
+  // below can only ever show t("typing"). The /api/chat/activity poll
+  // itself is kept (currentActivity still feeds the progress watchdog
+  // via noteTurnProgress), but its labels are never rendered anywhere.
+  // No other visible status label is added anywhere else: the working
+  // video clip in the header is the only other in-flight signal.
 
   var MAX_IMAGE_BYTES = 4 * 1024 * 1024;
   var MAX_MEDIA_BYTES = 10 * 1024 * 1024;
@@ -757,8 +799,20 @@
       .rbai-speak:hover{color:#475569;background:rgba(100,116,139,.12)}\n\
       .rbai-speak.speaking{color:#0B7A55;background:rgba(11,122,85,.12)}\n\
       .rbai-speak svg{width:14px;height:14px;flex:none}\n\
+      .rbai-feedback{display:flex;gap:6px;margin-top:6px}\n\
+      .rbai-fb{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid #E2E8F0;border-radius:9999px;background:#fff;color:#94A3B8;cursor:pointer}\n\
+      .rbai-fb:hover{color:#475569;background:rgba(100,116,139,.12)}\n\
+      .rbai-fb.active-like{color:#0B7A55;border-color:#0B7A55;background:rgba(11,122,85,.12)}\n\
+      .rbai-fb.active-dislike{color:#B91C1C;border-color:#B91C1C;background:rgba(185,28,28,.10)}\n\
+      .rbai-fb svg{width:14px;height:14px;flex:none}\n\
+      .rbai-video-msg video{max-width:100%;border-radius:10px;display:block}\n\
+      .rbai-audio-msg audio{width:100%;max-width:260px;display:block}\n\
       .rbai-msg.rbai-img-msg{padding:6px}\n\
       .rbai-msg.rbai-img-msg img{display:block;max-width:180px;border-radius:8px}\n\
+      .rbai-img-caption{margin-top:6px;font-size:14px;line-height:1.4;word-wrap:break-word}\n\
+      .rbai-msg ul,.rbai-msg ol{margin:4px 0;padding-left:20px}\n\
+      .rbai-msg li{margin:2px 0}\n\
+      .rbai-msg code{background:rgba(0,0,0,.06);padding:1px 4px;border-radius:4px}\n\
       #rbai-widget-input{display:flex;align-items:flex-end;border-top:1px solid #E2E8F0;padding:12px;gap:6px}\n\
       #rbai-widget-input textarea{flex:1;min-width:0;height:42px;min-height:42px;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;font-size:14px;outline:none;resize:none;line-height:1.45;font-family:inherit;overflow-y:hidden;box-sizing:border-box}\n\
       #rbai-widget-input textarea:focus{border-color:" + config.color + "}\n\
@@ -792,6 +846,8 @@
   var SVG_PHOTO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6" fill="currentColor" stroke="none"/><path d="M3 17l5-5 4 4 3-3 6 6"/></svg>';
   var SVG_VIDEO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="13" height="12" rx="2"/><path d="M15 10l7-3v10l-7-3z"/></svg>';
   var SVG_MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+  var SVG_LIKE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>';
+  var SVG_DISLIKE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2M9 18.12L10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg>';
   var SVG_PAUSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/></svg>';
 
   function createWidget() {
@@ -881,12 +937,15 @@
     document.getElementById("rbai-widget-file").onchange = function (e) {
       var f = e.target.files && e.target.files[0];
       e.target.value = "";
-      if (f) uploadPhoto(f);
+      // Caption = whatever is in the composer at pick time; it is
+      // consumed (and the composer cleared) only when the photo
+      // actually posts, so a failed read keeps the draft.
+      if (f) uploadPhoto(f, readCaptionDraft());
     };
     document.getElementById("rbai-widget-videofile").onchange = function (e) {
       var f = e.target.files && e.target.files[0];
       e.target.value = "";
-      if (f) uploadVideo(f);
+      if (f) uploadVideo(f, readCaptionDraft());
     };
   }
 
@@ -894,6 +953,47 @@
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
+  }
+
+  // Safe markdown rendering for AGENT replies only (never user text,
+  // never system chrome): HTML is escaped FIRST, then a small
+  // markdown subset is converted — **bold**, *italic*, `code`,
+  // "- " / "* " unordered lists, "N. " ordered lists, "# " headings
+  // (rendered bold, not a heading element, so a reply can never
+  // restyle the panel), and line breaks. Raw reply HTML is never
+  // injected: anything that is not one of these markers stays
+  // escaped text. URLs are deliberately NOT autolinked.
+  function renderMarkdownInline(escaped) {
+    var out = escaped.replace(/`([^`]+)`/g, "<code>$1</code>");
+    out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    out = out.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
+    return out;
+  }
+  function renderMarkdown(text) {
+    var lines = escapeHtml(text).split("\n");
+    var html = "";
+    var listTag = null;
+    function closeList() {
+      if (listTag) { html += "</" + listTag + ">"; listTag = null; }
+    }
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var ul = line.match(/^\s*[-*]\s+(.+)$/);
+      var ol = line.match(/^\s*\d+[.)]\s+(.+)$/);
+      var hd = line.match(/^#{1,6}\s+(.+)$/);
+      if (ul || ol) {
+        var tag = ul ? "ul" : "ol";
+        if (listTag !== tag) { closeList(); listTag = tag; html += "<" + tag + ">"; }
+        html += "<li>" + renderMarkdownInline(ul ? ul[1] : ol[1]) + "</li>";
+      } else {
+        closeList();
+        if (/^\s*$/.test(line)) { html += "<br>"; }
+        else if (hd) { html += "<strong>" + renderMarkdownInline(hd[1]) + "</strong><br>"; }
+        else { html += renderMarkdownInline(line) + "<br>"; }
+      }
+    }
+    closeList();
+    return html;
   }
 
   // The working clip is NOT loaded with the host page (it would tax
@@ -1066,39 +1166,18 @@
     }
   }
 
-  // True only while the server has reported a SPECIFIC activity (a
-  // real caption key) — as opposed to nothing observed yet, in which
-  // case the caption falls back to the same generic "typing" words
-  // the typing bubble already shows.
-  function hasSpecificActivity() {
-    if (!currentActivity) return false;
-    var lang = ACTIVITY_CAPTIONS[uiLang] ? uiLang : "en";
-    if (
-      currentActivity.kind === "sending_reply" &&
-      currentActivity.channel &&
-      SEND_CHANNEL_CAPTIONS[lang][currentActivity.channel]
-    ) return true;
-    return !!ACTIVITY_CAPTIONS[lang][currentActivity.kind];
-  }
-
-  // The status strip under the header avatar: visible only while the
-  // agent is working, captioned with the current REAL activity (or the
-  // plain typing caption while nothing specific has been observed).
-  // Owner 2026-10-22 (Help Center): the strip must never REPEAT the
-  // typing bubble's generic caption — while a typing bubble is in the
-  // thread, that bubble is the turn's one typing indicator, and the
-  // strip stays hidden until a specific activity gives it something
-  // of its own to say.
+  // The status strip under the header avatar (typing ONLY, owner
+  // 2026-10-29): while the agent is working and NO in-thread typing
+  // bubble is showing, the strip shows exactly t("typing") and
+  // nothing else. At every other time it is hidden, so it can never
+  // duplicate the typing bubble and never show a knowledge/searching
+  // or any other status label above the chat.
   function renderStatus() {
     var strip = document.getElementById("rbai-widget-status");
     var text = document.getElementById("rbai-widget-status-text");
     if (!strip || !text) return;
-    if (agentState === "working") {
-      if (document.querySelector(".rbai-msg.typing") && !hasSpecificActivity()) {
-        strip.hidden = true;
-        return;
-      }
-      text.textContent = captionForActivity(currentActivity);
+    if (agentState === "working" && !document.querySelector(".rbai-msg.typing")) {
+      text.textContent = t("typing");
       strip.hidden = false;
     } else {
       strip.hidden = true;
@@ -1406,7 +1485,7 @@
       // A restored conversation renders its own history via the thread
       // sync; the greeting is only for a brand-new thread.
       if (!conversationId && !document.querySelector(".rbai-msg")) {
-        addMessage(greetingIsDefault ? t("greeting") : config.greeting, "bot");
+        addMessage(greetingText(), "bot");
       }
       startThreadSync();
     } else {
@@ -1418,7 +1497,10 @@
     var messages = document.getElementById("rbai-widget-messages");
     var msg = document.createElement("div");
     msg.className = "rbai-msg " + type;
-    msg.textContent = text;
+    // Agent replies render safe markdown (never raw "**"); user
+    // text, typing chrome and system notices stay plain text.
+    if (type === "bot") msg.innerHTML = renderMarkdown(text);
+    else msg.textContent = text;
     messages.appendChild(msg);
     messages.scrollTop = messages.scrollHeight;
     return msg;
@@ -1577,29 +1659,27 @@
       }
     } catch (e) {}
   }
-  // Returns { voice, pitch }: voice is a female-named (pass 1)
-  // or unlabelled (pass 2) voice for the language, or null when
-  // NO female or unlabelled voice exists for it (empty list,
-  // male-only list, or no voice for the language). A null voice
-  // means DO NOT SPEAK: the caller shows the voice-unavailable
-  // note instead. There is no male fallback and no browser-
-  // default fallback — a male voice is never spoken, and the
-  // browser default (possibly male) is never left to speak.
+  // Returns { voice, pitch }: voice is a female-NAMED voice
+  // for the language, or null when NO female-named voice exists
+  // for it (empty list, male-only list, unlabelled-only list, or
+  // no voice for the language). A null voice means DO NOT
+  // SPEAK: the caller shows the voice-unavailable note instead.
+  // There is no male fallback, no unlabelled fallback (on
+  // Android Chrome unlabelled voices can sound male), and no
+  // browser-default fallback — a male voice is never spoken,
+  // and the browser default (possibly male) is never left to
+  // speak.
   function pickVoiceForLang(langTag) {
     refreshVoices();
     var lang = String(langTag || "").toLowerCase().split("-")[0];
     if (!lang || !cachedVoices.length) return { voice: null, pitch: 1.1 };
-    var firstUnlabelled = null;
     for (var i = 0; i < cachedVoices.length; i++) {
       var v = cachedVoices[i];
       var vLang = String(v.lang || "").toLowerCase();
       if (vLang.indexOf(lang) !== 0) continue;
       var name = String(v.name || "").toLowerCase();
       if (isFemaleVoiceName(name)) return { voice: v, pitch: 1.0 };
-      if (isMaleVoiceName(name)) continue;
-      if (!firstUnlabelled) firstUnlabelled = v;
     }
-    if (firstUnlabelled) return { voice: firstUnlabelled, pitch: 1.1 };
     return { voice: null, pitch: 1.1 };
   }
 
@@ -1630,8 +1710,8 @@
       // pending speak must not fire after the user stopped it.
       if (speakingBtn !== btn) return;
       var pick = pickVoiceForLang(lang);
-      // Fail-closed (owner rule, no male voice ever): no female
-      // or unlabelled voice for this language means DO NOT
+      // Fail-closed (owner rule, no male voice ever): no
+      // female-NAMED voice for this language means DO NOT
       // SPEAK — never a male voice, never the browser default.
       // The text reply stays readable; the note below says
       // plainly why there is no audio.
@@ -1657,8 +1737,8 @@
     // Empty list at speak time: browsers load voices
     // asynchronously, so wait ONCE, briefly — a voiceschanged
     // fast-path plus a 50ms poll, with a hard ~350ms cap — then
-    // doSpeak runs: it speaks only if a female or unlabelled
-    // voice was found, otherwise it shows the voice-unavailable
+    // doSpeak runs: it speaks only if a female-NAMED voice was found,
+    // otherwise it shows the voice-unavailable
     // note (never a male voice, never the browser default).
     // Never blocked, never a noticeable delay.
     // fireOnce guarantees exactly one speak however the wait
@@ -1706,7 +1786,9 @@
     msgEl.appendChild(btn);
   }
 
-  function addImageMessage(dataUrl) {
+  // One user bubble for a photo + its caption: the image and the
+  // caption text live in the SAME bubble, never two messages.
+  function addImageMessage(dataUrl, caption) {
     var messages = document.getElementById("rbai-widget-messages");
     var msg = document.createElement("div");
     msg.className = "rbai-msg user rbai-img-msg";
@@ -1714,8 +1796,104 @@
     img.src = dataUrl;
     img.alt = t("sentPhotoAlt");
     msg.appendChild(img);
+    if (caption) {
+      var cap = document.createElement("div");
+      cap.className = "rbai-img-caption";
+      cap.textContent = caption;
+      msg.appendChild(cap);
+    }
     messages.appendChild(msg);
     messages.scrollTop = messages.scrollHeight;
+  }
+
+  // One user bubble for a video + its caption: the PLAYABLE video and
+  // the caption text live in the SAME bubble, never a text label
+  // standing in for the video. The <video> element is built from a
+  // DOM element (never innerHTML), so the caption stays textContent.
+  function addVideoMessage(dataUrl, caption) {
+    var messages = document.getElementById("rbai-widget-messages");
+    var msg = document.createElement("div");
+    msg.className = "rbai-msg user rbai-video-msg";
+    var vid = document.createElement("video");
+    vid.src = dataUrl;
+    vid.controls = true;
+    vid.preload = "metadata";
+    vid.playsInline = true;
+    vid.setAttribute("aria-label", t("videoSent"));
+    msg.appendChild(vid);
+    if (caption) {
+      var cap = document.createElement("div");
+      cap.className = "rbai-img-caption";
+      cap.textContent = caption;
+      msg.appendChild(cap);
+    }
+    messages.appendChild(msg);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  // One user bubble for a voice message: a PLAYABLE audio player, so
+  // the sender can listen to their own message again in this session.
+  // The audio itself is never uploaded to or stored by the server
+  // (the voice endpoint stores only the transcript), so after a page
+  // reload a restored thread shows the transcript/note text instead —
+  // that limit is stated in the batch report, not hidden.
+  function addAudioMessage(dataUrl) {
+    var messages = document.getElementById("rbai-widget-messages");
+    var msg = document.createElement("div");
+    msg.className = "rbai-msg user rbai-audio-msg";
+    var aud = document.createElement("audio");
+    aud.src = dataUrl;
+    aud.controls = true;
+    aud.preload = "metadata";
+    aud.setAttribute("aria-label", t("voiceSent"));
+    msg.appendChild(aud);
+    messages.appendChild(msg);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  // Like / dislike under a real AI reply (ChatGPT/Gemini style, no
+  // extra form). One tap POSTs {value, replyText} to
+  // /api/chat/feedback; the server dedupes per visitor + reply, so a
+  // changed mind updates the same record instead of stacking rows.
+  // Error/process bubbles, system notices, typing bubbles and the
+  // greeting carry NO feedback row: they are not AI replies.
+  function attachFeedbackButtons(msgEl, text) {
+    if (!msgEl || !text || msgEl.dataset.rbaiFeedback) return;
+    msgEl.dataset.rbaiFeedback = "1";
+    var row = document.createElement("div");
+    row.className = "rbai-feedback";
+    function mkBtn(value, svg, label) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "rbai-fb";
+      b.innerHTML = svg;
+      b.title = label;
+      b.setAttribute("aria-label", label);
+      b.addEventListener("click", function () {
+        var cid = conversationId;
+        if (!cid) return;
+        fetch(config.server + "/api/chat/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            siteKey: config.siteKey,
+            visitorId: config.visitorId,
+            conversationId: cid,
+            value: value,
+            replyText: String(text).slice(0, 2000),
+          }),
+        }).then(function (r) {
+          if (!r.ok) return;
+          var sibs = row.querySelectorAll(".rbai-fb");
+          for (var i = 0; i < sibs.length; i++) sibs[i].classList.remove("active-like", "active-dislike");
+          b.classList.add(value === "like" ? "active-like" : "active-dislike");
+        }).catch(function () {});
+      });
+      return b;
+    }
+    row.appendChild(mkBtn("like", SVG_LIKE, t("feedbackLike")));
+    row.appendChild(mkBtn("dislike", SVG_DISLIKE, t("feedbackDislike")));
+    msgEl.appendChild(row);
   }
 
   // ---- Subscription paused state (HTTP 402 {error:'subscription_paused'}) ----
@@ -1835,6 +2013,9 @@
   // business's required order fields conversationally from here.
   function orderProduct(productName) {
     if (isPaused) return;
+    // A send is a send: a composer draft left behind by an Order tap
+    // reads as the same leftover-text bug, so it is cleared too.
+    clearComposer();
     sendText("I would like to order: " + productName);
   }
 
@@ -1951,7 +2132,7 @@
           }
           var renderedMsg = addMessage(m.content, m.role === "customer" ? "user" : "bot");
           threadRenderedCount++;
-          if (m.role !== "customer") attachSpeakButton(renderedMsg, m.content);
+          if (m.role !== "customer") { attachSpeakButton(renderedMsg, m.content); attachFeedbackButtons(renderedMsg, m.content); }
         });
       })
       .catch(function () {});
@@ -2154,10 +2335,15 @@
       // response text is authoritative (it can carry suffixes the
       // token stream never saw, e.g. a review ask).
       if (streamBubble) {
-        streamBubble.textContent = data.response;
+        // Final streamed reply: rendered markdown, like every other
+        // bot bubble (the live tokens above stayed plain text).
+        streamBubble.innerHTML = renderMarkdown(data.response);
         attachSpeakButton(streamBubble, data.response);
+        attachFeedbackButtons(streamBubble, data.response);
       } else {
-        attachSpeakButton(addMessage(data.response, "bot"), data.response);
+        var _fbMsg = addMessage(data.response, "bot");
+        attachSpeakButton(_fbMsg, data.response);
+        attachFeedbackButtons(_fbMsg, data.response);
       }
     } else if (data.error) {
       // Never render a raw server error text (they are English-only);
@@ -2381,10 +2567,13 @@
   }
 
   function sendMessage() {
+    // Paused: do NOT clear — the send button is disabled in this
+    // state, but Enter still reaches here, and clearing would eat
+    // the visitor's draft for a message that was never sent.
+    if (isPaused) return;
     var input = document.getElementById("rbai-widget-text");
-    var text = input.value;
-    input.value = "";
-    autoGrowInput();
+    var text = input ? input.value : "";
+    clearComposer();
     // The visitor's own typed language sets the conversation language
     // for all chrome from this turn on.
     var typedLang = detectTextLang(text);
@@ -2393,7 +2582,11 @@
   }
 
   // ---- Photo upload -> /api/chat/vision ----
-  function uploadPhoto(file) {
+  // Caption flow: whatever the visitor typed in the composer BEFORE
+  // tapping the photo button travels WITH the photo as one message
+  // (payload `message`), renders in the same bubble, and is consumed
+  // — the composer is cleared only once the photo actually posts.
+  function uploadPhoto(file, caption) {
     if (!file || isPaused) return;
     if (file.size > MAX_IMAGE_BYTES) {
       addMessage(t("photoTooLarge"), "bot");
@@ -2407,17 +2600,24 @@
         addMessage(t("photoReadError"), "bot");
         return;
       }
-      addImageMessage(dataUrl);
+      addImageMessage(dataUrl, caption);
+      if (caption) {
+        clearComposer();
+        var capLang = detectTextLang(caption);
+        if (capLang) setUiLang(capLang);
+      }
       pendingRequests++;
       setAgentState("working");
-      var typing = addMessage(t("lookingPhoto"), "bot typing");
-      postApi("/api/chat/vision", {
+      var typing = addMessage(t("typing"), "bot typing");
+      var payload = {
         siteKey: config.siteKey,
         visitorId: config.visitorId,
         conversationId: conversationId,
         activityToken: activityToken,
         image: { mimeType: file.type || "image/jpeg", base64: base64 },
-      }, typing);
+      };
+      if (caption) payload.message = caption;
+      postApi("/api/chat/vision", payload, typing);
     };
     reader.onerror = function () {
       addMessage(t("photoReadError"), "bot");
@@ -2434,7 +2634,7 @@
   // server perceives the frames like photos and synthesizes the
   // answer. If extraction fails for any reason, fall back to the
   // legacy raw-video upload (uploadVideoRaw below).
-  function uploadVideo(file) {
+  function uploadVideo(file, caption) {
     if (!file || isPaused) return;
     if (file.size > MAX_MEDIA_BYTES) {
       addMessage(t("videoTooLarge"), "bot");
@@ -2445,23 +2645,64 @@
     // the visitor must see the working clip + caption for it, not
     // the idle clip. Both branches below settle this one pending
     // request (postApi on success, settleRequest on read errors).
+    // Caption flow (same as photos): a composer draft typed before
+    // tapping the video button travels WITH the video as one message
+    // (payload `message`) and is consumed once the video posts.
     pendingRequests++;
     setAgentState("working");
-    extractVideoFrames(file, function (frames) {
-      if (frames && frames.length) {
-        addMessage(t("videoSent"), "user");
-        var typing = addMessage(t("watchingVideo"), "bot typing");
-        postApi("/api/chat/vision", {
-          siteKey: config.siteKey,
-          visitorId: config.visitorId,
-          conversationId: conversationId,
-          activityToken: activityToken,
-          frames: frames,
-        }, typing);
-        return;
+    var videoReader = new FileReader();
+    videoReader.onload = function () {
+      var dataUrl = String(videoReader.result || "");
+      extractVideoFrames(file, function (frames) {
+        if (frames && frames.length) {
+          postVideoMessage(frames, null, caption, dataUrl || null);
+          return;
+        }
+        uploadVideoRaw(file, caption);
+      });
+    };
+    videoReader.onerror = function () {
+      extractVideoFrames(file, function (frames) {
+        if (frames && frames.length) {
+          postVideoMessage(frames, null, caption, null);
+          return;
+        }
+        uploadVideoRaw(file, caption);
+      });
+    };
+    videoReader.readAsDataURL(file);
+  }
+
+  // One user bubble for a video + its caption: with a caption the
+  // bubble IS the caption (one message, not caption-plus-"Video
+  // sent"); without one the existing "Video sent" bubble stays.
+  function postVideoMessage(frames, video, caption, videoDataUrl) {
+    if (videoDataUrl) {
+      addVideoMessage(videoDataUrl, caption);
+      if (caption) {
+        clearComposer();
+        var capLang = detectTextLang(caption);
+        if (capLang) setUiLang(capLang);
       }
-      uploadVideoRaw(file);
-    });
+    } else if (caption) {
+      addMessage(caption, "user");
+      clearComposer();
+      var capLang2 = detectTextLang(caption);
+      if (capLang2) setUiLang(capLang2);
+    } else {
+      addMessage(t("videoSent"), "user");
+    }
+    var typing = addMessage(t("typing"), "bot typing");
+    var payload = {
+      siteKey: config.siteKey,
+      visitorId: config.visitorId,
+      conversationId: conversationId,
+      activityToken: activityToken,
+    };
+    if (frames) payload.frames = frames;
+    if (video) payload.video = video;
+    if (caption) payload.message = caption;
+    postApi("/api/chat/vision", payload, typing);
   }
 
   function extractVideoFrames(file, done) {
@@ -2512,7 +2753,7 @@
     try { video.load(); } catch (e) {}
   }
 
-  function uploadVideoRaw(file) {
+  function uploadVideoRaw(file, caption) {
     var reader = new FileReader();
     reader.onload = function () {
       var dataUrl = String(reader.result || "");
@@ -2522,15 +2763,7 @@
         addMessage(t("videoReadError"), "bot");
         return;
       }
-      addMessage(t("videoSent"), "user");
-      var typing = addMessage(t("watchingVideo"), "bot typing");
-      postApi("/api/chat/vision", {
-        siteKey: config.siteKey,
-        visitorId: config.visitorId,
-        conversationId: conversationId,
-        activityToken: activityToken,
-        video: { mimeType: file.type || "video/mp4", base64: base64 },
-      }, typing);
+      postVideoMessage(null, { mimeType: file.type || "video/mp4", base64: base64 }, caption, dataUrl);
     };
     reader.onerror = function () {
       // uploadVideo already counted this turn as pending; settle
@@ -2611,10 +2844,14 @@
             addSystemNotice(t("recordingProcessError"));
             return;
           }
-          addMessage(t("voiceSent"), "user");
+          addAudioMessage(String(reader.result || ""));
+          // Voice is a send too: any composer draft is cleared with
+          // it (voice carries no caption, so the draft is not sent
+          // along — it is simply not left behind).
+          clearComposer();
           pendingRequests++;
           setAgentState("working");
-          var typing = addMessage(t("listening"), "bot typing");
+          var typing = addMessage(t("typing"), "bot typing");
           postApi("/api/chat/voice", {
             siteKey: config.siteKey,
             visitorId: config.visitorId,
@@ -2695,7 +2932,7 @@
     // clip in its new home.
     kickActiveVideos();
     if (!conversationId && !document.querySelector(".rbai-msg")) {
-      addMessage(greetingIsDefault ? t("greeting") : config.greeting, "bot");
+      addMessage(greetingText(), "bot");
     }
     startThreadSync();
   }
@@ -2751,6 +2988,7 @@
   // the widget builds instantly from the defaults and the live
   // markup is swapped only when the record actually answers.
   fetchAgentBrand();
+  fetchTenantIdentity();
 
   // Initialize
   if (document.readyState === "loading") {

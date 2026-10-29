@@ -9,6 +9,10 @@ import {
   setSessionCookies,
 } from "@/lib/auth";
 import { isSignupCapacityError } from "@/lib/signup-capacity";
+import {
+  RESERVED_NAME_ERROR,
+  isReservedBusinessName,
+} from "@/lib/reserved-names";
 import { TRIAL_MS, TRIAL_DAYS } from "@/lib/subscription";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
@@ -91,6 +95,23 @@ export async function POST(request: NextRequest) {
     if (businessName.length < 2 || businessName.length > 100) {
       return NextResponse.json(
         { error: "Business name must be 2–100 characters." },
+        { status: 400 }
+      );
+    }
+    // Platform-name reservation (owner 2026-10-29 ~23:53): no NEW
+    // tenant may register as "Ride Bangla" (case/whitespace/
+    // punctuation-insensitive exact match; see reserved-names.ts).
+    // Checked BEFORE any creation — before the Firebase user, the
+    // business doc, and the admin doc — so a blocked signup leaves
+    // no partial account behind and needs no rollback. This covers
+    // the typed name AND the email-derived fallback name (derived
+    // above)
+    // (an email local part of "ridebangla" would otherwise mint a
+    // squat business). The company's own staff must sign in to the
+    // existing company business, never self-mint a new one here.
+    if (isReservedBusinessName(businessName)) {
+      return NextResponse.json(
+        { error: RESERVED_NAME_ERROR },
         { status: 400 }
       );
     }

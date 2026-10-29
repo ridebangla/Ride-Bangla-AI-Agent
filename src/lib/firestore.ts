@@ -77,6 +77,7 @@ import type {
   Flow,
   FollowUp,
   ReviewAsk,
+  ChatFeedback,
   SocialAccount,
   ScheduledPost,
   SocialInteraction,
@@ -292,6 +293,22 @@ const MODEL_META: Record<string, ModelMeta> = {
     },
   }),
   message: M("messages"),
+  // Widget reply feedback (2026-10-29): one doc per visitor per reply.
+  // Tenant-scoped by the M() default; the compound unique keeps a
+  // changed mind (like -> dislike) to one record per reply.
+  chatFeedback: M("chatFeedback", {
+    hasUpdatedAt: true,
+    defaults: { value: "", replyText: "", replyHash: "", visitorId: "" },
+    uniques: [["businessId", "conversationId", "replyHash", "visitorId"]],
+    compoundKeys: {
+      businessId_conversationId_replyHash_visitorId: [
+        "businessId",
+        "conversationId",
+        "replyHash",
+        "visitorId",
+      ],
+    },
+  }),
   // Test-chat sandbox leg — separate collections, tenant-scoped by
   // the M() default. Real conversation/message queries never touch
   // these collections, so test rows cannot leak into inbox counts,
@@ -2043,6 +2060,7 @@ export interface DbClient {
   teamMember: ModelDelegate<TeamMember>;
   conversation: ModelDelegate<Conversation>;
   message: ModelDelegate<Message>;
+  chatFeedback: ModelDelegate<ChatFeedback>;
   testChatSession: ModelDelegate<TestChatSession>;
   testChatMessage: ModelDelegate<TestChatMessage>;
   ticket: ModelDelegate<Ticket>;

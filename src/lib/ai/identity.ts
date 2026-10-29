@@ -220,8 +220,10 @@ function listServicesEn(name: string, services: string[]): string {
 
 /**
  * Templated fast-path answer. NO LLM call, so no prompt can leak the
- * wrong business into it. Denials name "Ride Bangla" ONLY to deny it;
- * they never enumerate delivery services (ride/food/courier/grocery).
+ * wrong business into it. STRICT (owner 2026-10-29 ~23:37): a tenant
+ * answer NEVER names Ride Bangla at all — not even to deny it. It
+ * answers simply as its own business's assistant. Only the portal
+ * branch (own tier) may name the platform product.
  */
 export function answerIdentityQuestion(
   question: IdentityQuestion,
@@ -270,9 +272,11 @@ export function answerIdentityQuestion(
           ? "এই বিজনেসের সার্ভিস এখনো সেট করা হয়নি।"
           : "This business's services have not been set up yet.";
       case "are_you_ride_bangla":
+        // STRICT: no Ride Bangla name at all — same honest answer as "who",
+        // with no other business named.
         return bn
-          ? "না, আমি Ride Bangla নই। এই বিজনেসটি এখনো কনফিগার করা হয়নি।"
-          : "No, I am not Ride Bangla. This business has not been configured yet.";
+          ? "আমি এই বিজনেসের সহকারী, কিন্তু এই বিজনেসটি এখনো কনফিগার করা হয়নি।"
+          : "I am this business's assistant, but this business has not been configured yet.";
     }
   }
 
@@ -304,17 +308,22 @@ export function answerIdentityQuestion(
         : `${name}'s services have not been set up yet.`;
     }
     case "are_you_ride_bangla":
-      // The ONLY branch that may affirm is a tenant whose own registered
-      // name IS Ride Bangla (the Main/delivery business). Every other
-      // tenant denies, naming its own business instead.
+      // STRICT (owner 2026-10-29 ~23:37): a tenant NEVER names Ride Bangla
+      // at all — not even to deny it. It answers simply as its own
+      // business's assistant. Portal mode (above) is the ONLY branch that
+      // may name the platform product. A non-portal business whose
+      // registered name happens to be "Ride Bangla" must never affirm:
+      // it gets the generic assistant answer with no name at all, so a
+      // name-squat can never make a tenant pass as the platform.
+      // (Platform-name blocking at signup/setup/onboarding/rename is
+      // enforced server-side since owner approval 2026-10-29 ~23:53 —
+      // see src/lib/reserved-names.ts. This generic answer remains
+      // the backstop for any PRE-EXISTING squat record, which is
+      // never auto-renamed or deleted by this batch.)
       if (name === "Ride Bangla") {
-        return bn
-          ? "হ্যাঁ, আমি Ride Bangla-এর সহকারী।"
-          : "Yes, I am Ride Bangla's assistant.";
+        return bn ? "আমি এই বিজনেসের সহকারী।" : "I am this business's assistant.";
       }
-      return bn
-        ? `না, আমি Ride Bangla নই। আমি ${name}-এর সহকারী।`
-        : `No, I am not Ride Bangla. I am the assistant for ${name}.`;
+      return bn ? `আমি ${name}-এর সহকারী।` : `I am the assistant for ${name}.`;
   }
 }
 
@@ -340,17 +349,24 @@ export function buildIdentityPromptLine(identity: BusinessIdentity): string {
       return (
         "You are an assistant for a business that has not been configured yet. " +
         "Do not name any business, do not describe any business's services, " +
-        "and do not present yourself as Ride Bangla. If asked who you are " +
+        "and do not name or describe any other business. If asked who you are " +
         "or about services, say honestly that the business is not configured yet."
       );
     default: {
       const base =
         `You are the AI assistant for ${identity.displayName} only. ` +
+        `You work for ${identity.displayName} as its assistant — as if ` +
+        `you were an employee of that business. When you are connected ` +
+        `to a website or a business, talk about THAT website and THAT ` +
+        `business: its own products, services, and pages. ` +
         `Speak as ${identity.displayName} and about ${identity.displayName}'s ` +
-        `own products and services only. Never present yourself as Ride Bangla ` +
-        `or any other business, and never describe another business's services ` +
-        `as your own. If asked whether you are Ride Bangla, answer no — you are ` +
-        `${identity.displayName}'s assistant.`;
+        `own products and services only. Never present yourself as any other ` +
+        `business, and never describe another business's services as your own. ` +
+        `If asked about another business, do not name it and do not describe ` +
+        `it; simply state you are ${identity.displayName}'s assistant and ` +
+        `answer only about ${identity.displayName}. Never open or describe ` +
+        `pages belonging to the platform that hosts you; if asked about them, ` +
+        `simply say you can only help with ${identity.displayName}.`;
       if (!identity.configured) {
         return (
           base +

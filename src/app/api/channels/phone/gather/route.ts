@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     logger.error("[Phone] Failed to handle speech input:", error);
     return new NextResponse(
-      '<?xml version="1.0" encoding="UTF-8"?><Response><Say>An error occurred. Please try again.</Say></Response>',
+      '<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">An error occurred. Please try again.</Say></Response>',
       { headers: { "Content-Type": "text/xml" } }
     );
   }

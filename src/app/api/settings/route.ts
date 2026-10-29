@@ -12,6 +12,11 @@ import {
   validateControlPatch,
 } from "@/lib/owner-controls/message-controls";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
+import {
+  RESERVED_NAME_ERROR,
+  isReservedBusinessName,
+} from "@/lib/reserved-names";
+import { isCompanyBusiness } from "@/lib/company-identity";
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, "settings:read");
@@ -72,6 +77,26 @@ export async function PUT(request: NextRequest) {
       const validation = validateBody(updateSettingsSchema, body);
       if (!validation.success) {
         return NextResponse.json({ error: validation.error }, { status: 400 });
+      }
+
+      // Platform-name reservation (owner 2026-10-29 ~23:53): a tenant
+      // may not RENAME to "Ride Bangla" (exact-match family; see
+      // reserved-names.ts). Checked BEFORE the upsert and before the
+      // Business.name sync, so a blocked rename writes nothing at
+      // all. EXEMPTION: the company's own business is skipped — it
+      // already is Ride Bangla and must never be locked out of its
+      // own name. On an exemption-check failure the business is
+      // treated as non-company (block applies); a company rename
+      // during a data-layer outage can simply be retried.
+      if (
+        typeof validation.data.businessName === "string" &&
+        isReservedBusinessName(validation.data.businessName) &&
+        !(await isCompanyBusiness(auth.businessId ?? ""))
+      ) {
+        return NextResponse.json(
+          { error: RESERVED_NAME_ERROR },
+          { status: 400 }
+        );
       }
 
       // Owner message controls (LEG C): a Settings PUT carrying
@@ -145,6 +170,29 @@ export async function PUT(request: NextRequest) {
         update: writeData,
         create: { businessId: auth.businessId, ...writeData },
       });
+
+      // Identity sync (owner 2026-10-29): Settings.businessName is the
+      // name the engine speaks as, but the Channels embed snippet and
+      // the widget route read Business.name. A Settings edit must flip
+      // BOTH, or the two sources diverge and the snippet keeps the old
+      // name. Best-effort with a log (mirrors setup-application): a
+      // Business-row failure must not fail the Settings save itself.
+      if (
+        typeof writeData.businessName === "string" &&
+        writeData.businessName.trim().length >= 2
+      ) {
+        try {
+          await prisma.business.update({
+            where: { id: auth.businessId },
+            data: { name: writeData.businessName.trim().slice(0, 100) },
+          });
+        } catch (err) {
+          logger.warn(
+            "[settings] Business.name sync failed after Settings edit",
+            { error: err instanceof Error ? err.message : String(err) }
+          );
+        }
+      }
 
       return NextResponse.json(maskSettingsSecrets(settings));
     } catch (error) {

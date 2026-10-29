@@ -123,6 +123,11 @@ export default function OnboardingWizard() {
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<AnalyzeResult | null>(null);
+  // Name the owner confirms on the review screen. Prefilled from the
+  // analyze result (typed name, or the name scraped from the owner's own
+  // website) and editable before Save — a scraped name is never applied
+  // unseen. Sent to /api/onboarding/confirm, which flips both name rows.
+  const [reviewBusinessName, setReviewBusinessName] = useState("");
   const [qa, setQa] = useState<QAPair[]>([]);
   const [products, setProducts] = useState<ProductDraft[]>([]);
   const [saving, setSaving] = useState(false);
@@ -197,6 +202,11 @@ export default function OnboardingWizard() {
         return;
       }
       setResult(data as AnalyzeResult);
+      setReviewBusinessName(
+        typeof (data as AnalyzeResult).businessName === "string"
+          ? (data as AnalyzeResult).businessName
+          : ""
+      );
       setQa((data.qa || []) as QAPair[]);
       setProducts(
         ((data.products || []) as ProductDraft[]).map((p) => ({
@@ -292,6 +302,7 @@ export default function OnboardingWizard() {
           ? `Learned from ${stats.length} of your ${list.length} websites (${allPages.length} pages). Review everything below before saving — you can add more websites any time in Settings.`
           : note,
     });
+      setReviewBusinessName(businessName);
     setQa(mergedQa);
     setProducts(mergedProducts);
     setSiteStats(stats);
@@ -356,6 +367,9 @@ export default function OnboardingWizard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(reviewBusinessName.trim()
+            ? { businessName: reviewBusinessName.trim() }
+            : {}),
           qa,
           products,
           // So the Settings website list records the sites this wizard
@@ -809,6 +823,21 @@ export default function OnboardingWizard() {
                 </p>
               </div>
             )}
+
+            {/* Business name — confirmed here, saved with the setup.
+                This is the name the agent speaks as: saving flips BOTH
+                Business.name and Settings.businessName (see
+                /api/onboarding/confirm). */}
+            <label className="block text-sm font-medium text-rbai-text mt-8 mb-1.5">
+              Business name — this is the name your agent will use
+            </label>
+            <input
+              value={reviewBusinessName}
+              onChange={(e) => setReviewBusinessName(e.target.value)}
+              placeholder="Your business name"
+              maxLength={100}
+              className={inputClass}
+            />
 
             {/* Q&A editor */}
             <h2 className="font-semibold text-rbai-text mt-8 mb-3">

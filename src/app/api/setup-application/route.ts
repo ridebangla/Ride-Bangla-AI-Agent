@@ -16,6 +16,11 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
 import { validateBody } from "@/lib/validations";
 import type { SetupApplication } from "@/lib/models";
+import {
+  RESERVED_NAME_ERROR,
+  isReservedBusinessName,
+} from "@/lib/reserved-names";
+import { isCompanyBusiness } from "@/lib/company-identity";
 
 const CHANNEL_IDS = [
   "widget",
@@ -113,6 +118,24 @@ export async function POST(request: NextRequest) {
       }
       const data = validation.data;
 
+      // Platform-name reservation (owner 2026-10-29 ~23:53): a tenant
+      // may not SET UP with the name "Ride Bangla". Checked BEFORE
+      // the application row is created/updated and before the
+      // Business/Settings identity sync, so a blocked attempt leaves
+      // no application row and no identity change behind.
+      // EXEMPTION: the company's own business is skipped (it already
+      // is Ride Bangla); on an exemption-check failure the business
+      // is treated as non-company (block applies).
+      if (
+        isReservedBusinessName(data.businessName) &&
+        !(await isCompanyBusiness(auth.businessId ?? ""))
+      ) {
+        return NextResponse.json(
+          { error: RESERVED_NAME_ERROR },
+          { status: 400 }
+        );
+      }
+
       if (data.preferredContact === "whatsapp" && data.contactPhone.trim().length < 6) {
         return NextResponse.json(
           { error: "Please provide a phone/WhatsApp number so our team can reach you." },
@@ -162,8 +185,13 @@ export async function POST(request: NextRequest) {
             },
           });
         }
-      } catch {
-        // Identity sync is a bonus — the application itself is already saved.
+      } catch (err) {
+        // Identity sync is a bonus — the application itself is already
+        // saved — but a silent failure used to leave identity stale with
+        // no trace. Log it so a failed flip is visible, not hidden.
+        logger.warn("[setup-application] identity sync failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
 
       logger.warn(

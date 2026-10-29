@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUnscopedPrisma, runWithBusiness } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
+import {
+  RESERVED_NAME_ERROR,
+  isReservedBusinessName,
+} from "@/lib/reserved-names";
 
 /**
  * Business management — Super Admin only.
@@ -52,6 +56,16 @@ export async function POST(request: NextRequest) {
       const name = typeof body.name === "string" ? body.name.trim() : "";
       if (!name) {
         return NextResponse.json({ error: "Business name is required" }, { status: 400 });
+      }
+      // Platform-name reservation (owner 2026-10-29 ~23:53): even a
+      // Super Admin create may not mint a NEW business named "Ride
+      // Bangla". A new business has no identity yet, so there is
+      // nothing to exempt here — the company's own business already
+      // exists and is created/flagged through the deploy-time seed /
+      // Admin Console company-identity flow, not through this tenant
+      // creation route. Checked before slug/business/settings rows.
+      if (isReservedBusinessName(name)) {
+        return NextResponse.json({ error: RESERVED_NAME_ERROR }, { status: 400 });
       }
 
       const { randomUUID } = await import("crypto");
