@@ -4,6 +4,13 @@ import { logger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getBusinessBySiteKey, enterBusinessContext } from "@/lib/tenant";
 import { getSubscription } from "@/lib/subscription";
+import { getCompanyIdentity } from "@/lib/company-identity";
+import {
+  PORTAL_ORIGIN_HOST,
+  companyAiBusinessIds,
+  requestOriginHost,
+  resolvePortalSurface,
+} from "@/lib/portal-surface";
 import { prisma, withBusinessId } from "@/lib/prisma";
 import { checkMessageLimitExceeded } from "@/lib/billing-usage";
 import { parseActivityToken, bindActivityToken } from "@/lib/ai/activity";
@@ -284,6 +291,44 @@ export async function POST(request: NextRequest) {
     }
     enterBusinessContext(business.id);
 
+    // PORTAL RESOLUTION (AI-site own-agent fix, 2026-10-30 — server-side
+    // only, never client-supplied): the widget is in portal mode exactly
+    // when the business is the company business (isInternalAccount, or
+    // listed in company_identity/current.aiBusinessIds — the same two
+    // company signals getSubscription uses for isInternal) AND the
+    // request's Origin/Referer host is ai.ridebangla.bd. The company
+    // siteKey is embedded on Main, Studio, Tools and IT too, so a
+    // flag-only rule would flip Main's widget to portal mode and break
+    // the one correct site — the origin leg is what keeps Main a
+    // tenant turn. The company-identity read runs ONLY for AI-origin
+    // turns whose business is not already internal, so Main/tenant
+    // traffic pays no extra read; a failed read degrades to the
+    // isInternalAccount leg only (fail-closed to tenant behaviour).
+    // The body `source` value is never consulted here: it is
+    // caller-controlled metadata, not identity evidence.
+    const portalOriginHost = requestOriginHost((name) =>
+      request.headers.get(name)
+    );
+    let portalAiBusinessIds: string[] = [];
+    if (
+      portalOriginHost === PORTAL_ORIGIN_HOST &&
+      business.isInternalAccount !== true
+    ) {
+      try {
+        portalAiBusinessIds = companyAiBusinessIds(
+          await getCompanyIdentity()
+        );
+      } catch {
+        portalAiBusinessIds = [];
+      }
+    }
+    const isPortal = resolvePortalSurface({
+      isInternalAccount: business.isInternalAccount === true,
+      businessId: business.id,
+      aiBusinessIds: portalAiBusinessIds,
+      originHost: portalOriginHost,
+    });
+
     // Visitor identity is the thread-ownership proof (the thread endpoint
     // requires customerContact === visitorId), so it must never be a
     // publicly known constant: "anonymous" was the shared default, which
@@ -424,6 +469,7 @@ export async function POST(request: NextRequest) {
               chat(convId, text || "(sent a photo)", {
                 media,
                 business: { name: business.name },
+                portal: isPortal,
                 onToken: (tokenText) => send("token", { text: tokenText }),
                 onRetract: () => send("retract", {}),
               })
@@ -482,6 +528,7 @@ export async function POST(request: NextRequest) {
       chat(convId, text || "(sent a photo)", {
         media,
         business: { name: business.name },
+        portal: isPortal,
       })
     );
 
@@ -521,10 +568,41 @@ export async function POST(request: NextRequest) {
           "[widget] greeting served from siteKey cache during data-layer failure",
           { siteKey: failureSiteKey, businessId: cachedBusiness.id }
         );
+        // VERIFIER FIX (2026-10-30): the outage greeting previously
+        // used the cached business name unconditionally — on a portal
+        // turn (company business + AI origin) that names the Main
+        // business, the exact bug this fix exists to kill. Resolve the
+        // same portal rule here (company-identity read is best-effort
+        // and cached, so it may still succeed during an outage; on
+        // failure it degrades to the isInternalAccount leg only) and
+        // serve the nameless generic greeting on portal turns.
+        // Tenant turns and Main-origin turns keep the named greeting.
+        let outageAiBusinessIds: string[] = [];
+        const outageOriginHost = requestOriginHost((name) =>
+          request.headers.get(name)
+        );
+        if (
+          outageOriginHost === PORTAL_ORIGIN_HOST &&
+          cachedBusiness.isInternalAccount !== true
+        ) {
+          try {
+            outageAiBusinessIds = companyAiBusinessIds(
+              await getCompanyIdentity()
+            );
+          } catch {
+            outageAiBusinessIds = [];
+          }
+        }
+        const outageIsPortal = resolvePortalSurface({
+          isInternalAccount: cachedBusiness.isInternalAccount === true,
+          businessId: cachedBusiness.id,
+          aiBusinessIds: outageAiBusinessIds,
+          originHost: outageOriginHost,
+        });
         return NextResponse.json({
           response: buildGreetingReply(
             failureText,
-            cachedBusiness.name,
+            outageIsPortal ? "" : cachedBusiness.name,
             undefined
           ),
           products: [],

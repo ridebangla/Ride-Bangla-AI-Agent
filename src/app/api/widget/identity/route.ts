@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBusinessBySiteKey } from "@/lib/tenant";
+import { getCompanyIdentity } from "@/lib/company-identity";
+import {
+  PORTAL_ORIGIN_HOST,
+  companyAiBusinessIds,
+  requestOriginHost,
+  resolvePortalSurface,
+} from "@/lib/portal-surface";
 import { getUnscopedPrisma } from "@/lib/prisma";
 
 /**
@@ -108,12 +115,54 @@ export async function GET(request: NextRequest) {
       welcomeMessage = null;
     }
 
-    const businessName = settingsName || cleanName(business.name) || null;
+    // PORTAL BRANCH (AI-site own-agent fix, 2026-10-30 — same
+    // server-side rule as the widget chat route, see
+    // src/lib/portal-surface.ts): the company business on the AI site
+    // itself reports the product name, so the AI-site header shows
+    // "Ride Bangla AI Agent" instead of the company business name.
+    // Host data-title still always wins client-side (the embed is
+    // untouched), and every other origin keeps today's behaviour
+    // exactly. The company-identity read runs only for AI-origin
+    // turns whose business is not already internal; a failed read
+    // degrades to the isInternalAccount leg only, never to a
+    // guessed name. The `portal` field below is deliberately
+    // unchanged (still the raw isInternalAccount flag) — only
+    // businessName gains the portal branch.
+    const portalOriginHost = requestOriginHost((name) =>
+      request.headers.get(name)
+    );
+    let portalAiBusinessIds: string[] = [];
+    if (
+      portalOriginHost === PORTAL_ORIGIN_HOST &&
+      business.isInternalAccount !== true
+    ) {
+      try {
+        portalAiBusinessIds = companyAiBusinessIds(
+          await getCompanyIdentity()
+        );
+      } catch {
+        portalAiBusinessIds = [];
+      }
+    }
+    const isPortal = resolvePortalSurface({
+      isInternalAccount: business.isInternalAccount === true,
+      businessId: business.id,
+      aiBusinessIds: portalAiBusinessIds,
+      originHost: portalOriginHost,
+    });
+
+    const businessName = isPortal
+      ? "Ride Bangla AI Agent"
+      : settingsName || cleanName(business.name) || null;
 
     return NextResponse.json(
       {
         businessName,
-        welcomeMessage,
+        // VERIFIER FIX (2026-10-30): a portal turn must not inherit the
+        // company business's custom welcome (Main-site copy) under the
+        // portal product name — portal turns report no welcome, so the
+        // embed falls back to its generic header. Tenant turns unchanged.
+        welcomeMessage: isPortal ? null : welcomeMessage,
         portal: business.isInternalAccount === true,
       },
       {

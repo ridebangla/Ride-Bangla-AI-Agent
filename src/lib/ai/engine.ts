@@ -19,6 +19,11 @@ import {
   buildIdentityPromptLine,
   detectIdentityLanguage,
 } from "./identity";
+import {
+  PORTAL_PLAN_NAMES_LINE,
+  PORTAL_TOOL_NAMES,
+  PORTAL_TURN_SCOPE,
+} from "../portal-surface";
 import { reportActivity, clearActivity, activityKindForTool } from "./activity";
 import {
   AGENT_BEHAVIOUR_DOCTRINE,
@@ -858,8 +863,11 @@ async function handleApprovalModeTurn(args: {
   brainOnline: boolean;
   hasMedia: boolean;
   ephemeral: boolean;
+  /** Portal turn (see chat()): company business on the AI site. */
+  portal?: boolean;
 }): Promise<ChatResult> {
   const { conversationId, conversation, config, keys, effectiveMessage } = args;
+  const isPortal = args.portal === true;
   const silentResult: ChatResult = { response: "", products: [], silent: true };
   // Ephemeral mode (the conversation read failed, data layer down):
   // every persistence attempt below throws and lands in the catch,
@@ -892,11 +900,14 @@ async function handleApprovalModeTurn(args: {
 
     // Pure-greeting drafts need no LLM: the deterministic greeting text
     // becomes the draft (metered like the normal greeting path).
+    // Portal turns use the NAMELESS generic greeting ("" name): no
+    // portal greeting line is invented, and the company business name
+    // must not reach an AI-site draft.
     if (!args.hasMedia && isPureGreeting(effectiveMessage)) {
       await reportActivity(conversationId, "composing");
       const greeting = buildGreetingReply(
         effectiveMessage,
-        config.businessName,
+        isPortal ? "" : config.businessName,
         config.language,
         args.conversation.customerName,
         args.conversation.channel
@@ -930,33 +941,63 @@ async function handleApprovalModeTurn(args: {
     // the normal path reads them (same degradation to zero knowledge
     // on a read failure), history replayed like the normal path, but
     // NO tools are offered to the provider — see the header comment.
+    // Portal turns skip these reads entirely: the company business's
+    // Main-services knowledge/catalog must never enter a portal draft.
     let knowledgeBase: KnowledgeItem[] = [];
     let catalogBrief = "";
-    try {
-      [knowledgeBase, catalogBrief] = await Promise.all([
-        getKnowledgeBase(),
-        getCatalogBrief().catch(() => ""),
-      ]);
-    } catch (err) {
-      logger.warn("[brain] approval draft: knowledge/catalog read failed", {
-        conversationId,
-        reason: err instanceof Error ? err.message : String(err),
-      });
-      knowledgeBase = [];
-      catalogBrief = "";
+    if (!isPortal) {
+      try {
+        [knowledgeBase, catalogBrief] = await Promise.all([
+          getKnowledgeBase(),
+          getCatalogBrief().catch(() => ""),
+        ]);
+      } catch (err) {
+        logger.warn("[brain] approval draft: knowledge/catalog read failed", {
+          conversationId,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+        knowledgeBase = [];
+        catalogBrief = "";
+      }
     }
     const intent = classifyIntent(effectiveMessage);
     const context: ConversationContext = {
       ...config,
+      ...(isPortal
+        ? {
+            businessDesc: PORTAL_TURN_SCOPE.businessDesc,
+            agentBehavior: PORTAL_TURN_SCOPE.agentBehavior,
+            businessRulesSection: PORTAL_TURN_SCOPE.businessRulesSection,
+          }
+        : {}),
       knowledgeBase,
       customerName: conversation.customerName,
       channel: conversation.channel,
       customerHistory: [],
     };
+    // Portal drafts carry the portal identity line + plan names only;
+    // tenant drafts keep the previous prompt exactly (no identityLine).
+    const portalIdentity = isPortal
+      ? resolveBusinessIdentity({
+          businessName: null,
+          settingsName: null,
+          settingsExisted: false,
+          businessDesc: "",
+          knowledgeCount: 0,
+          catalogCount: 0,
+          portal: true,
+        })
+      : null;
     const systemPrompt =
       buildSystemPrompt(context, {
         intentGuidance: getIntentGuidance(intent.intent),
         catalogBrief,
+        ...(portalIdentity
+          ? {
+              identityLine:
+                `${buildIdentityPromptLine(portalIdentity)}\n${PORTAL_PLAN_NAMES_LINE}`,
+            }
+          : {}),
       }) +
       "\n\n" +
       DRAFT_MODE_SUFFIX;
@@ -1125,6 +1166,18 @@ export async function chat(
     }),
   ]);
   logLatencySpan("prep.reads", prepStartedAt, { conversationId });
+
+  // PORTAL TURN (AI-site own-agent fix, 2026-10-30): opts.portal is
+  // threaded ONLY by the widget chat route, which resolves it
+  // server-side (company business AND ai.ridebangla.bd origin — see
+  // src/lib/portal-surface.ts). It is never name-derived and never
+  // client-supplied. When true, every content source below that could
+  // carry the company business's Main-services content is emptied
+  // for THIS turn only (PORTAL_TURN_SCOPE), the identity resolves to
+  // the portal branch, and the greeting goes nameless-generic. Tenant
+  // turns (isPortal false) execute every line below exactly as
+  // before — no portal branch may alter a tenant turn's inputs.
+  const isPortal = opts?.portal === true;
 
   if (!conversation) {
     return { response: "Conversation not found.", products: [], silent: false };
@@ -1438,6 +1491,7 @@ export async function chat(
       brainOnline,
       hasMedia: !!opts?.media,
       ephemeral,
+      portal: isPortal,
     });
   }
 
@@ -1447,7 +1501,11 @@ export async function chat(
     // catalog item — real catalog data, no AI involved. When nothing
     // matched but this looks like a product inquiry, the retain path
     // offers budget/category alternatives with the retain phrasing.
-    const attached = await attachMentionedProducts(effectiveMessage, [], conversationId);
+    // Portal turns attach NO catalog cards: the company catalog is
+    // Main-business content, not portal content.
+    const attached = isPortal
+      ? { products: [], retain: false }
+      : await attachMentionedProducts(effectiveMessage, [], conversationId);
     let fallbackResponse =
       "The AI brain isn't connected yet — the business owner still needs to add the AI API key in Settings. Your message has been saved and the team can see it.";
     if (attached.retain) {
@@ -1471,9 +1529,13 @@ export async function chat(
   // below exactly; a streaming caller gets the reply as a single
   // token so the widget renders it like any streamed answer.
   if (!opts?.media && isPureGreeting(effectiveMessage)) {
+    // Portal greeting: NAMELESS generic greeting ("" name). No portal
+    // greeting line is invented, and the company business name must
+    // not reach an AI-site greeting. Visitor personalization is
+    // untouched (visitor name/channel still pass through).
     const greeting = buildGreetingReply(
       effectiveMessage,
-      config.businessName,
+      isPortal ? "" : config.businessName,
       config.language,
       conversation.customerName,
       conversation.channel
@@ -1536,10 +1598,13 @@ export async function chat(
     businessName: opts?.business?.name ?? null,
     settingsName: config.businessName,
     settingsExisted: config.settingsExisted,
-    businessDesc: config.businessDesc,
+    // Portal turns resolve to the portal branch (displayName "Ride
+    // Bangla AI Agent"); the company description is withheld so no
+    // Main-services text can reach a portal template answer.
+    businessDesc: isPortal ? "" : config.businessDesc,
     knowledgeCount: 0,
     catalogCount: 0,
-    portal: opts?.portal,
+    portal: isPortal,
   });
   const identityQuestion = classifyIdentityQuestion(effectiveMessage);
   if (!opts?.media && identityQuestion) {
@@ -1547,7 +1612,7 @@ export async function chat(
       identityQuestion,
       earlyIdentity,
       detectIdentityLanguage(effectiveMessage),
-      { businessDesc: config.businessDesc }
+      { businessDesc: isPortal ? "" : config.businessDesc }
     );
     await reportActivity(conversationId, "composing");
     if (opts?.onToken) {
@@ -1597,8 +1662,16 @@ export async function chat(
     const identityStream: StreamCallbacks | undefined = opts?.onToken
       ? { onToken: opts.onToken, onRetract: opts.onRetract }
       : undefined;
+    // Portal fast path: buildIdentitySystemPrompt interpolates
+    // config.businessName/businessDesc directly, so a portal turn
+    // must hand it the portal displayName (already in code, from
+    // identity.ts) and an empty description — otherwise the company
+    // business name + Main description would leak through this path
+    // even though the identity LINE passed is the portal line.
     const identity = await tryIdentityFastPath(
-      config,
+      isPortal
+        ? { ...config, businessName: "Ride Bangla AI Agent", businessDesc: "" }
+        : config,
       effectiveMessage,
       conversationId,
       keys,
@@ -1653,23 +1726,29 @@ export async function chat(
   // its existing empty shape "" (the same value getCatalogBrief's
   // own .catch already produced; buildSystemPrompt treats "" as
   // no catalog section).
+  // Portal turns skip these reads entirely: the company business's
+  // Main-services knowledge/catalog must never be loaded into a
+  // portal turn, even transiently. Tenant turns load exactly as
+  // before (including the zero-knowledge degradation on failure).
   let knowledgeBase: KnowledgeItem[] = [];
   let catalogBrief = "";
-  try {
-    [knowledgeBase, catalogBrief] = await Promise.all([
-      getKnowledgeBase(),
-      getCatalogBrief().catch(() => ""),
-    ]);
-  } catch (err) {
-    logger.warn(
-      "[brain] knowledge/catalog read failed; continuing with zero knowledge",
-      {
-        conversationId,
-        reason: err instanceof Error ? err.message : String(err),
-      }
-    );
-    knowledgeBase = [];
-    catalogBrief = "";
+  if (!isPortal) {
+    try {
+      [knowledgeBase, catalogBrief] = await Promise.all([
+        getKnowledgeBase(),
+        getCatalogBrief().catch(() => ""),
+      ]);
+    } catch (err) {
+      logger.warn(
+        "[brain] knowledge/catalog read failed; continuing with zero knowledge",
+        {
+          conversationId,
+          reason: err instanceof Error ? err.message : String(err),
+        }
+      );
+      knowledgeBase = [];
+      catalogBrief = "";
+    }
   }
   logLatencySpan("prep.knowledge", knowledgeStartedAt, { conversationId });
 
@@ -1681,16 +1760,31 @@ export async function chat(
     businessName: opts?.business?.name ?? null,
     settingsName: config.businessName,
     settingsExisted: config.settingsExisted,
-    businessDesc: config.businessDesc,
-    knowledgeCount: knowledgeBase.length,
-    catalogCount: catalogBrief.startsWith("PRODUCT CATALOG (available now)")
-      ? 1
-      : 0,
-    portal: opts?.portal,
+    // Portal turns resolve to the portal branch with zero company
+    // content counts, so the prompt can never re-derive a tenant
+    // identity from the company business's own data.
+    businessDesc: isPortal ? "" : config.businessDesc,
+    knowledgeCount: isPortal ? 0 : knowledgeBase.length,
+    catalogCount:
+      isPortal || !catalogBrief.startsWith("PRODUCT CATALOG (available now)")
+        ? 0
+        : 1,
+    portal: isPortal,
   });
 
   const context: ConversationContext = {
     ...config,
+    // PORTAL_TURN_SCOPE: a portal turn carries none of the company
+    // business's Main-services content — description, behaviour
+    // instructions, and business rules are all emptied for this turn
+    // only. Tenant turns spread config untouched, as before.
+    ...(isPortal
+      ? {
+          businessDesc: PORTAL_TURN_SCOPE.businessDesc,
+          agentBehavior: PORTAL_TURN_SCOPE.agentBehavior,
+          businessRulesSection: PORTAL_TURN_SCOPE.businessRulesSection,
+        }
+      : {}),
     knowledgeBase,
     customerName: conversation.customerName,
     channel: conversation.channel,
@@ -1708,7 +1802,15 @@ export async function chat(
       content: buildSystemPrompt(context, {
         intentGuidance,
         catalogBrief,
-        identityLine: buildIdentityPromptLine(identity),
+        // Portal brief: the existing portal prompt line (which
+        // forbids presenting as a delivery business and forbids
+        // inventing prices/plans/features) PLUS plan names only.
+        // No prices, no feature lists, no setup steps, no invented
+        // claims — anything beyond plan names is owner-pending
+        // draft content, not shipped prompt content.
+        identityLine: isPortal
+          ? `${buildIdentityPromptLine(identity)}\n${PORTAL_PLAN_NAMES_LINE}`
+          : buildIdentityPromptLine(identity),
       }),
     },
   ];
@@ -1759,7 +1861,7 @@ export async function chat(
   const stream: StreamCallbacks | undefined = opts?.onToken
     ? { onToken: opts.onToken, onRetract: opts.onRetract }
     : undefined;
-  const aiResult = await callAI(config, messages, conversationId, keys, 0, [], { taken: false, ref: "" }, stream);
+  const aiResult = await callAI(config, messages, conversationId, keys, 0, [], { taken: false, ref: "" }, stream, false, isPortal);
 
   // ---- Self-problem handling (ID-07, owner rule 2026-10-25 ~00:54 §6).
   // callAI swallows provider failures into two canned strings. When one
@@ -1802,11 +1904,15 @@ export async function chat(
   // with name-matched cards from the conversation text (the customer may
   // name a product the model didn't card, or vice versa), then category-
   // intent matches, then the budget-aware retain path. Deduped, max 3.
-  const attached = await attachMentionedProducts(
-    `${effectiveMessage}\n${aiResponse}`,
-    aiResult.products,
-    conversationId
-  );
+  // Portal turns attach NO cards: company catalog cards are
+  // Main-business content, not portal content.
+  const attached = isPortal
+    ? { products: [], retain: false }
+    : await attachMentionedProducts(
+        `${effectiveMessage}\n${aiResponse}`,
+        aiResult.products,
+        conversationId
+      );
   const products = attached.products;
 
   // Confidence scoring (unchanged inputs). Computed BEFORE the behaviour
@@ -1822,7 +1928,14 @@ export async function chat(
   // lib/ai/behaviour.ts). Both hooks are fail-soft.
   const behaviour = config.behaviour;
   const behaviourLang = resolveBehaviourLang(config.language, effectiveMessage);
-  if (aiResult.orderTaken) {
+  // VERIFIER FIX (2026-10-30): the behaviour package names the company
+  // business (review asks use config.businessName + the company
+  // business's review link; order check-ins speak as the company) — on
+  // a portal turn that is Main-business content, so the whole package
+  // is skipped for portal turns. Tenant turns run it exactly as before.
+  // (Portal turns also cannot take orders any more: take_order is not
+  // in PORTAL_TOOL_NAMES, so orderTaken is false on portal turns.)
+  if (!isPortal && aiResult.orderTaken) {
     await scheduleOrderCheckIn({
       conversationId,
       customerName: conversation.customerName,
@@ -1838,7 +1951,7 @@ export async function chat(
   // reviewUrl is set (maybeAppendReviewAsk returns immediately when
   // disabled; resolveReviewLink returns reviewUrl without touching the
   // business doc when it is set) — fetch it only in that case.
-  if (behaviour.reviewRequestsEnabled && !behaviour.reviewUrl) {
+  if (!isPortal && behaviour.reviewRequestsEnabled && !behaviour.reviewUrl) {
     try {
       const bid = getBusinessId();
       if (bid) {
@@ -1850,7 +1963,9 @@ export async function chat(
       business = null;
     }
   }
-  const finalResponse = await maybeAppendReviewAsk({
+  const finalResponse = isPortal
+    ? aiResponse
+    : await maybeAppendReviewAsk({
     conversation,
     response: aiResponse,
     customerMessage: effectiveMessage,
@@ -2174,7 +2289,13 @@ async function callAI(
   collectedProducts: ProductCard[] = [],
   orderSignal: { taken: boolean; ref: string } = { taken: false, ref: "" },
   stream?: StreamCallbacks,
-  salvageUsed = false
+  salvageUsed = false,
+  // VERIFIER FIX (2026-10-30): portal turns offer only the
+  // product-support ticket tools (see PORTAL_TOOL_NAMES). Catalog,
+  // order, booking and lead tools all operate on the company
+  // business's data and would re-open the Main-content leak through
+  // tool results on a portal turn. Tenant turns are unaffected.
+  portal = false
 ): Promise<{ response: string; products: ProductCard[]; orderTaken: boolean; orderRef: string }> {
   if (depth > 5) {
     return {
@@ -2220,7 +2341,11 @@ async function callAI(
     const completionReq = {
       messages: messages as ProviderChatMessage[],
       model: config.model,
-      tools: agentTools,
+      tools: portal
+        ? agentTools.filter((t) =>
+            PORTAL_TOOL_NAMES.includes(t.function.name)
+          )
+        : agentTools,
       // F1: chat replies are short (production replies observed at
       // ≤ ~600 chars); the settings default of 2048 reserved tokens
       // the chat never spends but the provider's per-minute budget
@@ -2320,15 +2445,28 @@ async function callAI(
       let result: string;
       try {
         const args = JSON.parse(toolCall.function.arguments);
-        // Live activity: caption only what the tool genuinely does —
-        // unmapped tools leave the composing caption in place.
-        const toolKind = activityKindForTool(toolCall.function.name);
-        if (toolKind) await reportActivity(conversationId, toolKind);
-        result = await executeToolCall(
-          toolCall.function.name,
-          args,
-          conversationId
-        );
+        // VERIFIER FIX (2026-10-30): fail-closed execution guard for
+        // portal turns — even if a provider emits a tool call for a
+        // tool that was not offered, it must never run against the
+        // company business on a portal turn. Tenant turns execute
+        // exactly as before.
+        if (portal && !PORTAL_TOOL_NAMES.includes(toolCall.function.name)) {
+          result = JSON.stringify({
+            success: false,
+            error:
+              "That action is not available on this product surface. Continue helping the customer in your reply without it, and offer to connect them with a team member if they still need it.",
+          });
+        } else {
+          // Live activity: caption only what the tool genuinely does —
+          // unmapped tools leave the composing caption in place.
+          const toolKind = activityKindForTool(toolCall.function.name);
+          if (toolKind) await reportActivity(conversationId, toolKind);
+          result = await executeToolCall(
+            toolCall.function.name,
+            args,
+            conversationId
+          );
+        }
       } catch (err) {
         logger.warn("[brain] tool call failed; continuing without it", {
           tool: toolCall.function.name,
@@ -2364,7 +2502,7 @@ async function callAI(
     }
 
     // Continue the conversation with tool results
-    return callAI(config, messages, conversationId, keys, depth + 1, collectedProducts, orderSignal, stream, salvageUsed);
+    return callAI(config, messages, conversationId, keys, depth + 1, collectedProducts, orderSignal, stream, salvageUsed, portal);
   }
 
   return {
