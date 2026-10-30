@@ -335,7 +335,7 @@ export function GoogleButton({
       type="button"
       onClick={handleClick}
       disabled={loading}
-      className="w-full rounded-lg bg-white border border-rbai-border text-rbai-text font-medium py-2.5 px-4 text-sm hover:bg-rbai-bg disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-3"
+      className="w-full rounded-lg bg-transparent border border-rbai-border text-rbai-text font-medium py-2.5 px-4 text-sm hover:bg-rbai-bg disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-3"
     >
       {loading ? (
         <span className="h-4 w-4 animate-spin rounded-full border-2 border-rbai-primary border-t-transparent" />

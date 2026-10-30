@@ -352,6 +352,8 @@ function WhatsAppCard({
   const [phoneNumber, setPhoneNumber] = useState(cfg.phoneNumber || "");
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [connectStatus, setConnectStatus] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isConnected = channel.status === "connected";
 
@@ -365,43 +367,112 @@ function WhatsAppCard({
   const handleConnect = async () => {
     setConnecting(true);
     setQrCode(null);
+    setConnectError(null);
+    setConnectStatus(null);
+    // Every failure path below stops polling AND resets `connecting`,
+    // so the button re-enables and the user can retry. Previously a
+    // failed start left the button stuck on "Connecting..." forever
+    // with no error shown (owner video 2026-10-30: spinner, no QR,
+    // no error, status still Disconnected).
+    const stopWithError = (message: string) => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+      setConnecting(false);
+      setConnectError(message);
+    };
+    let postRes: Response | null = null;
     try {
-      const res = await fetch("/api/channels/whatsapp", {
+      postRes = await fetch("/api/channels/whatsapp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "connect" }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.qr) setQrCode(data.qr);
+    } catch {
+      stopWithError(
+        "Could not reach the server. Check your connection and try again."
+      );
+      return;
+    }
+    if (!postRes || !postRes.ok) {
+      let message = "WhatsApp could not be started. Try again.";
+      try {
+        const data = await postRes?.json();
+        if (typeof data?.error === "string" && data.error) {
+          message = data.error;
+        } else if (typeof data?.message === "string" && data.message) {
+          message = data.message;
+        }
+      } catch {
+        // Keep the default message when the error body is not JSON.
       }
-      // Start polling for QR code / status updates
-      if (pollRef.current) clearInterval(pollRef.current);
-      const pollStartedAt = Date.now();
-      pollRef.current = setInterval(async () => {
-        // Stop polling after 10 minutes, exactly as on connect/unmount.
-        if (Date.now() - pollStartedAt > 10 * 60 * 1000) {
-          if (pollRef.current) clearInterval(pollRef.current);
+      stopWithError(message);
+      return;
+    }
+    try {
+      const data = await postRes.json();
+      if (data.qr) setQrCode(data.qr);
+      if (typeof data?.message === "string" && data.message) {
+        setConnectStatus(data.message);
+      }
+      if (data.status === "connected") {
+        setConnecting(false);
+        onAction("whatsapp", "connect");
+        return;
+      }
+    } catch {
+      // Unparseable start response: polling below still resolves it.
+    }
+    // Start polling for QR code / status updates
+    if (pollRef.current) clearInterval(pollRef.current);
+    const pollStartedAt = Date.now();
+    let consecutiveFailures = 0;
+    pollRef.current = setInterval(async () => {
+      // Stop polling after 10 minutes, exactly as on connect/unmount —
+      // and reset the button with a timeout message (previously the
+      // interval was cleared but `connecting` stayed true forever).
+      if (Date.now() - pollStartedAt > 10 * 60 * 1000) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = null;
+        setConnecting(false);
+        setConnectError("Timed out waiting for WhatsApp. Try again.");
+        return;
+      }
+      // Hidden tabs skip the fetch; the next visible tick resumes.
+      if (document.visibilityState === "hidden") return;
+      try {
+        const statusRes = await fetch("/api/channels/whatsapp");
+        if (!statusRes.ok) {
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= 3) {
+            stopWithError("Could not check WhatsApp status. Try again.");
+          }
           return;
         }
-        // Hidden tabs skip the fetch; the next visible tick resumes.
-        if (document.visibilityState === "hidden") return;
-        try {
-          const statusRes = await fetch("/api/channels/whatsapp");
-          if (statusRes.ok) {
-            const status = await statusRes.json();
-            if (status.qr) setQrCode(status.qr);
-            if (status.status === "connected") {
-              if (pollRef.current) clearInterval(pollRef.current);
-              setConnecting(false);
-              onAction("whatsapp", "connect");
-            }
-          }
-        } catch { /* ignore polling errors */ }
-      }, 3000);
-    } catch {
-      setConnecting(false);
-    }
+        consecutiveFailures = 0;
+        const status = await statusRes.json();
+        if (status.qr) setQrCode(status.qr);
+        if (typeof status?.message === "string" && status.message) {
+          setConnectStatus(status.message);
+        }
+        if (status.status === "connected") {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setConnecting(false);
+          onAction("whatsapp", "connect");
+        } else if (status.status === "error") {
+          stopWithError(
+            typeof status.message === "string" && status.message
+              ? status.message
+              : "WhatsApp connection failed. Try again."
+          );
+        }
+      } catch {
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 3) {
+          stopWithError("Could not check WhatsApp status. Try again.");
+        }
+      }
+    }, 3000);
   };
 
   return (
@@ -511,8 +582,20 @@ function WhatsAppCard({
                 <p className="text-xs text-rbai-text-light text-center max-w-[220px]">
                   {qrCode
                     ? "Scan this QR code with WhatsApp on your phone to connect"
-                    : "Click Connect to generate a QR code"}
+                    : connecting && connectStatus
+                      ? connectStatus
+                      : connecting
+                        ? "Connecting to WhatsApp…"
+                        : "Click Connect to generate a QR code"}
                 </p>
+                {connectError && (
+                  <p
+                    role="alert"
+                    className="mt-2 text-xs text-red-600 text-center max-w-[220px]"
+                  >
+                    {connectError}
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={handleConnect}
