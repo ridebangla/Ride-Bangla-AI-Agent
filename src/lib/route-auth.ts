@@ -62,7 +62,8 @@ async function authenticateApiKey(apiKey: string): Promise<(AuthContext & { busi
  */
 export async function requireAuth(
   request: NextRequest,
-  permission?: Permission
+  permission?: Permission,
+  options?: { allowUnscopedSuperAdmin?: boolean }
 ): Promise<AuthContext | NextResponse> {
   // Try API key auth first
   const apiKey = request.headers.get("x-api-key");
@@ -160,15 +161,26 @@ export async function requireAuth(
     if (businesses.length === 1) {
       effectiveBusinessId = businesses[0].id;
     } else if (businesses.length > 1) {
-      return NextResponse.json(
-        {
-          error: {
-            code: "BUSINESS_REQUIRED",
-            message: "Multiple businesses exist — pass ?business=<slug> to select one.",
+      // FIX (2026-10-31, profile): an ADMIN-scoped route (the caller's own
+      // profile) must not fail for a Super Admin with several businesses.
+      // Guessing a business for a business-scoped read/write would risk
+      // acting on the wrong tenant, so the default stays fail-closed
+      // (BUSINESS_REQUIRED) — only routes that explicitly opt in, and
+      // that read no business data beyond the caller's own profile,
+      // stay unscoped (businessId null) instead of 400ing.
+      if (options?.allowUnscopedSuperAdmin) {
+        effectiveBusinessId = null;
+      } else {
+        return NextResponse.json(
+          {
+            error: {
+              code: "BUSINESS_REQUIRED",
+              message: "Multiple businesses exist — pass ?business=<slug> to select one.",
+            },
           },
-        },
-        { status: 400 }
-      );
+          { status: 400 }
+        );
+      }
     }
   }
   enterBusinessContext(effectiveBusinessId);

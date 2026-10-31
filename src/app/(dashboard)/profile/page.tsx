@@ -58,6 +58,8 @@ function field(labelKey: string, children: React.ReactNode) {
 
 export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<ProfileState | null>(null);
   const [photo, setPhoto] = useState("");
@@ -76,8 +78,20 @@ export default function ProfilePage() {
 
   useEffect(() => {
     (async () => {
+      setLoadError(false);
       try {
-        const res = await fetch("/api/profile");
+        // FIX (2026-10-31, Channels pattern): forward an explicit
+        // ?business= selection to the API when the page was opened
+        // with one; without it the route serves the caller's own
+        // profile (Super Admin: admin-only view) instead of 400ing.
+        const business =
+          typeof window !== "undefined"
+            ? new URLSearchParams(window.location.search).get("business")
+            : null;
+        const url = business
+          ? `/api/profile?business=${encodeURIComponent(business)}`
+          : "/api/profile";
+        const res = await fetch(url);
         if (!res.ok) throw new Error("load failed");
         const json = await res.json();
         const b = json.business ?? null;
@@ -98,12 +112,17 @@ export default function ProfilePage() {
         setContactPhone(state.contactPhone);
         setContactAddress(state.contactAddress);
       } catch {
+        // FIX (2026-10-31): a failed load must NOT leave the page on
+        // a spinner forever (the old render condition was
+        // `loading || !profile`, so a null profile spun even after
+        // loading finished). Show an error panel with a retry.
+        setLoadError(true);
         toast("error", "Could not load your profile.");
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [retryCount]);
 
   const save = async () => {
     if (saving) return;
@@ -142,9 +161,25 @@ export default function ProfilePage() {
       />
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-2xl mx-auto space-y-6">
-          {loading || !profile ? (
+          {loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-8 w-8 animate-spin text-rbai-primary" />
+            </div>
+          ) : loadError || !profile ? (
+            <div className="bg-rbai-surface border border-rbai-border rounded-2xl p-6 sm:p-8 text-center">
+              <p className="text-sm text-rbai-text">
+                Could not load your profile. Please try again.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setLoading(true);
+                  setRetryCount((n) => n + 1);
+                }}
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-rbai-primary text-white hover:bg-rbai-primary-dark transition-colors"
+              >
+                Retry
+              </button>
             </div>
           ) : !profile.hasBusiness ? (
             <div className="bg-rbai-surface border border-rbai-border rounded-2xl p-6 sm:p-8">

@@ -16,6 +16,10 @@
  *
  * POST /api/public/reviews
  *   { siteKey, site, idToken, rating (1-5), text (1-1000 chars), name? (1-80) }
+ *   C-1 binding (POST only): site must be "ai" and siteKey must belong to
+ *   the platform's own business (slug "ride-bangla" — the same lookup the
+ *   landing page uses for its reviews siteKey). Any other pair is rejected
+ *   with 403 before identity checks. GET is unchanged by this fix.
  *   The reviewer's Firebase ID token (or their own rbai session token on the
  *   AI site) is verified with the Admin SDK. Stored in Firestore `site_reviews`
  *   with createdAt. Rate limit: max 1 review per uid per site per 24h, plus
@@ -249,6 +253,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { ok: false, error: "Invalid site key." },
         { status: 401 }
+      );
+    }
+
+    // C-1 — siteKey→site binding (fail-closed, before identity checks).
+    // This repo serves only the AI site: its only reviews caller posts
+    // site "ai" with the platform's own siteKey (the landing page resolves
+    // it from the business with slug "ride-bangla"). The business record
+    // carries no site field, so there is no per-business site value to
+    // compare against — the binding is therefore: site must be "ai" AND
+    // the resolved business must be that platform business. Tools and
+    // Studio write their reviews through their own model-B flow, not
+    // this endpoint, so rejecting their site values here removes no
+    // verified caller. A missing platform business also rejects.
+    if (site !== "ai") {
+      return NextResponse.json(
+        { ok: false, error: "Site key does not match this site." },
+        { status: 403 }
+      );
+    }
+    const platformBusiness = await getUnscopedPrisma().business.findUnique({
+      where: { slug: "ride-bangla" },
+      select: { id: true },
+    });
+    if (!platformBusiness || business.id !== platformBusiness.id) {
+      return NextResponse.json(
+        { ok: false, error: "Site key does not match this site." },
+        { status: 403 }
       );
     }
 

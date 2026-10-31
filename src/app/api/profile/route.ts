@@ -35,9 +35,20 @@ import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 const PHONE_RE = /^[+\d][\d\s\-().]{1,38}$/;
 
 export async function GET(request: NextRequest) {
-  const auth = await requireAuth(request);
+  // FIX (2026-10-31): this is the caller's OWN profile, not a
+  // business-scoped read — a Super Admin with several businesses
+  // must load it instead of failing BUSINESS_REQUIRED (the
+  // dashboard sidebar never carries ?business=, so the plain
+  // requireAuth path 400ed here; an explicit ?business= is still
+  // honoured by requireAuth when present). A DB failure is an
+  // honest 500 JSON, never an unhandled throw (the page previously
+  // spun forever on any non-OK response).
+  const auth = await requireAuth(request, undefined, {
+    allowUnscopedSuperAdmin: true,
+  });
   if (!isAuthenticated(auth)) return auth;
 
+  try {
   const db = getUnscopedPrisma();
   const admin = await db.admin.findUnique({
     where: { id: auth.userId },
@@ -85,6 +96,13 @@ export async function GET(request: NextRequest) {
         }
       : null,
   });
+  } catch (error) {
+    logger.error("Failed to load profile:", error);
+    return NextResponse.json(
+      { error: "Could not load your profile right now." },
+      { status: 500 }
+    );
+  }
 }
 
 export async function PUT(request: NextRequest) {

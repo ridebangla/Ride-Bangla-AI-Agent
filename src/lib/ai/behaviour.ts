@@ -155,9 +155,17 @@ export function resolveBehaviourLang(
   settingsLanguage: string | undefined,
   customerText: string
 ): BehaviourLang {
+  // UNIVERSAL LANGUAGE RULE (owner-confirmed 2026-10-31): the customer's
+  // own message language wins over the business's configured language.
+  // Bengali script in the message => Bengali, even when the business
+  // configured English (that override answered Bengali questions in
+  // English). The configured language is only the fallback for text
+  // whose language cannot be determined from script; otherwise the
+  // English bridge applies.
+  if (detectBengali(customerText)) return "bn";
   if (settingsLanguage === "bn") return "bn";
   if (settingsLanguage === "en") return "en";
-  return detectBengali(customerText) ? "bn" : "en";
+  return "en";
 }
 
 // ---------------------------------------------------------------------------

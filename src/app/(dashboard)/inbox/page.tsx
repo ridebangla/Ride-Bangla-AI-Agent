@@ -251,6 +251,20 @@ export default function InboxPage() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // FIX (2026-10-31, Channels pattern): forward an explicit
+  // ?business= selection to the owner-controls calls. Without it a
+  // Super Admin session with several businesses gets
+  // BUSINESS_REQUIRED from requireAuth on every business-scoped
+  // call, which is what made the channel switch fail with only a
+  // generic toast. The server still refuses to guess a business:
+  // with no selection the honest server error is now surfaced
+  // (see handleChannelSwitch) instead of hidden.
+  const businessQuery = useCallback(() => {
+    if (typeof window === "undefined") return "";
+    const b = new URLSearchParams(window.location.search).get("business");
+    return b ? `?business=${encodeURIComponent(b)}` : "";
+  }, []);
+
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
@@ -343,25 +357,44 @@ export default function InboxPage() {
   // itself is the only control that resumes a held channel.
   const fetchChannelControls = useCallback(async () => {
     try {
-      const res = await fetch("/api/owner-controls/channels");
+      const res = await fetch(`/api/owner-controls/channels${businessQuery()}`);
       if (res.ok) {
         const data = await res.json();
         setChannelControls(data.channelControls || {});
       }
     } catch { /* ignore */ }
-  }, []);
+  }, [businessQuery]);
 
   const handleChannelSwitch = useCallback(
     async (action: "takeover" | "handback") => {
       if (channelSwitchBusy) return;
       setChannelSwitchBusy(true);
       try {
-        const res = await fetch(`/api/owner-controls/channels/${tab}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
-        });
-        if (!res.ok) throw new Error("Failed");
+        const res = await fetch(
+          `/api/owner-controls/channels/${tab}${businessQuery()}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action }),
+          }
+        );
+        if (!res.ok) {
+          // Surface the server's honest reason (e.g. the
+          // BUSINESS_REQUIRED selection message) instead of hiding
+          // every failure behind the generic toast.
+          let detail = "";
+          try {
+            const data = await res.json();
+            const err = (data as { error?: unknown })?.error;
+            detail =
+              typeof err === "string"
+                ? err
+                : typeof (err as { message?: unknown })?.message === "string"
+                  ? (err as { message: string }).message
+                  : "";
+          } catch { /* keep the generic message */ }
+          throw new Error(detail || "Failed");
+        }
         await fetchChannelControls();
         showToast(
           action === "handback"
@@ -369,13 +402,18 @@ export default function InboxPage() {
             : "AI is off on this channel — the customer now talks directly to you",
           "success"
         );
-      } catch {
-        showToast("Failed to switch channel AI mode", "error");
+      } catch (e) {
+        showToast(
+          e instanceof Error && e.message !== "Failed"
+            ? e.message
+            : "Failed to switch channel AI mode",
+          "error"
+        );
       } finally {
         setChannelSwitchBusy(false);
       }
     },
-    [tab, channelSwitchBusy, fetchChannelControls, showToast]
+    [tab, channelSwitchBusy, fetchChannelControls, showToast, businessQuery]
   );
 
   useEffect(() => {

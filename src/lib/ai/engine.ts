@@ -641,13 +641,20 @@ export function buildGreetingReply(
   // row. Empty name => the greeting's nameless form ("Welcome!").
   const name = rawGreetingName === "My Business" ? "" : rawGreetingName;
   const cfg = (configLanguage || "").trim().toLowerCase();
+  // UNIVERSAL LANGUAGE RULE (owner-confirmed 2026-10-31): Bengali
+  // script in the message wins over the configured language — a
+  // Bengali greeting answered in English because the business
+  // configured English is the same defect as the question case.
+  // The configured language stays the fallback for script-less
+  // text (e.g. a Latin-script salam keeps its Bengali reply when
+  // the business configured Bengali).
   const lang: "bn" | "en" =
-    cfg.indexOf("bn") === 0 || cfg === "bangla" || cfg === "bengali"
+    /[\u0980-\u09FF]/.test(message || "")
       ? "bn"
-      : cfg.indexOf("en") === 0 || cfg === "english"
-        ? "en"
-        : /[\u0980-\u09FF]/.test(message || "")
-          ? "bn"
+      : cfg.indexOf("bn") === 0 || cfg === "bangla" || cfg === "bengali"
+        ? "bn"
+        : cfg.indexOf("en") === 0 || cfg === "english"
+          ? "en"
           : "en";
   const isSalam =
     normalized.indexOf("সালাম") >= 0 ||
@@ -1338,6 +1345,20 @@ export async function chat(
     }
   }
 
+  // UNIVERSAL LANGUAGE RULE (owner-confirmed 2026-10-31): the reply
+  // language follows THIS message, never the business's configured
+  // language. Bengali script present => Bengali reply ("It service
+  // সরকারি না?" must be answered in Bengali); otherwise English is
+  // the bridge, because the language cannot be determined from
+  // script alone (e.g. romanised Bengali). Computed once per turn
+  // and threaded into every reply seam below — the system prompt
+  // (via context.language), the identity fast path, callAI's
+  // fallbacks, and the behaviour texts — so no seam can re-impose
+  // the configured language. The configured language remains only
+  // for turns with no message (never here) and for script-less
+  // behaviour-text fallbacks inside resolveBehaviourLang.
+  const replyLanguage = detectIdentityLanguage(effectiveMessage);
+
   // Save user message — always. The dashboard (and a human who took over)
   // must see what the customer said even when the AI brain is offline.
   // FIX-B exception: in ephemeral mode (the conversation READ failed —
@@ -1381,7 +1402,7 @@ export async function chat(
         detection: { kind: handoff.kind, matched: handoff.matched },
       });
       const text = handoffText(
-        resolveBehaviourLang(config.language, effectiveMessage),
+        resolveBehaviourLang(replyLanguage, effectiveMessage),
         ticketId
       );
       const savedHandoff = await prisma.message.create({
@@ -1430,7 +1451,7 @@ export async function chat(
         userMessage,
         {
           businessName: config.businessName,
-          lang: resolveBehaviourLang(config.language, userMessage),
+          lang: resolveBehaviourLang(replyLanguage, userMessage),
         },
         prismaRatingStore(prisma, withBusinessId)
       );
@@ -1670,8 +1691,8 @@ export async function chat(
     // even though the identity LINE passed is the portal line.
     const identity = await tryIdentityFastPath(
       isPortal
-        ? { ...config, businessName: "Ride Bangla AI Agent", businessDesc: "" }
-        : config,
+        ? { ...config, businessName: "Ride Bangla AI Agent", businessDesc: "", language: replyLanguage }
+        : { ...config, language: replyLanguage },
       effectiveMessage,
       conversationId,
       keys,
@@ -1774,6 +1795,11 @@ export async function chat(
 
   const context: ConversationContext = {
     ...config,
+    // UNIVERSAL LANGUAGE RULE (see replyLanguage above): the
+    // configured language must not reach buildSystemPrompt — its
+    // forced-language branch would otherwise answer a Bengali
+    // question in the configured (e.g. English) language.
+    language: replyLanguage,
     // PORTAL_TURN_SCOPE: a portal turn carries none of the company
     // business's Main-services content — description, behaviour
     // instructions, and business rules are all emptied for this turn
@@ -1861,7 +1887,7 @@ export async function chat(
   const stream: StreamCallbacks | undefined = opts?.onToken
     ? { onToken: opts.onToken, onRetract: opts.onRetract }
     : undefined;
-  const aiResult = await callAI(config, messages, conversationId, keys, 0, [], { taken: false, ref: "" }, stream, false, isPortal);
+  const aiResult = await callAI({ ...config, language: replyLanguage }, messages, conversationId, keys, 0, [], { taken: false, ref: "" }, stream, false, isPortal);
 
   // ---- Self-problem handling (ID-07, owner rule 2026-10-25 ~00:54 §6).
   // callAI swallows provider failures into two canned strings. When one
@@ -1927,7 +1953,7 @@ export async function chat(
   // (capped per customer, never after a negative/escalated turn — see
   // lib/ai/behaviour.ts). Both hooks are fail-soft.
   const behaviour = config.behaviour;
-  const behaviourLang = resolveBehaviourLang(config.language, effectiveMessage);
+  const behaviourLang = resolveBehaviourLang(replyLanguage, effectiveMessage);
   // VERIFIER FIX (2026-10-30): the behaviour package names the company
   // business (review asks use config.businessName + the company
   // business's review link; order check-ins speak as the company) — on
