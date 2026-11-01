@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import ContactBody from "./body";
+import { FacebookIcon, YoutubeIcon } from "@/components/ui/channel-icons";
 import { t } from "@/lib/i18n";
 
 const SITE_URL = "https://ai.ridebangla.bd";
@@ -116,6 +117,12 @@ export default function ContactPage() {
             <Link href="/terms" className="hover:text-slate-900">Terms</Link>
             <a href="https://ridebangla.bd" className="hover:text-slate-900">
               ridebangla.bd
+            </a>
+            <a href="https://facebook.com/ridebangla" aria-label="Ride Bangla on Facebook" className="hover:opacity-80">
+              <FacebookIcon className="h-5 w-5 text-[#1877F2]" />
+            </a>
+            <a href="https://www.youtube.com/@ridebangla-0" aria-label="Ride Bangla on YouTube" className="hover:opacity-80">
+              <YoutubeIcon className="h-5 w-5 text-[#FF0000]" />
             </a>
           </div>
           <p className="text-xs text-slate-600">

@@ -81,6 +81,7 @@ const PUBLIC_EMBED_PREFIXES = [
   "/api/chat/voice",
   "/api/chat/activity",
   "/api/chat/thread",
+  "/api/widget/identity",
   "/api/public/ai/generate",
   "/api/public/reviews",
   "/api/public/firebase-config",
@@ -246,7 +247,18 @@ export async function middleware(request: NextRequest) {
   // /api/public/firebase-config follow the same siteKey auth model as
   // /api/public/ai/generate (validated + rate-limited in the route
   // handlers), so they must be public here too.
-  const publicPaths = ["/login", "/setup", "/signup", "/pricing", "/privacy", "/terms", "/contact", "/api/contact", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/chat/activity", "/api/chat/thread", "/api/public/ai/generate", "/api/public/reviews", "/api/public/firebase-config", "/api/landing/quality", "/api/webhooks/stripe", "/api/widget/brand", "/p/"];
+  // Widget identity (fix 2026-11-01): /api/widget/identity is the
+  // public siteKey identity endpoint for the embed (business name +
+  // owner-set welcome only, fail-soft 400/404/503 in its handler).
+  // The embed fetches it with credentials:omit, so it can NEVER pass
+  // the cookie gate below — without this entry every visitor got a
+  // 401 and the widget header stayed generic ("AI Assistant") forever,
+  // on the AI homepage and every tenant site. It must stay public
+  // here (and in PUBLIC_EMBED_PREFIXES above for cross-origin
+  // preflights) or the identity feature is dead. Handler-level IP
+  // rate limiting covers it, since public entries bypass the general
+  // API limiter further down.
+  const publicPaths = ["/login", "/setup", "/signup", "/pricing", "/privacy", "/terms", "/contact", "/api/contact", "/api/auth", "/api/health", "/api/chat/widget", "/api/chat/vision", "/api/chat/voice", "/api/chat/activity", "/api/chat/thread", "/api/public/ai/generate", "/api/public/reviews", "/api/public/firebase-config", "/api/landing/quality", "/api/webhooks/stripe", "/api/widget/brand", "/api/widget/identity", "/p/"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   // The SaaS marketing landing page lives at `/` — EXACT match only (a

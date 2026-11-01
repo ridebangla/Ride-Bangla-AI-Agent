@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import { FacebookIcon, YoutubeIcon } from "@/components/ui/channel-icons";
 
 export const metadata = {
   title: "Terms & Conditions — Ride Bangla AI Agent",
@@ -192,6 +193,12 @@ export default function TermsPage() {
             <Link href="/pricing" className="hover:text-slate-900">Pricing</Link>
             <Link href="/privacy" className="hover:text-slate-900">Privacy</Link>
             <Link href="/terms" className="hover:text-slate-900">Terms</Link>
+            <a href="https://facebook.com/ridebangla" aria-label="Ride Bangla on Facebook" className="hover:opacity-80">
+              <FacebookIcon className="h-5 w-5 text-[#1877F2]" />
+            </a>
+            <a href="https://www.youtube.com/@ridebangla-0" aria-label="Ride Bangla on YouTube" className="hover:opacity-80">
+              <YoutubeIcon className="h-5 w-5 text-[#FF0000]" />
+            </a>
           </div>
         </div>
       </footer>

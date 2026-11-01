@@ -42,6 +42,47 @@ export function InstagramIcon(props: IconProps) {
   );
 }
 
+/**
+ * Instagram brand mark in the official gradient (same geometry as
+ * InstagramIcon above, gradient stroke instead of currentColor).
+ * Used on public marketing surfaces, where the social rule requires
+ * each platform's own mark in its exact brand colours. The gradient
+ * id is page-stable: the strip renders once per page.
+ */
+export function InstagramGradientIcon(props: IconProps) {
+  return (
+    <svg
+      className={props.className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="url(#rbai-ig-gradient)"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <defs>
+        <linearGradient
+          id="rbai-ig-gradient"
+          x1="0"
+          y1="1"
+          x2="1"
+          y2="0"
+        >
+          <stop offset="0%" stopColor="#FEDA75" />
+          <stop offset="25%" stopColor="#FA7E1E" />
+          <stop offset="50%" stopColor="#D62976" />
+          <stop offset="75%" stopColor="#962FBF" />
+          <stop offset="100%" stopColor="#4F5BD5" />
+        </linearGradient>
+      </defs>
+      <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
+      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+    </svg>
+  );
+}
+
 export function XBrandIcon(props: IconProps) {
   return (
     <svg

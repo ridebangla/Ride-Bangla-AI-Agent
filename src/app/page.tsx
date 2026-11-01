@@ -8,17 +8,20 @@ import { getSubscription } from "@/lib/subscription";
 import { TRIAL_DAYS } from "@/lib/plans";
 import ReviewsSection from "@/components/marketing/reviews-section";
 import {
+  FacebookIcon,
+  InstagramGradientIcon,
+  YoutubeIcon,
+} from "@/components/ui/channel-icons";
+import {
   ArrowRight,
   Bot,
   Check,
-  Camera,
   Clock,
   Globe,
   MessageCircle,
   MessagesSquare,
   Phone,
   Send,
-  Share2,
   ShoppingBag,
   Sparkles,
   UserCheck,
@@ -360,10 +363,10 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
       <section className="border-b border-slate-200 bg-slate-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex flex-wrap items-center justify-center gap-x-10 gap-y-4 text-slate-700 text-sm font-medium">
           <span className="flex items-center gap-2"><Globe className="h-4 w-4" /> Your website</span>
-          <span className="flex items-center gap-2"><MessageCircle className="h-4 w-4" /> WhatsApp</span>
-          <span className="flex items-center gap-2"><Share2 className="h-4 w-4" /> Facebook</span>
-          <span className="flex items-center gap-2"><Camera className="h-4 w-4" /> Instagram</span>
-          <span className="flex items-center gap-2"><Send className="h-4 w-4" /> Telegram</span>
+          <span className="flex items-center gap-2"><MessageCircle className="h-4 w-4 text-[#25D366]" /> WhatsApp</span>
+          <span className="flex items-center gap-2"><FacebookIcon className="h-4 w-4 text-[#1877F2]" /> Facebook</span>
+          <span className="flex items-center gap-2"><InstagramGradientIcon className="h-4 w-4" /> Instagram</span>
+          <span className="flex items-center gap-2"><Send className="h-4 w-4 text-[#26A8E8]" /> Telegram</span>
         </div>
       </section>
 
@@ -574,6 +577,12 @@ function MarketingLanding({ reviewsSiteKey }: { reviewsSiteKey: string | null })
             <Link href="/terms" className="hover:text-slate-900">Terms</Link>
             <a href="https://ridebangla.bd" className="hover:text-slate-900">
               ridebangla.bd
+            </a>
+            <a href="https://facebook.com/ridebangla" aria-label="Ride Bangla on Facebook" className="hover:opacity-80">
+              <FacebookIcon className="h-5 w-5 text-[#1877F2]" />
+            </a>
+            <a href="https://www.youtube.com/@ridebangla-0" aria-label="Ride Bangla on YouTube" className="hover:opacity-80">
+              <YoutubeIcon className="h-5 w-5 text-[#FF0000]" />
             </a>
           </div>
           <p className="text-xs text-slate-600">

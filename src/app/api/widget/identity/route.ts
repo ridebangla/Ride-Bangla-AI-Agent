@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { getBusinessBySiteKey } from "@/lib/tenant";
 import { getCompanyIdentity } from "@/lib/company-identity";
 import {
@@ -47,6 +48,23 @@ import { getUnscopedPrisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+// Public-path entries bypass the middleware's general API limiter, so
+// this handler rate-limits per IP like the other public GETs (reviews:
+// 120/min). Pairing note (fix 2026-11-01): this route MUST stay in
+// middleware publicPaths + PUBLIC_EMBED_PREFIXES — the embed fetches
+// with credentials:omit, so any cookie gate 401s every visitor and the
+// server-side identity (business name, owner welcome, portal product
+// name) never resolves.
+const GET_RATE_LIMIT = { maxRequests: 120, windowMs: 60 * 1000 };
+
+function clientIp(request: NextRequest): string {
+  return (
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    "unknown"
+  );
+}
+
 const PLATFORM_DEFAULT_GREETING = "Hello! How can I help you today?";
 const PLACEHOLDER_NAME = "My Business";
 
@@ -69,6 +87,19 @@ export async function OPTIONS() {
 }
 
 export async function GET(request: NextRequest) {
+  const rl = checkRateLimit(
+    `widget-identity:${clientIp(request)}`,
+    GET_RATE_LIMIT
+  );
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests — please try again soon." },
+      {
+        status: 429,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      }
+    );
+  }
   const siteKey = request.nextUrl.searchParams.get("siteKey") ?? "";
   if (!siteKey) {
     return NextResponse.json(
