@@ -235,6 +235,7 @@ const en: Record<string, string> = {
   "reviews.text_required": "Please write your review.",
   "reviews.post_failed": "Could not post your review. Please try again.",
   "reviews.post_success": "Thank you! Your review is now live.",
+  "reviews.edit_review": "Edit your review",
   "reviews.post_failed_network": "Could not post your review. Check your connection and try again.",
   "reviews.heading": "Customers love it",
   "reviews.subheading": "Real reviews from businesses using Ride Bangla AI Agent.",

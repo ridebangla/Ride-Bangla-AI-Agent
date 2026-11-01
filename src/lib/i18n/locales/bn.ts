@@ -119,6 +119,7 @@ const bn: Record<string, string> = {
   "reviews.text_required": "আপনার রিভিউ লিখুন",
   "reviews.post_failed": "রিভিউ পাঠানো যায়নি — আবার চেষ্টা করুন",
   "reviews.post_success": "ধন্যবাদ! আপনার রিভিউ প্রকাশ হয়েছে",
+  "reviews.edit_review": "আপনার রিভিউ সম্পাদনা করুন",
   "reviews.post_failed_network":
     "রিভিউ পাঠানো যায়নি — ইন্টারনেট সংযোগ যাচাই করে আবার চেষ্টা করুন",
   "reviews.heading": "গ্রাহকদের ভালোবাসা",

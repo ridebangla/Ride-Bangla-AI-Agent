@@ -170,6 +170,52 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // MINE (review-edit program): the signed-in caller's own latest AI
+    // review for prefill — NEVER served from the public cache (per-user
+    // data). Same C-1 platform binding as POST, then the caller's
+    // identity from the Authorization Bearer token. Returns the review
+    // or null; it never reveals another user's review (the lookup is
+    // filtered by the verified caller uid).
+    if (url.searchParams.get("mine") === "1") {
+      if (site !== "ai") {
+        return NextResponse.json(
+          { ok: false, error: "Site key does not match this site." },
+          { status: 403 }
+        );
+      }
+      const platformBusiness = await getUnscopedPrisma().business.findUnique({
+        where: { slug: "ride-bangla" },
+        select: { id: true },
+      });
+      if (!platformBusiness || business.id !== platformBusiness.id) {
+        return NextResponse.json(
+          { ok: false, error: "Site key does not match this site." },
+          { status: 403 }
+        );
+      }
+      const authHeader = request.headers.get("authorization");
+      const idToken = authHeader?.startsWith("Bearer ")
+        ? authHeader.slice("Bearer ".length)
+        : null;
+      const caller = await verifyCaller(idToken);
+      if (!caller) {
+        return NextResponse.json(
+          { ok: false, error: "Please sign in to edit your review." },
+          { status: 401 }
+        );
+      }
+      const mine = await getUnscopedPrisma().siteReview.findFirst({
+        where: { site: "ai", uid: caller.uid },
+        orderBy: { createdAt: "desc" },
+      });
+      return NextResponse.json({
+        ok: true,
+        review: mine
+          ? { rating: mine.rating, text: mine.text, name: mine.name }
+          : null,
+      });
+    }
+
     const ip = clientIp(request);
     const rl = checkRateLimit(`public-reviews-get:${ip}`, GET_RATE_LIMIT);
     if (!rl.allowed) {
@@ -365,6 +411,144 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     logger.error("POST /api/public/reviews failed", e);
+    return NextResponse.json(
+      { ok: false, error: "Could not save your review right now." },
+      { status: 500 }
+    );
+  }
+}
+
+// ---------------------------------------------------------------- PATCH ----
+// Review-edit program: edit the signed-in caller's own latest AI review.
+// Mirrors POST's C-1 binding and caller verification exactly; the update
+// is scoped by the VERIFIED caller uid (a different Gmail's edit attempt
+// finds no row for its own uid and gets 404 — it can never touch another
+// user's review). Only rating/text/name change; status stays "published"
+// (current immediate-publish semantics — see NEEDS-OWNER-DECISION in the
+// programme report about a possible pending-on-edit state). NOT subject
+// to POST's 24h create rule (that rule governs new reviews, not edits).
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = (await request.json().catch(() => null)) as {
+      siteKey?: unknown;
+      site?: unknown;
+      idToken?: unknown;
+      rating?: unknown;
+      text?: unknown;
+      name?: unknown;
+    } | null;
+    if (!body) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid request." },
+        { status: 400 }
+      );
+    }
+
+    const { siteKey, site, idToken, rating, text, name } = body;
+
+    if (!site || !SITES.includes(site as Site)) {
+      return NextResponse.json(
+        { ok: false, error: "Unknown site." },
+        { status: 400 }
+      );
+    }
+    const business = await requireValidSiteKey(
+      typeof siteKey === "string" ? siteKey : null
+    );
+    if (!business) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid site key." },
+        { status: 401 }
+      );
+    }
+
+    // C-1 — same siteKey→site binding as POST, before identity checks.
+    if (site !== "ai") {
+      return NextResponse.json(
+        { ok: false, error: "Site key does not match this site." },
+        { status: 403 }
+      );
+    }
+    const platformBusiness = await getUnscopedPrisma().business.findUnique({
+      where: { slug: "ride-bangla" },
+      select: { id: true },
+    });
+    if (!platformBusiness || business.id !== platformBusiness.id) {
+      return NextResponse.json(
+        { ok: false, error: "Site key does not match this site." },
+        { status: 403 }
+      );
+    }
+
+    const caller = await verifyCaller(idToken);
+    if (!caller) {
+      return NextResponse.json(
+        { ok: false, error: "Please sign in to edit your review." },
+        { status: 401 }
+      );
+    }
+
+    const stars =
+      typeof rating === "string" ? Number.parseInt(rating, 10) : rating;
+    if (
+      typeof stars !== "number" ||
+      !Number.isInteger(stars) ||
+      stars < 1 ||
+      stars > 5
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "Please choose a rating from 1 to 5 stars." },
+        { status: 400 }
+      );
+    }
+    const cleanText =
+      typeof text === "string" ? text.trim().replace(/\s+/g, " ") : "";
+    if (cleanText.length < 1 || cleanText.length > MAX_TEXT) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Please write your review (up to 1000 characters).",
+        },
+        { status: 400 }
+      );
+    }
+    const displayName =
+      typeof name === "string" && name.trim()
+        ? name.trim().slice(0, MAX_NAME)
+        : caller.name;
+
+    const ip = clientIp(request);
+    const rl = checkRateLimit(`public-reviews-patch:${ip}`, POST_IP_RATE_LIMIT);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { ok: false, error: "Too many requests — please try again soon." },
+        { status: 429 }
+      );
+    }
+
+    // Ownership scope: the caller's OWN latest AI review only.
+    const latest = await getUnscopedPrisma().siteReview.findFirst({
+      where: { site: "ai", uid: caller.uid },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!latest) {
+      return NextResponse.json(
+        { ok: false, error: "You haven't posted a review yet." },
+        { status: 404 }
+      );
+    }
+
+    await getUnscopedPrisma().siteReview.update({
+      where: { id: latest.id },
+      data: { rating: stars, text: cleanText, name: displayName },
+    });
+
+    // The edited review must show on the next landing view.
+    reviewsCache.delete("ai");
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    logger.error("PATCH /api/public/reviews failed", e);
     return NextResponse.json(
       { ok: false, error: "Could not save your review right now." },
       { status: 500 }

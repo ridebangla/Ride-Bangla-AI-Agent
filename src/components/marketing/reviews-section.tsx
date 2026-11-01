@@ -78,6 +78,11 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
   const [posting, setPosting] = useState(false);
   const [formError, setFormError] = useState("");
   const [formOk, setFormOk] = useState("");
+  // Review-edit program: the signed-in caller's own latest AI review
+  // (server-filtered by verified uid — never another user's), plus
+  // whether the form is currently editing it (vs posting a new review).
+  const [ownReview, setOwnReview] = useState<{ rating: number; text: string; name: string } | null>(null);
+  const [editing, setEditing] = useState(false);
 
   // One-row sliding carousel (same behaviour as the main website):
   // cards in a single horizontal line, advancing one card at a time.
@@ -156,6 +161,43 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
     return () => unsub();
   }, []);
 
+  // Own-review lookup (review-edit program): loads ONLY the signed-in
+  // caller's latest AI review, so the Edit control renders only for a
+  // user who actually has one. Public cards carry no uid, so no
+  // card-level Edit is attempted — matching a card by name/text could
+  // show Edit on another user's identical review, which the ownership
+  // rule forbids. The Edit control therefore lives in the signed-in
+  // user's own form area, gated on this server-confirmed record.
+  useEffect(() => {
+    if (!user || !siteKey) {
+      setOwnReview(null);
+      setEditing(false);
+      return;
+    }
+    let cancelled = false;
+    user
+      .getIdToken()
+      .then((idToken) =>
+        fetch(
+          `/api/public/reviews?site=ai&siteKey=${encodeURIComponent(siteKey)}&mine=1`,
+          { headers: { Authorization: `Bearer ${idToken}` } }
+        )
+          .then((r) => r.json().catch(() => ({})))
+          .then((data) => {
+            if (!cancelled) setOwnReview(data?.review ?? null);
+          })
+          .catch(() => {
+            if (!cancelled) setOwnReview(null);
+          })
+      )
+      .catch(() => {
+        if (!cancelled) setOwnReview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, siteKey]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!user || !siteKey) return;
@@ -173,7 +215,7 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
     try {
       const idToken = await user.getIdToken();
       const res = await fetch("/api/public/reviews", {
-        method: "POST",
+        method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           siteKey,
@@ -192,7 +234,14 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
         );
         return;
       }
-      setText("");
+      if (editing) {
+        // Edit saved: stay on the updated values, leave edit mode, and
+        // refresh both the public list and the own-review record.
+        setEditing(false);
+        setOwnReview({ rating, text: text.trim(), name: name.trim() });
+      } else {
+        setText("");
+      }
       setFormOk(
         t("reviews.post_success")
       );
@@ -348,6 +397,25 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
 
         {/* Write a review — signed-in customers only */}
         {user ? (
+          <>
+            {ownReview && !editing && (
+              <div className="mt-12 max-w-2xl mx-auto text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setName(ownReview.name);
+                    setRating(ownReview.rating);
+                    setText(ownReview.text);
+                    setEditing(true);
+                    setFormError("");
+                    setFormOk("");
+                  }}
+                  className="rounded-full border border-[#4A7C9B] px-5 py-2 text-sm font-medium text-[#2D5A7B] hover:bg-[#4A7C9B] hover:text-white transition-colors"
+                >
+                  {t("reviews.edit_review")}
+                </button>
+              </div>
+            )}
           <form
             onSubmit={submit}
             className="mt-12 max-w-2xl mx-auto bg-white border border-slate-200 rounded-2xl p-7"
@@ -417,6 +485,7 @@ export default function ReviewsSection({ siteKey }: { siteKey: string | null }) 
               {posting ? "Posting…" : t("reviews.post_button")}
             </button>
           </form>
+          </>
         ) : (
           <p className="text-center text-sm text-slate-700 mt-12">
             {t("reviews.signin_prompt")}{" "}
