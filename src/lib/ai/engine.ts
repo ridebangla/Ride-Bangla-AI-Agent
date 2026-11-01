@@ -24,6 +24,7 @@ import {
   PORTAL_TOOL_NAMES,
   PORTAL_TURN_SCOPE,
 } from "../portal-surface";
+import { portalKnowledgeItems } from "./portal-kb";
 import { reportActivity, clearActivity, activityKindForTool } from "./activity";
 import {
   AGENT_BEHAVIOUR_DOCTRINE,
@@ -948,11 +949,15 @@ async function handleApprovalModeTurn(args: {
     // the normal path reads them (same degradation to zero knowledge
     // on a read failure), history replayed like the normal path, but
     // NO tools are offered to the provider — see the header comment.
-    // Portal turns skip these reads entirely: the company business's
-    // Main-services knowledge/catalog must never enter a portal draft.
+    // Portal turns skip the COMPANY reads entirely: the company
+    // business's Main-services knowledge/catalog must never enter a
+    // portal draft. Instead a portal draft carries the AI product's
+    // own service knowledge (portal-kb), as in the normal path.
     let knowledgeBase: KnowledgeItem[] = [];
     let catalogBrief = "";
-    if (!isPortal) {
+    if (isPortal) {
+      knowledgeBase = portalKnowledgeItems();
+    } else {
       try {
         [knowledgeBase, catalogBrief] = await Promise.all([
           getKnowledgeBase(),
@@ -982,7 +987,8 @@ async function handleApprovalModeTurn(args: {
       channel: conversation.channel,
       customerHistory: [],
     };
-    // Portal drafts carry the portal identity line + plan names only;
+    // Portal drafts carry the portal identity line + plan names +
+    // the portal product KB (never company KB/catalog);
     // tenant drafts keep the previous prompt exactly (no identityLine).
     const portalIdentity = isPortal
       ? resolveBusinessIdentity({
@@ -1747,13 +1753,18 @@ export async function chat(
   // its existing empty shape "" (the same value getCatalogBrief's
   // own .catch already produced; buildSystemPrompt treats "" as
   // no catalog section).
-  // Portal turns skip these reads entirely: the company business's
-  // Main-services knowledge/catalog must never be loaded into a
-  // portal turn, even transiently. Tenant turns load exactly as
-  // before (including the zero-knowledge degradation on failure).
+  // Portal turns skip the COMPANY reads entirely: the company
+  // business's Main-services knowledge/catalog must never be loaded
+  // into a portal turn, even transiently. Instead a portal turn
+  // carries the AI product's own service knowledge (portal-kb), so a
+  // services question gets a real answer instead of the zero-knowledge
+  // block. Tenant turns load exactly as before (including the
+  // zero-knowledge degradation on failure).
   let knowledgeBase: KnowledgeItem[] = [];
   let catalogBrief = "";
-  if (!isPortal) {
+  if (isPortal) {
+    knowledgeBase = portalKnowledgeItems();
+  } else {
     try {
       [knowledgeBase, catalogBrief] = await Promise.all([
         getKnowledgeBase(),

@@ -42,6 +42,10 @@ import {
   answerIdentityQuestion,
   resolveBusinessIdentity,
 } from "../../src/lib/ai/identity";
+import {
+  PORTAL_FORBIDDEN_SERVICES,
+  portalKnowledgeItems,
+} from "../../src/lib/ai/portal-kb";
 
 const AI_HOST = "ai.ridebangla.bd";
 const MAIN_HOST = "ridebangla.bd";
@@ -229,5 +233,33 @@ describe("portal turn scope (what a portal turn may carry)", () => {
 
   it("names exactly the public catalogue plans — nothing more", () => {
     expect([...PORTAL_PLAN_NAMES]).toEqual(["Starter", "Growth", "Pro"]);
+  });
+});
+
+describe("portal knowledge (AI-services fix, 2026-11-01)", () => {
+  it("gives portal turns the product's own service substance", () => {
+    const items = portalKnowledgeItems();
+    expect(items.length).toBe(3);
+    const joined = items.map((i) => `${i.title}\n${i.content}`).join("\n");
+    expect(joined).toContain("Ride Bangla AI Agent");
+    expect(joined).toContain("24/7");
+    items.forEach((i) => {
+      expect(i.category.length).toBeGreaterThan(0);
+      expect(i.title.length).toBeGreaterThan(0);
+      expect(i.content.length).toBeGreaterThan(0);
+      expect(typeof i.priority).toBe("number");
+    });
+  });
+
+  it("never carries a delivery-business service, a price, or an allowance", () => {
+    const joined = portalKnowledgeItems()
+      .map((i) => i.content)
+      .join("\n")
+      .toLowerCase();
+    PORTAL_FORBIDDEN_SERVICES.forEach((s) => {
+      expect(joined).not.toContain(s);
+    });
+    expect(joined).not.toContain("$");
+    expect(joined).not.toContain("allowance");
   });
 });

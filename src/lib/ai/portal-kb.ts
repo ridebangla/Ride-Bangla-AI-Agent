@@ -101,6 +101,57 @@ export const PORTAL_PLANS: readonly PortalPlanQuote[] = [
 ];
 
 /**
+ * Portal knowledge items for the engine's portal turns (AI-services
+ * fix, 2026-11-01): a portal turn's knowledge section is built from
+ * these — the product's own service substance — instead of the
+ * zero-knowledge block, so a services question gets a real answer.
+ * The company business's Main-services KB/catalog is still never
+ * loaded for portal turns; these items are the product's own content
+ * only, and the engine skips the company reads for portal turns.
+ *
+ * DELIBERATELY EXCLUDED (do not add without owner settlement):
+ * - Prices, trial length: portal-surface allows plan NAMES only on
+ *   portal turns, while this module's older note says prices "may be
+ *   quoted" — that conflict is reported as an owner decision, not
+ *   resolved here.
+ * - Allowances: UNSETTLED in-repo (messages vs conversations) — never
+ *   quoted (see portalAllowanceGuard).
+ * - Channel lists: the identity template names WhatsApp/email/phone
+ *   while this KB names website/WhatsApp/Facebook/Instagram/Telegram;
+ *   that variance is reported for owner settlement, not silently
+ *   harmonised here.
+ */
+export interface PortalKnowledgeItem {
+  category: string;
+  title: string;
+  content: string;
+  priority: number;
+}
+
+export function portalKnowledgeItems(): PortalKnowledgeItem[] {
+  return [
+    {
+      category: "Product",
+      title: "Ride Bangla AI Agent",
+      content: PORTAL_PRODUCT_DESCRIPTION,
+      priority: 100,
+    },
+    {
+      category: "How it works",
+      title: "How the AI Agent works",
+      content: PORTAL_HOW_IT_WORKS.join("\n"),
+      priority: 90,
+    },
+    {
+      category: "Features",
+      title: "What the AI Agent does",
+      content: PORTAL_FEATURES.join("\n"),
+      priority: 90,
+    },
+  ];
+}
+
+/**
  * Plans settlement guard: any caller that wants to quote an allowance
  * gets this refusal object, not a number. The refusal names the exact
  * contradiction (messages vs conversations; Growth 5,000 vs 10,000;
