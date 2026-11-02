@@ -18,6 +18,7 @@ import {
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLimitUx } from "@/components/billing/limit-ux-context";
 import { LIMIT_UX_TEXTS } from "@/lib/limit-ux";
+import { withBusinessParam, errorText } from "@/lib/business-param";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,8 +74,8 @@ export default function KnowledgeTestPage() {
   const fetchStats = useCallback(async () => {
     try {
       const [categoriesRes, entriesRes] = await Promise.all([
-        fetch("/api/knowledge/categories"),
-        fetch("/api/knowledge/entries"),
+        fetch(withBusinessParam("/api/knowledge/categories")),
+        fetch(withBusinessParam("/api/knowledge/entries")),
       ]);
 
       const categories = categoriesRes.ok ? await categoriesRes.json() : [];
@@ -138,7 +139,7 @@ export default function KnowledgeTestPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/knowledge/test", {
+      const res = await fetch(withBusinessParam("/api/knowledge/test"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),
@@ -147,7 +148,7 @@ export default function KnowledgeTestPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || "Failed to get response.");
+        setError(errorText(data, "Failed to get response."));
         setLoading(false);
         return;
       }

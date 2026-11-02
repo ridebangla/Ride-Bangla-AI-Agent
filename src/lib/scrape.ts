@@ -90,7 +90,7 @@ function currencyOf(symbol: string): string {
   return "USD";
 }
 
-async function fetchHtml(url: string): Promise<string | null> {
+export async function fetchHtml(url: string): Promise<string | null> {
   const check = await validateOutboundUrl(url);
   if (!check.ok) {
     logger.warn(`[Scrape] blocked URL ${url}: ${check.error}`);
@@ -247,7 +247,7 @@ export function extractProductsFromText(
   return drafts;
 }
 
-function pageFromHtml(url: string, html: string): ScrapedPage {
+export function pageFromHtml(url: string, html: string): ScrapedPage {
   const text = stripToText(html);
   return {
     url,
@@ -290,7 +290,12 @@ export async function scrapeBusinessWebsite(
   return structurePages(pages);
 }
 
-export function structurePages(pages: ScrapedPage[]): StructuredBusinessInfo {
+export function structurePages(
+  pages: ScrapedPage[],
+  opts: { maxQA?: number; maxProducts?: number } = {}
+): StructuredBusinessInfo {
+  const maxQA = opts.maxQA ?? 60;
+  const maxProducts = opts.maxProducts ?? 60;
   const qa: QAPair[] = [];
   const products: ProductDraft[] = [];
   const seenQ = new Set<string>();
@@ -363,8 +368,8 @@ export function structurePages(pages: ScrapedPage[]): StructuredBusinessInfo {
 
   return {
     businessName,
-    qa: qa.slice(0, 60),
-    products: products.slice(0, 60),
+    qa: qa.slice(0, maxQA),
+    products: products.slice(0, maxProducts),
     pagesScraped: pages.map((p) => p.url),
     note:
       "Built automatically from your website (rule-based extraction — no AI key needed). " +

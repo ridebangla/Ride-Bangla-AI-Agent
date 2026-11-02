@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
+import { withBusinessParam, errorText } from "@/lib/business-param";
 
 interface WebsiteItem {
   id: string;
@@ -159,8 +160,8 @@ export default function WebsitesManager() {
   const load = useCallback(async () => {
     try {
       const [wRes, rRes] = await Promise.all([
-        fetch("/api/business/websites"),
-        fetch("/api/business/website-requests"),
+        fetch(withBusinessParam("/api/business/websites")),
+        fetch(withBusinessParam("/api/business/website-requests")),
       ]);
       if (wRes.ok) {
         const j = await wRes.json();
@@ -186,14 +187,14 @@ export default function WebsitesManager() {
     setAddBusy(true);
     setAddError("");
     try {
-      const res = await fetch("/api/business/websites", {
+      const res = await fetch(withBusinessParam("/api/business/websites"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: newUrl.trim() }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setAddError(j.error || "Couldn't add that website.");
+        setAddError(errorText(j, "Couldn't add that website."));
         return;
       }
       setSites((prev) => [...prev, j.website]);
@@ -211,14 +212,14 @@ export default function WebsitesManager() {
     setRowBusy(site.id);
     setRowError("");
     try {
-      const res = await fetch("/api/business/websites", {
+      const res = await fetch(withBusinessParam("/api/business/websites"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: site.id }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setRowError(j.error || "Couldn't re-check that website.");
+        setRowError(errorText(j, "Couldn't re-check that website."));
         return;
       }
       setSites((prev) => prev.map((s) => (s.id === site.id ? j.website : s)));
@@ -235,12 +236,12 @@ export default function WebsitesManager() {
     setRowError("");
     try {
       const res = await fetch(
-        `/api/business/websites?id=${encodeURIComponent(site.id)}`,
+        withBusinessParam(`/api/business/websites?id=${encodeURIComponent(site.id)}`),
         { method: "DELETE" }
       );
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setRowError(j.error || "Couldn't remove that website.");
+        setRowError(errorText(j, "Couldn't remove that website."));
         return;
       }
       setSites((prev) => prev.filter((s) => s.id !== site.id));
@@ -256,14 +257,14 @@ export default function WebsitesManager() {
     setFormBusy(true);
     setFormError("");
     try {
-      const res = await fetch("/api/business/website-requests", {
+      const res = await fetch(withBusinessParam("/api/business/website-requests"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setFormError(j.error || "Couldn't submit your application.");
+        setFormError(errorText(j, "Couldn't submit your application."));
         return;
       }
       setRequests((prev) => [j.request, ...prev]);

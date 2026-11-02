@@ -33,6 +33,7 @@
 import { randomUUID } from "crypto";
 import { getUnscopedPrisma, runWithBusiness, prisma } from "./prisma";
 import { scrapeBusinessWebsite } from "./scrape";
+import { scrapeBusinessWebsiteFull } from "./fullsite-scrape";
 import {
   hasDuplicateWebsite,
   mergeWebsitesWithLegacy,
@@ -44,8 +45,25 @@ import type { Business, BusinessWebsite } from "./models";
 
 /** Per-site knowledge cap — mirrors the onboarding confirm cap. */
 export const MAX_ENTRIES_PER_WEBSITE = 200;
+/**
+ * Stored-entry ceiling for a full-site crawl. This is a CEILING, not a
+ * target: a crawl stores its measured yield, never the cap. Set from
+ * the measured full Tools yield (see the build report): the Tools
+ * catalog yields a few hundred pairs, so 1000 covers it with headroom
+ * while bounding prompt growth (the chat engine inlines every active
+ * entry into the system prompt — see src/lib/ai/engine.ts).
+ */
+export const FULLSITE_MAX_ENTRIES = 1000;
 /** KB category that holds everything learned from the business's sites. */
 export const WEBSITE_CATEGORY_NAME = "Website";
+
+/** Ingest options. Absent = legacy behavior exactly (homepage + 5 key
+ *  pages, 200-entry cap). `fullSite` selects the full-site crawl. */
+export interface IngestOptions {
+  fullSite?: boolean;
+  /** Stored-entry ceiling override (full-site path only). */
+  maxEntries?: number;
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -110,11 +128,14 @@ export interface IngestResult {
  */
 export async function ingestBusinessWebsite(
   businessId: string,
-  website: BusinessWebsite
+  website: BusinessWebsite,
+  opts: IngestOptions = {}
 ): Promise<IngestResult> {
   let structured;
   try {
-    structured = await scrapeBusinessWebsite(website.url);
+    structured = opts.fullSite
+      ? await scrapeBusinessWebsiteFull(website.url)
+      : await scrapeBusinessWebsite(website.url);
   } catch (err) {
     const reason =
       err instanceof Error ? err.message : "Couldn't fetch that website.";
@@ -124,7 +145,10 @@ export async function ingestBusinessWebsite(
     return { status: "failed", pageCount: 0, entryCount: 0, reason };
   }
 
-  const qa = structured.qa.slice(0, MAX_ENTRIES_PER_WEBSITE);
+  const cap = opts.fullSite
+    ? (opts.maxEntries ?? FULLSITE_MAX_ENTRIES)
+    : MAX_ENTRIES_PER_WEBSITE;
+  const qa = structured.qa.slice(0, cap);
 
   const entryCount = await runWithBusiness(businessId, async () => {
     let category = await prisma.category.findFirst({
@@ -183,7 +207,8 @@ export async function ingestBusinessWebsite(
  */
 export async function addBusinessWebsite(
   businessId: string,
-  rawUrl: unknown
+  rawUrl: unknown,
+  opts: IngestOptions = {}
 ): Promise<{ website: BusinessWebsite } | { error: string }> {
   const normalized = normalizeWebsiteUrl(rawUrl);
   if (!normalized.ok) return { error: normalized.error };
@@ -206,13 +231,14 @@ export async function addBusinessWebsite(
     status: "pending",
     addedAt: nowIso(),
     lastIndexedAt: null,
+    fullSite: opts.fullSite ?? false,
   };
   const next = [...websites, website];
   // Persist BEFORE ingesting so a slow/failed fetch never loses the
   // owner's entry — it stays in the list with its honest status.
   await saveBusinessWebsites(businessId, next);
 
-  const result = await ingestBusinessWebsite(businessId, website);
+  const result = await ingestBusinessWebsite(businessId, website, opts);
   const updated: BusinessWebsite = {
     ...website,
     status: result.status,
@@ -226,20 +252,32 @@ export async function addBusinessWebsite(
   return { website: updated };
 }
 
-/** Re-run ingestion for one already-listed website. */
+/** Re-run ingestion for one already-listed website. When `opts.fullSite`
+ *  is given it upgrades (or downgrades) the site's stored crawl mode so
+ *  later scheduled runs reuse the same mode; when omitted, the stored
+ *  mode is kept. */
 export async function reindexBusinessWebsite(
   businessId: string,
-  websiteId: string
-): Promise<{ website: BusinessWebsite } | { error: string }> {
+  websiteId: string,
+  opts: IngestOptions = {}
+): Promise<
+  | { website: BusinessWebsite & { status: "indexed" | "failed" } }
+  | { error: string }
+> {
   const business = await loadBusiness(businessId);
   if (!business) return { error: "Business not found." };
   const websites = listBusinessWebsites(business);
   const website = websites.find((w) => w.id === websiteId);
   if (!website) return { error: "That website is no longer in your list." };
 
-  const result = await ingestBusinessWebsite(businessId, website);
-  const updated: BusinessWebsite = {
+  const fullSite = opts.fullSite ?? website.fullSite ?? false;
+  const result = await ingestBusinessWebsite(businessId, website, {
+    ...opts,
+    fullSite,
+  });
+  const updated: BusinessWebsite & { status: "indexed" | "failed" } = {
     ...website,
+    fullSite,
     status: result.status,
     statusReason: result.status === "failed" ? result.reason : undefined,
     pageCount: result.pageCount,
@@ -251,6 +289,112 @@ export async function reindexBusinessWebsite(
     websites.map((w) => (w.id === websiteId ? updated : w))
   );
   return { website: updated };
+}
+
+/**
+ * Scheduled re-index sweep (called by POST /api/websites/reindex-all).
+ * Iterates every active business (unscoped, same pattern as the
+ * follow-up processor) and re-indexes each listed website whose last
+ * index attempt is older than `olderThanMs` (or never attempted).
+ * Each site re-indexes in its own stored crawl mode (full-site sites
+ * stay full-site, legacy sites stay legacy). One site's failure never
+ * aborts the sweep; `limit` bounds how many sites one run touches so
+ * a cron run cannot grow unbounded. Returns a per-site summary.
+ */
+export interface ReindexSweepResult {
+  checked: number;
+  indexed: number;
+  failed: number;
+  skipped: number;
+  results: Array<{
+    businessId: string;
+    websiteId: string;
+    url: string;
+    fullSite: boolean;
+    status: "indexed" | "failed";
+    pageCount: number;
+    entryCount: number;
+    reason?: string;
+  }>;
+}
+
+export async function reindexStaleWebsites(opts: {
+  olderThanMs: number;
+  limit: number;
+}): Promise<ReindexSweepResult> {
+  const db = getUnscopedPrisma();
+  const businesses = await db.business.findMany({
+    where: { isActive: true },
+    select: { id: true, websites: true, websiteUrl: true },
+  });
+  const summary: ReindexSweepResult = {
+    checked: 0,
+    indexed: 0,
+    failed: 0,
+    skipped: 0,
+    results: [],
+  };
+  const cutoff = Date.now() - opts.olderThanMs;
+  for (const biz of businesses as unknown as Array<
+    Pick<Business, "id" | "websites" | "websiteUrl">
+  >) {
+    const websites = listBusinessWebsites(biz);
+    for (const website of websites) {
+      const last = website.lastIndexedAt
+        ? Date.parse(website.lastIndexedAt)
+        : NaN;
+      if (!Number.isNaN(last) && last >= cutoff) continue;
+      if (summary.results.length >= opts.limit) {
+        summary.skipped += 1;
+        continue;
+      }
+      summary.checked += 1;
+      try {
+        const result = await reindexBusinessWebsite(biz.id, website.id);
+        const fullSite = website.fullSite ?? false;
+        if (result && "website" in result) {
+          const w = result.website;
+          summary.results.push({
+            businessId: biz.id,
+            websiteId: website.id,
+            url: website.url,
+            fullSite,
+            status: w.status,
+            pageCount: w.pageCount ?? 0,
+            entryCount: w.entryCount ?? 0,
+            reason: w.statusReason,
+          });
+          if (w.status === "indexed") summary.indexed += 1;
+          else summary.failed += 1;
+        } else {
+          summary.failed += 1;
+          summary.results.push({
+            businessId: biz.id,
+            websiteId: website.id,
+            url: website.url,
+            fullSite,
+            status: "failed",
+            pageCount: 0,
+            entryCount: 0,
+            reason: "error" in (result as object) ? (result as { error: string }).error : "Unknown error",
+          });
+        }
+      } catch (err) {
+        summary.failed += 1;
+        summary.results.push({
+          businessId: biz.id,
+          websiteId: website.id,
+          url: website.url,
+          fullSite: website.fullSite ?? false,
+          status: "failed",
+          pageCount: 0,
+          entryCount: 0,
+          reason: err instanceof Error ? err.message : "Unknown error",
+        });
+      }
+    }
+  }
+  return summary;
 }
 
 /** Remove one website AND the knowledge entries learned from it. */

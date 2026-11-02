@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { withBusinessParam } from "@/lib/business-param";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -543,6 +544,10 @@ function TryItPanel({ endpoint }: { endpoint: Endpoint }) {
         const qs = qp.toString();
         if (qs) url += `?${qs}`;
       }
+
+      // Super Admin flow: scope the call to the page URL's ?business=
+      // selector, else multi-business sessions get 400 BUSINESS_REQUIRED.
+      url = withBusinessParam(url);
 
       const opts: RequestInit = {
         method: endpoint.method,

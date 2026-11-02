@@ -7,8 +7,11 @@
  * POST   -> { url } add + index now; duplicate/invalid input gets a
  *           kind 400 with the reason; a fetch failure still saves the
  *           entry, with status "failed" + the reason (never a fake
- *           "trained").
+ *           "trained"). Optional { fullSite: true } indexes with the
+ *           full-site crawl instead of the legacy homepage + 5 pages.
  * PATCH  -> { id } re-run the fetch-and-learn for one listed site.
+ *           Optional { fullSite: boolean } upgrades/downgrades the
+ *           site's stored crawl mode; omitted keeps the stored mode.
  * DELETE -> ?id= remove the site and the entries learned from it.
  *
  * The business id comes from auth only — never from the body — and
@@ -41,6 +44,7 @@ function serialize(w: Awaited<ReturnType<typeof listBusinessWebsites>>[number]) 
     entryCount: w.entryCount ?? null,
     addedAt: w.addedAt,
     lastIndexedAt: w.lastIndexedAt ?? null,
+    fullSite: w.fullSite ?? false,
   };
 }
 
@@ -100,7 +104,9 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json().catch(() => ({}));
-    const result = await addBusinessWebsite(businessId, body?.url);
+    const result = await addBusinessWebsite(businessId, body?.url, {
+      fullSite: body?.fullSite === true,
+    });
     if ("error" in result) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
@@ -139,7 +145,11 @@ export async function PATCH(request: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: "Missing website id." }, { status: 400 });
     }
-    const result = await reindexBusinessWebsite(businessId, id);
+    const result = await reindexBusinessWebsite(businessId, id, {
+      // Only an explicit boolean upgrades/downgrades the stored mode;
+      // an omitted field keeps the site's existing mode (see lib).
+      fullSite: typeof body?.fullSite === "boolean" ? body.fullSite : undefined,
+    });
     if ("error" in result) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
