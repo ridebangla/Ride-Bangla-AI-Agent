@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/admin-db";
 import { logger } from "@/lib/logger";
 
@@ -23,13 +23,22 @@ import { logger } from "@/lib/logger";
  * or any Firestore error returns the seeded platform defaults, so a dead
  * record changes NOTHING for the widget.
  *
- * CORS: the embed is mounted on every company surface, so cross-origin
- * GETs are answered for the company's own origins ONLY (allowlist
- * below, mirroring the `corsHeaders` pattern in src/app/api/contact).
- * An allowlisted Origin is echoed in Access-Control-Allow-Origin; any
- * other Origin gets NO CORS header, so browsers block the read. The
- * payload itself is the public platform brand record — the allowlist
- * still applies as defence-in-depth and to keep the surface explicit.
+ * CORS (Team C fix 2026-11-03): the embed runs on ARBITRARY tenant
+ * origins, not only company surfaces — the widget is the tenant
+ * product, and its script is served from this instance while the
+ * host page is the tenant's own domain. The old company-origin
+ * allowlist therefore made the brand fetch fail (no CORS header,
+ * browser blocks the read, silent fallback to the hardcoded
+ * defaults) on every tenant site: after an owner brand change,
+ * company sites showed the new mascot/logo while tenant widgets
+ * stayed on the old defaults, breaking "one change reaches every
+ * widget and tenant's agent". The payload is the PUBLIC platform
+ * brand record (logo/video URLs + version — no secrets, no PII,
+ * already fetchable server-to-server by anyone), fetched with
+ * credentials: omit, so Access-Control-Allow-Origin: * is the
+ * correct policy here — mirroring GET /api/widget/identity, the
+ * other public widget record, which already answers `*` for
+ * exactly this tenant-origin reason.
  */
 export const dynamic = "force-dynamic";
 
@@ -56,65 +65,36 @@ function safeUrl(value: unknown, fallback: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// CORS — company origins only (pattern mirrors src/app/api/contact/route.ts).
+// CORS — public record, any origin (see header comment). The widget
+// fetches with credentials: omit, so `*` is valid and sufficient.
 // ---------------------------------------------------------------------------
 
-const ALLOWED_ORIGINS = new Set([
-  "https://ridebangla.bd",
-  "https://www.ridebangla.bd",
-  "https://tools.ridebangla.bd",
-  "https://studio.ridebangla.bd",
-  "https://it.ridebangla.bd",
-  "https://ai.ridebangla.bd",
-  "https://customer.ridebangla.bd",
-  "https://partner.ridebangla.bd",
-  "https://rider.ridebangla.bd",
-  "https://agent.ridebangla.bd",
-  // Local development, mirroring the contact route's SELF_ORIGINS entry.
-  "http://localhost:3000",
-]);
-
-function corsHeaders(request: NextRequest): HeadersInit {
-  const origin = request.headers.get("origin");
-  if (!origin || !ALLOWED_ORIGINS.has(origin)) {
-    // Same-origin / server-to-server (no Origin) needs no CORS headers;
-    // a foreign Origin gets NO Access-Control-Allow-Origin, so the
-    // browser blocks the cross-origin read.
-    return { Vary: "Origin" };
-  }
+function corsHeaders(): HeadersInit {
   return {
-    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "86400",
-    Vary: "Origin",
   };
 }
 
-export async function OPTIONS(request: NextRequest) {
-  const origin = request.headers.get("origin");
-  if (origin && !ALLOWED_ORIGINS.has(origin)) {
-    return NextResponse.json(
-      { error: "Origin not allowed." },
-      { status: 403, headers: { Vary: "Origin" } }
-    );
-  }
-  return new NextResponse(null, { status: 204, headers: corsHeaders(request) });
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
 
-function brandResponse(body: typeof DEFAULTS, request: NextRequest) {
+function brandResponse(body: typeof DEFAULTS) {
   return NextResponse.json(body, {
     headers: {
       "Cache-Control": "public, max-age=60",
-      ...corsHeaders(request),
+      ...corsHeaders(),
     },
   });
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   const now = Date.now();
   if (cachedBody && now - cachedAt < CACHE_MS) {
-    return brandResponse(cachedBody, request);
+    return brandResponse(cachedBody);
   }
 
   try {
@@ -143,5 +123,5 @@ export async function GET(request: NextRequest) {
   }
 
   cachedAt = now;
-  return brandResponse(cachedBody, request);
+  return brandResponse(cachedBody);
 }

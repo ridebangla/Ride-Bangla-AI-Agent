@@ -29,16 +29,19 @@ import { reportActivity, clearActivity, activityKindForTool } from "./activity";
 import {
   AGENT_BEHAVIOUR_DOCTRINE,
   detectHandoff,
+  detectTicketAcceptance,
   getBehaviourSettings,
   handoffText,
   maybeAppendReviewAsk,
   performHandoff,
   resolveBehaviourLang,
   scheduleOrderCheckIn,
+  ticketProposalText,
   type BehaviourSettings,
+  type TicketProposal,
 } from "./behaviour";
 import { emitNewMessage } from "@/lib/realtime";
-import { analyzeSentiment, detectIntent, estimateConfidence, requiresHumanApproval } from "./guardrails";
+import { analyzeSentiment, detectIntent, estimateConfidence, requiresHumanApproval, suppressFareFigures } from "./guardrails";
 import { classifyIntent, getIntentGuidance, RETENTION_DOCTRINE, UNAVAILABLE_PRODUCT_RULE } from "./intent";
 import { getCatalogBrief, matchProductsInMessage, matchCategoryProducts, findAlternatives, looksLikeProductInquiry, retainLineFor, type CatalogProduct } from "../catalog";
 import { perceiveMedia, type MediaInput } from "./media";
@@ -388,8 +391,8 @@ export function buildSystemPrompt(
         // licensed invention: a zero-knowledge business's agent
         // asserted delivery coverage it had no data for. With no
         // entries there are NO verified business facts; the honest
-        // path (say so + ticket/team) is the only one.
-        "No knowledge base entries are available for this business yet, so you have NO verified facts about it — not its services, hours, delivery areas, prices or policies. Never state a business-specific fact as if it were true. For a business-specific question, say plainly (in the customer's language) that you do not have that detail yet, and offer the next step: connect them with the team or create a support ticket. Ordinary conversation — greetings, thanks, small talk — you may answer normally.";
+        // path (say so + another way to help) is the only one.
+        "No knowledge base entries are available for this business yet, so you have NO verified facts about it — not its services, hours, delivery areas, prices or policies. Never state a business-specific fact as if it were true. For a business-specific question, say plainly (in the customer's language) that you do not have that detail yet, and offer another way to help. Offer a support ticket ONLY if the visitor asks for one, or (for a very serious problem you cannot help with) after you propose it and they accept — never a ticket just because you do not know. Ordinary conversation — greetings, thanks, small talk — you may answer normally.";
 
   return `${extras?.identityLine || `You are the AI assistant for ${context.businessName}.`}
 
@@ -411,7 +414,7 @@ The form above does not change: replies stay small, beautiful and organized, one
 - Persuade by being genuinely helpful: show, in a few lines, why this business's own product or service fits this customer's need, using only verified facts from the knowledge base and catalog below. Never invent a claim, price, discount, feature, or stock level to sound convincing.
 - End with a convincing close inside the same short reply: one clear, helpful next step — help them choose, arrange the details, or pass it to the team — so the customer stays, the owner's business grows, and no customer slips away.
 - Never pressure, rush, guilt, or repeat the same pitch after a no. Never fake urgency or scarcity unless it is a verified fact the owner enabled.
-- Guards unchanged: never send an offer, place an order, or ask for a review unless the owner enabled it; you never confirm an order yourself — the team confirms; stock truth governs what you may sell; never state a fare figure; give price plus delivery charge plus total together only when both are actually known, and say honestly when a charge is not known.
+- Guards unchanged: never send an offer, place an order, or ask for a review unless the owner enabled it; you never confirm an order yourself — the team confirms; stock truth governs what you may sell; never state a fare figure. (Team A 2026-11-03: the previous clause here instructed giving price plus delivery charge plus total together when both were known — that directly contradicts the no-fare-figures rule, so it is removed. The engine additionally strips fare-figure sentences deterministically before sending; see suppressFareFigures.)
 ${context.agentBehavior ? `\n## Business Behavior Instructions\nThe business owner has defined how you must behave. Follow these instructions exactly — they override the general style above where they differ:\n\n${context.agentBehavior}\n` : ""}
 ${context.businessRulesSection ? `\n${context.businessRulesSection}\n` : ""}
 
@@ -422,8 +425,8 @@ ${knowledgeSection}
 
 ## Important Guidelines
 - Always be helpful and try to resolve the customer's issue
-- If you cannot answer a question from the knowledge base, honestly say so and offer to connect them with a team member
-- Use the create_ticket tool when a customer reports a problem that needs human intervention
+- If you cannot answer a question from the knowledge base, honestly say so and offer another way to help. NEVER offer or create a support ticket just because you do not know — a ticket happens ONLY if the visitor asks for one, or (for a very serious problem you cannot help with) after you propose it and they accept (see Support Tickets — STRICT RULES in the behaviour standard)
+- Use the create_ticket tool ONLY when the visitor asked for a support ticket or a human, or accepted your proposal to create one after a very serious problem you could not help with. For a defect or feedback report, acknowledge as a team report instead (see Team Reports in the behaviour standard) — never a ticket
 - Use send_internal_email to notify relevant team members about urgent issues
 - Use get_customer_history to check if the customer has contacted before
 - Never make up information that isn't in your knowledge base
@@ -465,7 +468,10 @@ open, and never present prices, fares or offers found on a browsed page as this
 business's own prices, fares or offers.
 
 ## Order Taking
-When the customer confirms an order or booking, use the take_order tool. Pass everything you collected in customFields (keyed by the business's order fields) and items (name, qty, price) when they picked from the catalog. If the tool replies with needsFields, ask the customer for exactly those details (in their language) and call take_order again — never record the order until all required fields are collected. The order is saved for the team to fulfill — always confirm the reference back to the customer.
+When the customer confirms an order or booking, use the take_order tool. Pass everything you collected in customFields (keyed by the business's order fields) and items (name, qty, price) when they picked from the catalog. If the tool replies with needsFields, ask the customer for exactly those details (in their language) and call take_order again — never record the order until all required fields are collected. The order is saved for the team to fulfill — always share the reference back to the customer (sharing a reference is not confirming the order; only the team confirms).
+## Stock Truth and Courier Suggestion (machine rules from tool results — never invent beyond them)
+- Stock: a catalog item whose tool result carries stock.mayPromise false (outcome out-of-stock, insufficient, or unknown-stock) must never be promised as available; say availability is unconfirmed and the team will confirm, and offer alternatives.
+- Courier: when a take_order result carries a courierSuggestion, present it instead of inventing courier availability — served district: present the own courier first and highlighted, but accept another choice if the customer prefers it; unserved district: show "Coming Soon" for the own courier and offer partner ordering; unknown district (needsDistrict true): ask for the district and leave the order pending for the shop to arrange. Never state that a third-party courier has been booked, and never book anything before team confirmation.
 ## Follow-ups
 If the customer asks to be reminded or contacted later, use the schedule_followup tool — it is persisted and a background job delivers it.
 ## Booking Reminders
@@ -485,6 +491,121 @@ async function getKnowledgeBase(): Promise<KnowledgeItem[]> {
     content: e.content,
     priority: e.priority,
   }));
+}
+
+/**
+ * CUSTOMER MEMORY LOAD (Team C diagnosis, Team A wiring 2026-11-03).
+ * The memory record existed but chat() never loaded it: both turn
+ * contexts set customerHistory: [], so buildSystemPrompt always
+ * rendered "This is the customer's first interaction" and a customer
+ * known on one channel was a stranger on the next. This loader fills
+ * that field from the customer's OWN prior conversations, so prior
+ * cross-channel interactions inform the reply through the existing
+ * Customer History prompt section.
+ *
+ * Identity source (anti-leak, mirrors the get_customer_history tool):
+ * ONLY the conversation's own server-resolved customerId (preferred,
+ * the cross-channel key written by the channel workers' resolver) or,
+ * failing that, its own customerContact. NOTHING model-supplied is
+ * ever used as a lookup key — a prompt-injected model naming another
+ * customer's phone/id must never receive their history.
+ *
+ * Tenant scoping: this uses the tenant-scoped `prisma` (the same
+ * proxy as every other engine read), never getUnscopedPrisma, so a
+ * load cannot cross tenants; Team F owns per-tenant isolation and
+ * this load adds no new scope. Fail-soft: any failure, a missing
+ * tenant context, or an unidentified customer (no id AND no contact
+ * — anonymous/ephemeral turns) yields [] — never a guessed history,
+ * and never another customer's history. An empty contact is never
+ * queried: it would match every unidentified conversation at once.
+ *
+ * Deliberately NOT loaded here: SocialInteraction likes/comments.
+ * Their customerRef is a platform user id (Meta PSID etc.), not the
+ * conversation's customerId/contact, and no verified join from a chat
+ * conversation to those rows exists in this tree — joining on a
+ * contact string would be guessing and could mix customers. The
+ * pure customer-memory helpers (likedTopics / memoryLineForPrompt)
+ * remain the contract for that leg; wiring it needs a resolver
+ * mapping platform ids to customerIds, which is a separate decision
+ * (see the Team A report). Team-written CustomerNote rows are also
+ * not injected: they are internal notes, not customer-facing facts.
+ *
+ * Budget: at most 3 prior conversations (current one excluded —
+ * its own messages are already replayed as history), snippets
+ * capped like the tool's (200 chars), one short line each.
+ */
+export async function loadCustomerHistory(conversation: {
+  id: string;
+  customerId?: string | null;
+  customerContact?: string | null;
+}): Promise<string[]> {
+  try {
+    const customerId =
+      typeof conversation.customerId === "string" && conversation.customerId
+        ? conversation.customerId
+        : null;
+    const contact =
+      typeof conversation.customerContact === "string"
+        ? conversation.customerContact.trim()
+        : "";
+    if (!customerId && !contact) return [];
+    const where = customerId
+      ? { customerId }
+      : { customerContact: contact };
+    const priorRaw = await prisma.conversation.findMany({
+      where,
+      include: {
+        messages: { take: 5, orderBy: { createdAt: "desc" } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 4,
+    });
+    // Defensive: a delegate/mock returning a non-array must degrade
+    // to no history, never throw into the turn (observed under unit
+    // mocks, where findMany does not return the row list).
+    if (!Array.isArray(priorRaw)) return [];
+    const prior = priorRaw as unknown as Array<{
+      id: string;
+      channel?: string | null;
+      summary?: string | null;
+      messages?: Array<{ role: string; content: string }>;
+    }>;
+    const lines: string[] = [];
+    for (const conv of prior) {
+      if (conv.id === conversation.id) continue;
+      if (lines.length >= 3) break;
+      const channel =
+        typeof conv.channel === "string" && conv.channel
+          ? conv.channel
+          : "another channel";
+      const summary =
+        typeof conv.summary === "string" ? conv.summary.trim() : "";
+      if (summary) {
+        lines.push(
+          `Previously via ${channel}: ${summary.slice(0, 300)}`
+        );
+        continue;
+      }
+      const msgs = (conv.messages ?? []).slice().reverse().slice(-2);
+      const snippet = msgs
+        .map(
+          (m) =>
+            `${m.role}: ${(m.content ?? "").slice(0, 200)}`
+        )
+        .join(" | ")
+        .trim();
+      if (snippet) {
+        lines.push(`Previously via ${channel}: ${snippet}`);
+      }
+    }
+    return lines;
+  } catch (err) {
+    logger.warn("[brain] customer history load failed; continuing without history", {
+      conversationId: conversation.id,
+      reason: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
 }
 
 /**
@@ -775,12 +896,27 @@ function buildIdentitySystemPrompt(
     technical:
       "Be precise and detailed. Use technical terminology when appropriate and provide thorough explanations.",
   };
-  return `${identityLine || `You are the AI assistant for ${config.businessName}.`}
+  // Team A 2026-11-03: the intro below must use the RESOLVED identity
+  // name, never the raw settings name — on an auto-created settings
+  // row the raw name is the "My Business" sentinel, and on a tenant
+  // whose settings name is stale it is the wrong business. Callers
+  // pass the resolved displayName (or "" when unconfigured) as
+  // config.businessName; an empty name falls back to the generic
+  // "this business" form already used by the identity templates,
+  // never to a sentinel or another business's name.
+  const introName =
+    config.businessName && config.businessName !== "My Business"
+      ? config.businessName
+      : "";
+  const introSentence = introName
+    ? `say that you are the AI support assistant for ${introName}, in one short line say you can help with questions about the business and its services, and offer to help.`
+    : `say that you are the AI support assistant for this business, in one short line say you can help with questions about the business and its services, and offer to help.`;
+  return `${identityLine || `You are the AI assistant for ${introName || "this business"}.`}
 ${config.businessDesc ? `About the business: ${config.businessDesc}` : ""}
 ${toneGuide[config.tone] || toneGuide.friendly}
 ${config.language !== "auto" ? `Always respond in: ${config.language}. The ENTIRE reply must be in that language — every sentence. Never mix languages in one reply. A reply that leaves any sentence in another language is a defect — rewrite it fully in that language before answering.` : "Respond in the same language the customer uses. If the customer writes in Bengali (বাংলা), reply in Bengali. If they write in English, reply in English. Never mix languages in one reply unless the customer does. The ENTIRE reply must be in that language — every sentence. A reply that leaves any sentence in another language is a defect — rewrite it fully in the customer's language before answering."}
 Address a visitor whose gender you do not know as "স্যার/ম্যাডাম" in Bengali or "Sir/Madam" in English — never bare "স্যার" or "Sir" alone.
-The customer is asking who you are. Introduce yourself briefly and professionally: say that you are the AI support assistant for ${config.businessName}, in one short line say you can help with questions about the business and its services, and offer to help. Keep it to two or three short sentences. Do NOT mention plan names, prices, phone numbers, WhatsApp, websites or feature lists — the customer only asked who you are.`;
+The customer is asking who you are. Introduce yourself briefly and professionally: ${introSentence} Keep it to two or three short sentences. Do NOT mention plan names, prices, phone numbers, WhatsApp, websites or feature lists — the customer only asked who you are.`;
 }
 
 async function tryIdentityFastPath(
@@ -864,6 +1000,10 @@ async function handleApprovalModeTurn(args: {
     customerName: string;
     channel: string;
     messages: Array<{ role: string; content: string }>;
+    /** Server-resolved identity for the memory load (runtime row
+     *  fields; absent on the narrowed ephemeral shape → no history). */
+    customerId?: string | null;
+    customerContact?: string | null;
   };
   config: AIConfig & ConversationContext & { behaviour: BehaviourSettings };
   keys: ProviderKeys;
@@ -955,13 +1095,17 @@ async function handleApprovalModeTurn(args: {
     // own service knowledge (portal-kb), as in the normal path.
     let knowledgeBase: KnowledgeItem[] = [];
     let catalogBrief = "";
+    let customerHistory: string[] = [];
     if (isPortal) {
       knowledgeBase = portalKnowledgeItems();
     } else {
       try {
-        [knowledgeBase, catalogBrief] = await Promise.all([
+        [knowledgeBase, catalogBrief, customerHistory] = await Promise.all([
           getKnowledgeBase(),
           getCatalogBrief().catch(() => ""),
+          // Customer memory (Team C/A 2026-11-03): loaded in
+          // parallel with the other turn reads; fail-soft to [].
+          loadCustomerHistory(conversation),
         ]);
       } catch (err) {
         logger.warn("[brain] approval draft: knowledge/catalog read failed", {
@@ -970,6 +1114,7 @@ async function handleApprovalModeTurn(args: {
         });
         knowledgeBase = [];
         catalogBrief = "";
+        customerHistory = [];
       }
     }
     const intent = classifyIntent(effectiveMessage);
@@ -985,11 +1130,16 @@ async function handleApprovalModeTurn(args: {
       knowledgeBase,
       customerName: conversation.customerName,
       channel: conversation.channel,
-      customerHistory: [],
+      customerHistory,
     };
     // Portal drafts carry the portal identity line + plan names +
-    // the portal product KB (never company KB/catalog);
-    // tenant drafts keep the previous prompt exactly (no identityLine).
+    // the portal product KB (never company KB/catalog).
+    // Team A 2026-11-03: tenant drafts previously passed NO
+    // identityLine, so buildSystemPrompt fell back to the raw
+    // settings name — the "My Business" sentinel on an auto-created
+    // settings row. Tenant drafts now carry the resolved identity
+    // line too (same resolver as the main path; settingsExisted is
+    // read off config where the handler's type does not declare it).
     const portalIdentity = isPortal
       ? resolveBusinessIdentity({
           businessName: null,
@@ -1001,6 +1151,20 @@ async function handleApprovalModeTurn(args: {
           portal: true,
         })
       : null;
+    const draftIdentity = isPortal
+      ? null
+      : resolveBusinessIdentity({
+          businessName: null,
+          settingsName: config.businessName,
+          settingsExisted:
+            (config as { settingsExisted?: boolean }).settingsExisted ?? false,
+          businessDesc: config.businessDesc,
+          knowledgeCount: knowledgeBase.length,
+          catalogCount: catalogBrief.startsWith("PRODUCT CATALOG (available now)")
+            ? 1
+            : 0,
+          portal: false,
+        });
     const systemPrompt =
       buildSystemPrompt(context, {
         intentGuidance: getIntentGuidance(intent.intent),
@@ -1010,7 +1174,9 @@ async function handleApprovalModeTurn(args: {
               identityLine:
                 `${buildIdentityPromptLine(portalIdentity)}\n${PORTAL_PLAN_NAMES_LINE}`,
             }
-          : {}),
+          : draftIdentity
+            ? { identityLine: buildIdentityPromptLine(draftIdentity) }
+            : {}),
       }) +
       "\n\n" +
       DRAFT_MODE_SUFFIX;
@@ -1049,7 +1215,11 @@ async function handleApprovalModeTurn(args: {
       });
       return null;
     });
-    const draftText = (completion?.text ?? "").trim();
+    // Fare-figure suppression applies to drafts too: a draft
+    // auto-sends after review wait, so an unfiltered draft is a
+    // customer-facing fare figure. An all-fare draft becomes no
+    // draft (silent, team-visible) rather than invented copy.
+    const draftText = suppressFareFigures((completion?.text ?? "").trim());
     if (!completion || draftText.length === 0) {
       await clearActivity(conversationId);
       return silentResult;
@@ -1386,30 +1556,50 @@ export async function chat(
     });
   }
 
-  // ---- Human handoff (owner addition 2026-10-21) ----
-  // A serious problem, or an explicit ask for a human / a support
-  // ticket, ends the bot's turn-taking in this thread RIGHT HERE —
-  // before any AI reply (and even when the brain is offline: the
-  // handoff machinery needs no LLM). The agent creates the ticket
-  // itself, tells the customer plainly that a human agent will
-  // continue in this same conversation, and yields: performHandoff
-  // flips the conversation into the platform's handoff state
-  // (aiEnabled=false), so every later message stores silently for the
-  // human team via the takeover path above. If the handoff machinery
-  // itself fails, fall through to the normal flow — never strand the
-  // customer.
-  const handoff = detectHandoff(effectiveMessage);
-  if (handoff.needed && handoff.kind) {
+  // ---- Human handoff (owner addition 2026-10-21, doctrine-gated
+  // 2026-11-02) ----
+  // An explicit ask for a human / a support ticket ends the bot's
+  // turn-taking in this thread RIGHT HERE — before any AI reply (and
+  // even when the brain is offline: the handoff machinery needs no
+  // LLM). The agent creates the ticket itself, tells the customer
+  // plainly that a human agent will continue in this same
+  // conversation, and yields: performHandoff flips the conversation
+  // into the platform's handoff state (aiEnabled=false), so every
+  // later message stores silently for the human team via the takeover
+  // path above.
+  // A serious problem WITHOUT an explicit request does NOT hand off
+  // immediately: the agent replies with a ticket proposal and waits.
+  // Only the visitor's acceptance on a later turn calls performHandoff
+  // for it. Any other next message clears the proposal and the normal
+  // flow continues (an explicit human/ticket ask in that same message
+  // still hands off immediately — declining a proposal never blocks a
+  // direct request). This gate lives here, in the single handoff block
+  // every message-based entry point runs through — chat text and any
+  // widget button that sends a ticket-request message alike — so all
+  // of them inherit the doctrine automatically. A future dedicated
+  // endpoint must route through this same gate. If the handoff
+  // machinery itself fails, fall through to the normal flow — never
+  // strand the customer.
+  const pendingProposal = (
+    (conversation.metadata as Record<string, unknown> | null) || {}
+  ).ticketProposal as TicketProposal | undefined;
+  if (pendingProposal && detectTicketAcceptance(effectiveMessage)) {
     try {
       await reportActivity(conversationId, "creating_ticket");
-      const { ticketId } = await performHandoff({
+      const { reference } = await performHandoff({
         conversation,
         customerMessage: effectiveMessage,
-        detection: { kind: handoff.kind, matched: handoff.matched },
+        detection: {
+          kind: "serious_problem",
+          matched:
+            typeof pendingProposal.matched === "string"
+              ? pendingProposal.matched
+              : null,
+        },
       });
       const text = handoffText(
         resolveBehaviourLang(replyLanguage, effectiveMessage),
-        ticketId
+        reference
       );
       const savedHandoff = await prisma.message.create({
         data: withBusinessId({
@@ -1435,6 +1625,115 @@ export async function chat(
         reason: err instanceof Error ? err.message : String(err),
       });
       await clearActivity(conversationId);
+    }
+  }
+  if (pendingProposal) {
+    // Not an acceptance: drop the proposal, best-effort, and continue
+    // with the normal flow below.
+    try {
+      const meta = (conversation.metadata as Record<string, unknown> | null) || {};
+      const restMeta = { ...meta };
+      delete restMeta.ticketProposal;
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { metadata: restMeta },
+      });
+    } catch {
+      /* proposal clearance is best-effort */
+    }
+  }
+  const handoff = detectHandoff(effectiveMessage);
+  if (handoff.needed && handoff.kind) {
+    if (handoff.kind === "serious_problem") {
+      // Proposal-first: NO ticket, NO aiEnabled flip. Reply with the
+      // proposal and wait for the visitor's answer on the next turn.
+      // ORDER MATTERS (fail-closed): the proposal MESSAGE is saved
+      // BEFORE metadata.ticketProposal is set. If the message save
+      // throws, no proposal is stored, so a later yes-family reply
+      // cannot accept a proposal the visitor never saw. If the
+      // metadata update then fails, the visitor saw the proposal but
+      // no proposal is stored, so a later "yes" likewise cannot
+      // auto-handoff — the proposal simply never takes effect.
+      try {
+        const lang = resolveBehaviourLang(replyLanguage, effectiveMessage);
+        const proposal = ticketProposalText(lang);
+        const meta =
+          (conversation.metadata as Record<string, unknown> | null) || {};
+        const savedProposal = await prisma.message.create({
+          data: withBusinessId({
+            conversationId,
+            role: "assistant",
+            content: proposal,
+          }),
+        });
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: {
+            metadata: {
+              ...meta,
+              ticketProposal: {
+                kind: "serious_problem",
+                matched: handoff.matched,
+                proposedAt: new Date().toISOString(),
+              },
+            },
+          },
+        });
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { updatedAt: new Date() },
+        });
+        emitNewMessage(conversationId, {
+          id: savedProposal.id,
+          role: "assistant",
+          content: proposal,
+        });
+        await clearActivity(conversationId);
+        return { response: proposal, products: [], silent: false };
+      } catch (err) {
+        logger.warn("[brain] ticket proposal failed; continuing with normal AI flow", {
+          conversationId,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+        await clearActivity(conversationId);
+      }
+    } else {
+      try {
+        await reportActivity(conversationId, "creating_ticket");
+        const { reference } = await performHandoff({
+          conversation,
+          customerMessage: effectiveMessage,
+          detection: { kind: handoff.kind, matched: handoff.matched },
+        });
+        const text = handoffText(
+          resolveBehaviourLang(replyLanguage, effectiveMessage),
+          reference
+        );
+        const savedHandoff = await prisma.message.create({
+          data: withBusinessId({
+            conversationId,
+            role: "assistant",
+            content: text,
+          }),
+        });
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { updatedAt: new Date() },
+        });
+        emitNewMessage(conversationId, {
+          id: savedHandoff.id,
+          role: "assistant",
+          content: text,
+        });
+        await clearActivity(conversationId);
+        return { response: text, products: [], silent: false };
+      } catch (err) {
+        logger.warn("[brain] handoff failed; continuing with normal AI flow", {
+          conversationId,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+        await clearActivity(conversationId);
+      }
     }
   }
 
@@ -1560,9 +1859,24 @@ export async function chat(
     // greeting line is invented, and the company business name must
     // not reach an AI-site greeting. Visitor personalization is
     // untouched (visitor name/channel still pass through).
+    // Team A 2026-11-03: greet in the RESOLVED business name, not the
+    // raw settings name — on an auto-created settings row the raw
+    // name is the "My Business" sentinel (stripped to a nameless
+    // greeting, losing a registered name that exists), while the
+    // resolver falls back to the registered Business.name. Portal
+    // turns stay nameless-generic.
+    const greetingIdentity = resolveBusinessIdentity({
+      businessName: opts?.business?.name ?? null,
+      settingsName: config.businessName,
+      settingsExisted: config.settingsExisted,
+      businessDesc: isPortal ? "" : config.businessDesc,
+      knowledgeCount: 0,
+      catalogCount: 0,
+      portal: isPortal,
+    });
     const greeting = buildGreetingReply(
       effectiveMessage,
-      isPortal ? "" : config.businessName,
+      isPortal ? "" : greetingIdentity.displayName,
       config.language,
       conversation.customerName,
       conversation.channel
@@ -1612,11 +1926,26 @@ export async function chat(
   // name or services, which is exactly how the portal trap ("তুমি কি
   // Ride Bangla?") escaped before: it fell through to a prompt headed
   // with the platform name. Early resolution uses knowledge/catalog
-  // counts of 0 (knowledge loads below, after this block); that is
-  // behaviour-identical for template answers: `configured` only
-  // changes the services answer when a description exists, and a
-  // description alone already makes `configured` true. The main
-  // prompt below re-resolves with the real counts.
+  // counts of 0 (knowledge loads below, after this block).
+  // CORRECTION (Team E diagnosis, Team A fix 2026-11-03): the old
+  // comment here claimed counts of 0 were "behaviour-identical" for
+  // template answers — that is FALSE for the services branch. The
+  // template call below passes NO services list, so its services
+  // answer is: services list (never supplied) -> "not set up yet"
+  // when unconfigured -> the description -> "not set up yet" again.
+  // Even with a real knowledgeCount of 9, a description-less tenant
+  // still gets "not set up yet" from the template, because the
+  // template never sees the KB. Fixing the count alone is therefore
+  // insufficient. The services fall-through below (rule 10) is the
+  // fix: a tenant services question whose template answer would be
+  // "not set up yet" falls through to the full LLM pipeline — which
+  // loads the tenant's REAL knowledge base — whenever that KB (or
+  // catalog) is non-empty. This covers tenants with no "Services"
+  // category (e.g. Studio, whose substance is spread across other
+  // categories) because no category extraction is attempted: the
+  // full KB reaches the model verbatim, and no services wording is
+  // invented here. The main prompt below re-resolves with the real
+  // counts.
   // Placement preserves HEAD's offline semantics: the brainOffline
   // honest fallback above still answers first when no provider key
   // resolves, so template answers need no provider but only run on
@@ -1635,49 +1964,107 @@ export async function chat(
   });
   const identityQuestion = classifyIdentityQuestion(effectiveMessage);
   if (!opts?.media && identityQuestion) {
-    const templateAnswer = answerIdentityQuestion(
+    const rawTemplateAnswer = answerIdentityQuestion(
       identityQuestion,
       earlyIdentity,
       detectIdentityLanguage(effectiveMessage),
       { businessDesc: isPortal ? "" : config.businessDesc }
     );
-    await reportActivity(conversationId, "composing");
-    if (opts?.onToken) {
+    // Fare-figure suppression on template text too: a services
+    // answer quoting the business description could carry a fare
+    // figure from that description. An emptied template falls
+    // through below (same handling as the services fall-through).
+    const templateAnswer = suppressFareFigures(rawTemplateAnswer);
+    // RULE 10 — services fall-through (Team E diagnosis, Team A fix
+    // 2026-11-03): when a NAMED tenant asks a services-classified
+    // question and its description is empty, the template above can
+    // only answer "services have not been set up yet" — it never
+    // receives a services list and never sees the KB, whatever the
+    // real knowledgeCount is. That was the live IT/Studio fault:
+    // Panel-created businesses have no Settings row, so the
+    // auto-created row carries businessDesc "", and the template
+    // denied services that exist in the tenant KB. So, for exactly
+    // that shape (tenant mode + services question + empty
+    // description), check the tenant's real KB/catalog: when either
+    // is non-empty, DO NOT return the template — fall through to
+    // the full pipeline, which loads the full tenant KB (all
+    // categories, so Studio's category-spread substance is covered
+    // without any "Services"-category extraction and without
+    // inventing any services wording) and answers from it. When
+    // both are empty, the template's honest not-set-up answer
+    // stands. Portal turns never enter this branch (their services
+    // answer is the product description, not a tenant template).
+    // A KB/catalog read failure degrades to the template, never to
+    // a broken turn. The check below is a scoped COUNT, not a full
+    // KB load: this branch uses only kb.length > 0, never entry
+    // contents — the full pipeline re-loads the KB for the prompt
+    // when fall-through is true.
+    let servicesFallThrough = false;
+    if (
+      !isPortal &&
+      identityQuestion === "services" &&
+      earlyIdentity.mode === "tenant" &&
+      !(config.businessDesc ?? "").trim()
+    ) {
       try {
-        opts.onToken(templateAnswer);
-      } catch {
-        /* stream sink gone — the reply still returns + persists */
+        const [kbCount, brief] = await Promise.all([
+          prisma.knowledgeEntry.count({ where: { isActive: true } }),
+          getCatalogBrief().catch(() => ""),
+        ]);
+        servicesFallThrough =
+          kbCount > 0 ||
+          brief.startsWith("PRODUCT CATALOG (available now)");
+      } catch (err) {
+        logger.warn("[brain] services fall-through check failed; keeping template answer", {
+          conversationId,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+        servicesFallThrough = false;
       }
     }
-    try {
-      const savedTemplate = await prisma.message.create({
-        data: withBusinessId({
-          conversationId,
+    if (!servicesFallThrough && templateAnswer) {
+      await reportActivity(conversationId, "composing");
+      if (opts?.onToken) {
+        try {
+          opts.onToken(templateAnswer);
+        } catch {
+          /* stream sink gone — the reply still returns + persists */
+        }
+      }
+      try {
+        const savedTemplate = await prisma.message.create({
+          data: withBusinessId({
+            conversationId,
+            role: "assistant",
+            content: templateAnswer,
+          }),
+        });
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { updatedAt: new Date() },
+        });
+        emitNewMessage(conversationId, {
+          id: savedTemplate.id,
           role: "assistant",
           content: templateAnswer,
-        }),
-      });
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { updatedAt: new Date() },
-      });
-      emitNewMessage(conversationId, {
-        id: savedTemplate.id,
-        role: "assistant",
-        content: templateAnswer,
-      });
-    } catch (err) {
-      logger.warn("[brain] could not persist identity template reply; returning it anyway", {
-        conversationId,
-        reason: err instanceof Error ? err.message : String(err),
-      });
+        });
+      } catch (err) {
+        logger.warn("[brain] could not persist identity template reply; returning it anyway", {
+          conversationId,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+      const templateBusinessId = getBusinessId();
+      if (templateBusinessId) {
+        void recordAiMessage(templateBusinessId);
+      }
+      await clearActivity(conversationId);
+      return { response: templateAnswer, products: [], silent: false };
     }
-    const templateBusinessId = getBusinessId();
-    if (templateBusinessId) {
-      void recordAiMessage(templateBusinessId);
-    }
-    await clearActivity(conversationId);
-    return { response: templateAnswer, products: [], silent: false };
+    // Fall-through path: a services question with real KB/catalog
+    // behind it, or a template emptied by fare suppression, reaches
+    // the identity fast path / full pipeline below. Nothing has
+    // been sent to the customer yet on this turn.
   }
 
   // ---- Identity fast path (owner acceptance case, 2026-10-22) ----
@@ -1698,7 +2085,9 @@ export async function chat(
     const identity = await tryIdentityFastPath(
       isPortal
         ? { ...config, businessName: "Ride Bangla AI Agent", businessDesc: "", language: replyLanguage }
-        : { ...config, language: replyLanguage },
+        : earlyIdentity.mode === "tenant"
+          ? { ...config, businessName: earlyIdentity.displayName, language: replyLanguage }
+          : { ...config, businessName: "", language: replyLanguage },
       effectiveMessage,
       conversationId,
       keys,
@@ -1762,13 +2151,18 @@ export async function chat(
   // zero-knowledge degradation on failure).
   let knowledgeBase: KnowledgeItem[] = [];
   let catalogBrief = "";
+  let customerHistory: string[] = [];
   if (isPortal) {
     knowledgeBase = portalKnowledgeItems();
   } else {
     try {
-      [knowledgeBase, catalogBrief] = await Promise.all([
+      [knowledgeBase, catalogBrief, customerHistory] = await Promise.all([
         getKnowledgeBase(),
         getCatalogBrief().catch(() => ""),
+        // Customer memory (Team C/A 2026-11-03): the customer's
+        // own prior conversations, loaded in parallel with the
+        // other turn reads; fail-soft to [] (see loadCustomerHistory).
+        loadCustomerHistory(conversation),
       ]);
     } catch (err) {
       logger.warn(
@@ -1780,6 +2174,7 @@ export async function chat(
       );
       knowledgeBase = [];
       catalogBrief = "";
+      customerHistory = [];
     }
   }
   logLatencySpan("prep.knowledge", knowledgeStartedAt, { conversationId });
@@ -1825,7 +2220,7 @@ export async function chat(
     knowledgeBase,
     customerName: conversation.customerName,
     channel: conversation.channel,
-    customerHistory: [],
+    customerHistory,
   };
 
   // Build message history. F1: only the most recent exchanges are
@@ -1901,12 +2296,24 @@ export async function chat(
   const aiResult = await callAI({ ...config, language: replyLanguage }, messages, conversationId, keys, 0, [], { taken: false, ref: "" }, stream, false, isPortal);
 
   // ---- Self-problem handling (ID-07, owner rule 2026-10-25 ~00:54 §6).
-  // callAI swallows provider failures into two canned strings. When one
-  // of them comes back, this IS an agent-side problem: file it in the
-  // team's own ticket pipeline (prisma.ticket, as behaviour.ts's
-  // performHandoff evidences at HEAD) and disclose it to the customer
-  // ONLY if the report was actually created. Never claim a report
-  // that does not exist.
+  // callAI swallows provider failures into two canned strings. Under
+  // the owner ticket doctrine (2026-11-02 14:26) a provider failure is
+  // NEVER an automatic customer-facing ticket: no ticket is filed and
+  // no ticket id is disclosed (none exists). Instead the turn emits
+  // the DETERMINISTIC ticket proposal in the visitor's language (no
+  // LLM needed, so the flow works even during a continued outage) and
+  // stores it as metadata.ticketProposal with the distinct
+  // "provider_failure" kind. The existing acceptance path
+  // (pendingProposal + detectTicketAcceptance -> performHandoff)
+  // handles the visitor's next turn; if they do not accept, the
+  // proposal clears as usual. Do NOT flip aiEnabled here. Ops
+  // visibility is the existing warn "[brain] all AI providers failed"
+  // (logged by callAI before returning the canned string); no
+  // separate ticket/row is needed.
+  // DEPENDENCY: this block requires the escalation diff's proposal
+  // machinery in the merged file (TicketProposal kind union widened
+  // with "provider_failure", ticketProposalText, and the
+  // pendingProposal acceptance path).
   let aiResponse = aiResult.response;
   if (
     aiResult.response ===
@@ -1914,27 +2321,76 @@ export async function chat(
     aiResult.response ===
       "I apologize, but I'm having trouble processing your request. Let me connect you with a team member."
   ) {
+    // Proposal-first, mirroring the escalation diff's serious_problem
+    // proposal branch: save the proposal MESSAGE before setting
+    // metadata (fail-closed ordering). The turn returns here so a
+    // failure turn never receives product cards, a review ask, or any
+    // other success-path behaviour.
     try {
-      const ticket = await prisma.ticket.create({
+      const lang = resolveBehaviourLang(replyLanguage, effectiveMessage);
+      const proposal = ticketProposalText(lang);
+      const meta =
+        (conversation.metadata as Record<string, unknown> | null) || {};
+      const savedProposal = await prisma.message.create({
         data: withBusinessId({
           conversationId,
-          title: "[Agent report] AI provider failure during customer chat",
-          description:
-            `The agent could not complete a turn for conversation ${conversationId} ` +
-            `because the AI provider failed. Customer message: ${effectiveMessage.slice(0, 500)}`,
-          status: "open",
-          priority: "high",
+          role: "assistant",
+          content: proposal,
         }),
       });
-      const lang = detectIdentityLanguage(effectiveMessage);
-      aiResponse =
-        lang === "bn"
-          ? `এখানে যে সমস্যাটা হচ্ছে — আমি সে সম্পর্কে আমার টিমকে তথ্য পাঠাচ্ছি। (রিপোর্ট: ${ticket.id})`
-          : `The problem happening here — I am sending information about it to my team. (Report: ${ticket.id})`;
-    } catch {
-      // Report creation failed: keep the plain failure string and claim
-      // nothing. A failed disclosure is worse than no disclosure.
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: {
+          metadata: {
+            ...meta,
+            ticketProposal: {
+              kind: "provider_failure",
+              matched: null,
+              proposedAt: new Date().toISOString(),
+            },
+          },
+        },
+      });
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { updatedAt: new Date() },
+      });
+      emitNewMessage(conversationId, {
+        id: savedProposal.id,
+        role: "assistant",
+        content: proposal,
+      });
+      await clearActivity(conversationId);
+      return { response: proposal, products: [], silent: false };
+    } catch (err) {
+      logger.warn("[brain] provider-failure proposal failed; continuing with normal AI flow", {
+        conversationId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      await clearActivity(conversationId);
     }
+  }
+
+  // Fare-figure suppression on the LLM reply (Team A 2026-11-03):
+  // prompt instructions alone cannot stop a stale KB fare table (or
+  // a browsed page's fares) from being quoted, because the same
+  // prompt tells the model to use the KB exactly. Strip
+  // fare-figure sentences deterministically here, after the
+  // provider-failure proposal branch above (its text carries no
+  // fares) and before product cards / review asks attach. Product
+  // cards are structured catalog data, not reply text, and are
+  // untouched. If the whole reply was fare figures, fail closed:
+  // no reply is sent (the customer message is already saved and
+  // team-visible) rather than emitting a fare figure or inventing
+  // fallback copy — the approved fallback wording for that edge is
+  // an owner decision, listed in the Team A report.
+  aiResponse = suppressFareFigures(aiResponse);
+  if (!aiResponse.trim()) {
+    logger.warn("[brain] fare filter suppressed the entire reply; silent, team-visible", {
+      conversationId,
+    });
+    await clearActivity(conversationId);
+    return { response: "", products: [], silent: true };
   }
 
   // Phase 3: deterministic product cards. Merge the AI's tool-chosen cards
@@ -1972,13 +2428,21 @@ export async function chat(
   // is skipped for portal turns. Tenant turns run it exactly as before.
   // (Portal turns also cannot take orders any more: take_order is not
   // in PORTAL_TOOL_NAMES, so orderTaken is false on portal turns.)
+  // Team A 2026-11-03: behaviour texts must speak as the RESOLVED
+  // tenant name, not the raw settings name — on an auto-created
+  // settings row the raw name is the "My Business" sentinel, which
+  // previously reached review asks ("Thank you for choosing My
+  // Business!") and order check-ins. Tenant mode guarantees a
+  // non-empty displayName; any other mode keeps the prior value.
+  const replyBusinessName =
+    identity.mode === "tenant" ? identity.displayName : config.businessName;
   if (!isPortal && aiResult.orderTaken) {
     await scheduleOrderCheckIn({
       conversationId,
       customerName: conversation.customerName,
       orderRef: aiResult.orderRef,
       behaviour,
-      businessName: config.businessName,
+      businessName: replyBusinessName,
       lang: behaviourLang,
     });
   }
@@ -2010,7 +2474,7 @@ export async function chat(
     escalated: approval.required || confidence.shouldEscalate,
     behaviour,
     business,
-    businessName: config.businessName,
+    businessName: replyBusinessName,
     lang: behaviourLang,
   });
 

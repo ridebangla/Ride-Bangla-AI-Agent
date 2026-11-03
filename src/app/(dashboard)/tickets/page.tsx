@@ -49,6 +49,20 @@ interface TicketData {
   } | null;
   createdAt: string;
   updatedAt: string;
+  // Optional: written by the public ticket endpoint (§1D of the
+  // ticket-build package); older rows lack them, so all are optional.
+  reference?: string;
+  sourceWebsite?: string;
+  sourceChannel?: string;
+  visitorName?: string;
+  visitorContact?: string;
+  pageUrl?: string;
+  attachments?: Array<{
+    name: string;
+    mimeType: string;
+    size: number;
+    dataBase64: string;
+  }> | null;
 }
 
 interface DepartmentData {
@@ -97,6 +111,16 @@ export default function TicketsPage() {
   const [selectedTicket, setSelectedTicket] = useState<TicketData | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  // TEAM I (G4): reference returned by POST /api/tickets for the ticket
+  // just created, shown to the creator in the create modal.
+  const [createdReference, setCreatedReference] = useState<string | null>(
+    null
+  );
+
+  const openCreateModal = () => {
+    setCreatedReference(null);
+    setShowCreateModal(true);
+  };
 
   // Create form state
   const [createForm, setCreateForm] = useState({
@@ -161,7 +185,20 @@ export default function TicketsPage() {
         }),
       });
       if (res.ok) {
-        setShowCreateModal(false);
+        // TEAM I (G4): POST /api/tickets returns the short recording
+        // reference (SITE-XXXXXXXX). Show it to the creator instead of
+        // closing silently; when the API returns no reference, keep the
+        // previous close-and-refresh behaviour.
+        let reference: string | null = null;
+        try {
+          const data = await res.json();
+          reference =
+            typeof data?.reference === "string" && data.reference
+              ? data.reference
+              : null;
+        } catch {
+          reference = null;
+        }
         setCreateForm({
           title: "",
           description: "",
@@ -170,6 +207,11 @@ export default function TicketsPage() {
           departmentId: "",
         });
         fetchTickets();
+        if (reference) {
+          setCreatedReference(reference);
+        } else {
+          setShowCreateModal(false);
+        }
       }
     } catch (error) {
       console.error("Failed to create ticket:", error);
@@ -223,7 +265,7 @@ export default function TicketsPage() {
         description="Track and manage customer issues"
         actions={
           <button
-            onClick={() => setShowCreateModal(true)}
+            onClick={openCreateModal}
             className="flex items-center gap-2 px-4 py-2 bg-rbai-primary text-white rounded-lg hover:bg-rbai-primary-dark transition-colors text-sm font-medium"
           >
             <Plus className="h-4 w-4" />
@@ -336,7 +378,7 @@ export default function TicketsPage() {
                 Create a ticket to start tracking customer issues
               </p>
               <button
-                onClick={() => setShowCreateModal(true)}
+                onClick={openCreateModal}
                 className="mt-4 flex items-center gap-2 px-4 py-2 bg-rbai-primary text-white rounded-lg hover:bg-rbai-primary-dark transition-colors text-sm font-medium"
               >
                 <Plus className="h-4 w-4" />
@@ -350,6 +392,12 @@ export default function TicketsPage() {
                   <tr className="border-b border-rbai-border bg-rbai-bg/50">
                     <th className="text-left px-4 py-3 text-xs font-medium text-rbai-text-light uppercase tracking-wider">
                       Ticket
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-rbai-text-light uppercase tracking-wider">
+                      Reference
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-rbai-text-light uppercase tracking-wider hidden md:table-cell">
+                      Source
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-rbai-text-light uppercase tracking-wider">
                       Status
@@ -392,6 +440,16 @@ export default function TicketsPage() {
                               )}
                             </div>
                           </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm font-mono text-rbai-text">
+                            {ticket.reference || "--"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 hidden md:table-cell">
+                          <span className="text-sm text-rbai-text-light">
+                            {ticket.sourceWebsite || "--"}
+                          </span>
                         </td>
                         <td className="px-4 py-3">
                           <span
@@ -468,6 +526,19 @@ export default function TicketsPage() {
                 </h4>
                 <p className="text-xs text-rbai-text-light mt-1">
                   Created {formatDate(selectedTicket.createdAt)}
+                </p>
+                <p className="text-xs text-rbai-text-light mt-1">
+                  Reference:{" "}
+                  <span className="font-mono text-rbai-text">
+                    {selectedTicket.reference || "--"}
+                  </span>
+                </p>
+                <p className="text-xs text-rbai-text-light mt-1">
+                  Source:{" "}
+                  {selectedTicket.sourceWebsite || "--"}
+                  {selectedTicket.sourceChannel
+                    ? ` (${selectedTicket.sourceChannel})`
+                    : ""}
                 </p>
               </div>
 
@@ -659,6 +730,17 @@ export default function TicketsPage() {
             </div>
 
             <div className="px-5 py-4 space-y-4">
+              {/* TEAM I (G4): the reference of the ticket just created. */}
+              {createdReference && (
+                <div className="px-3 py-2.5 rounded-lg bg-green-50 border border-green-200">
+                  <p className="text-sm text-green-800">
+                    Ticket created. Reference:{" "}
+                    <span className="font-mono font-semibold">
+                      {createdReference}
+                    </span>
+                  </p>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-rbai-text mb-1">
                   Title
@@ -742,24 +824,38 @@ export default function TicketsPage() {
             </div>
 
             <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-rbai-border">
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="px-4 py-2 text-sm font-medium text-rbai-text hover:bg-rbai-primary-50 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateTicket}
-                disabled={!createForm.title.trim() || saving}
-                className={cn(
-                  "px-4 py-2 text-sm font-medium rounded-lg transition-colors",
-                  createForm.title.trim() && !saving
-                    ? "bg-rbai-primary text-white hover:bg-rbai-primary-dark"
-                    : "bg-rbai-border text-rbai-text-light cursor-not-allowed"
-                )}
-              >
-                {saving ? "Creating..." : "Create Ticket"}
-              </button>
+              {createdReference ? (
+                <button
+                  onClick={() => {
+                    setCreatedReference(null);
+                    setShowCreateModal(false);
+                  }}
+                  className="px-4 py-2 text-sm font-medium bg-rbai-primary text-white rounded-lg hover:bg-rbai-primary-dark transition-colors"
+                >
+                  Done
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setShowCreateModal(false)}
+                    className="px-4 py-2 text-sm font-medium text-rbai-text hover:bg-rbai-primary-50 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCreateTicket}
+                    disabled={!createForm.title.trim() || saving}
+                    className={cn(
+                      "px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+                      createForm.title.trim() && !saving
+                        ? "bg-rbai-primary text-white hover:bg-rbai-primary-dark"
+                        : "bg-rbai-border text-rbai-text-light cursor-not-allowed"
+                    )}
+                  >
+                    {saving ? "Creating..." : "Create Ticket"}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

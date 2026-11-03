@@ -34,8 +34,10 @@
  * Pointer-events drag (touch + mouse) on the launcher; a tap
  * still opens the panel (movement threshold separates tap from
  * drag, and the click a real drag produces is swallowed). The
- * dragged position persists for the session (sessionStorage)
- * and is clamped inside the viewport on drag, restore and
+ * dragged position persists across reloads and browser restarts
+ * (localStorage, per site key; a legacy sessionStorage value is
+ * migrated on first read) and is clamped inside the viewport on
+ * drag, restore and
  * resize/orientation change. When the panel opens from a moved
  * position it anchors to the bubble: it opens below the bubble
  * when there is no room above, and the whole open widget is
@@ -368,7 +370,17 @@
   // ---- Tenant identity (auto-switch, owner 2026-10-29) ----
   // When the host did not supply its own title, the header must still
   // show the business's own name, resolved server-side from the siteKey
-  // (GET /api/widget/identity). Host-supplied data-title always wins:
+  // (GET /api/widget/identity), plus the tenant's OWN logo (identity
+  // logoUrl, same server-resolved business — never client-supplied, so
+  // a host page cannot make a widget show another tenant's mark). The
+  // logo renders as a small badge BESIDE the header title; the agent
+  // avatar itself (mascot videos/bust from GET /api/widget/brand)
+  // is deliberately untouched — the mascot is the platform agent
+  // character, the logo is the tenant's business mark, and the two
+  // must not be confused. No logo (null/empty/invalid) renders NO
+  // logo element at all — never the platform default, never a broken
+  // image. The inline mount reuses this exact header markup, so it
+  // inherits the badge automatically. Host-supplied data-title always wins:
   // a host title is never overwritten, so per-site titles and tenant
   // custom titles keep working. Same for greeting: a host data-greeting
   // always wins; otherwise an owner-set welcomeMessage (when the owner
@@ -387,6 +399,31 @@
   // until then and forever if the owner never set one.
   var serverGreeting = "";
   var titleIsDefault = !titleIsExplicit;
+  // Tenant logo URL resolved from GET /api/widget/identity (empty until
+  // that fetch answers; stays empty forever when the tenant set no logo).
+  var tenantLogoUrl = "";
+  // Client-side defence matching the server resolver (src/lib/tenant-logo):
+  // http(s) URL (max 500 chars) or a PNG/JPEG/WebP image data URL within
+  // the storage cap. Anything else is ignored — no element is created.
+  function isValidTenantLogoUrl(u) {
+    if (typeof u !== "string" || !u) return false;
+    if (u.indexOf("data:image/png;base64,") === 0 || u.indexOf("data:image/jpeg;base64,") === 0 || u.indexOf("data:image/webp;base64,") === 0) return u.length <= 950000;
+    if (u.length > 500) return false;
+    return /^https?:\/\/[^\s]+$/.test(u);
+  }
+  function applyTenantLogoToDom() {
+    if (!widgetContainer || !tenantLogoUrl) return;
+    var headwrap = widgetContainer.querySelector("#rbai-widget-headwrap");
+    if (!headwrap) return;
+    var existing = headwrap.querySelector(".rbai-tenant-logo");
+    if (existing) { existing.setAttribute("src", tenantLogoUrl); return; }
+    var img = document.createElement("img");
+    img.className = "rbai-tenant-logo";
+    img.setAttribute("src", tenantLogoUrl);
+    img.setAttribute("alt", "");
+    var h3 = headwrap.querySelector("h3");
+    if (h3) headwrap.insertBefore(img, h3); else headwrap.appendChild(img);
+  }
   function applyTenantIdentity(rec) {
     if (!rec || typeof rec !== "object") return;
     var name = (typeof rec.businessName === "string") ? rec.businessName.trim() : "";
@@ -397,6 +434,10 @@
         var h = widgetContainer.querySelector("#rbai-widget-header h3");
         if (h) h.textContent = name;
       }
+    }
+    if (isValidTenantLogoUrl(rec.logoUrl)) {
+      tenantLogoUrl = rec.logoUrl;
+      if (widgetContainer) applyTenantLogoToDom();
     }
     if (greetingIsDefault && typeof rec.welcomeMessage === "string" && rec.welcomeMessage.trim()) {
       serverGreeting = rec.welcomeMessage.trim();
@@ -440,6 +481,37 @@
   var dragState = null;
   var suppressLauncherClick = false;
   var BUBBLE_POS_KEY = "rbai-bubble-pos:" + (config.siteKey || "default");
+  // Dragged-bubble persistence (Team C fix 2026-11-03): the owner
+  // rule is that a hand-moved bubble STAYS where the visitor put
+  // it. sessionStorage alone only survived a same-tab reload — a
+  // new tab or a browser restart reset the bubble to its corner.
+  // localStorage is now the store (per site key, so sites never
+  // share a position); a value left by the old sessionStorage
+  // build is migrated on first read, and sessionStorage is only
+  // the fallback when localStorage itself throws (private mode).
+  // Thread identity (visitor/conversation) deliberately stays on
+  // sessionStorage via storeGet/storeSet — only the bubble spot
+  // moves to localStorage.
+  function bubblePosGet() {
+    try {
+      var v = window.localStorage.getItem(BUBBLE_POS_KEY);
+      if (v) return v;
+    } catch (e) {}
+    try {
+      var s = window.sessionStorage.getItem(BUBBLE_POS_KEY);
+      if (s) {
+        try { window.localStorage.setItem(BUBBLE_POS_KEY, s); } catch (e2) {}
+        try { window.sessionStorage.removeItem(BUBBLE_POS_KEY); } catch (e3) {}
+        return s;
+      }
+    } catch (e4) {}
+    return null;
+  }
+  function bubblePosSet(value) {
+    try { window.localStorage.setItem(BUBBLE_POS_KEY, value); return; }
+    catch (e) {}
+    try { window.sessionStorage.setItem(BUBBLE_POS_KEY, value); } catch (e2) {}
+  }
 
   // ---- Thread identity (session-scoped) ----
   // The visitor id and the platform conversation id persist in
@@ -521,6 +593,19 @@
       sendVideo: "Send a video",
       sendVoice: "Send a voice message",
       openChat: "Open chat",
+      supportTicket: "Support ticket",
+      ticketTitle: "Open a support ticket",
+      ticketTopic: "Topic",
+      ticketMessage: "Describe your issue",
+      ticketName: "Your name (optional)",
+      ticketContact: "Email or phone (optional)",
+      ticketSubmit: "Send ticket",
+      ticketCancel: "Cancel",
+      ticketNeedMessage: "Please describe your issue (at least 10 characters) before sending.",
+      topicGeneral: "General",
+      topicPayment: "Payment",
+      topicTechnical: "Technical",
+      topicFeedback: "Feedback",
       sentPhotoAlt: "Sent photo",
       productFallback: "Product",
       order: "Order",
@@ -565,6 +650,19 @@
       sendVideo: "ভিডিও পাঠান",
       sendVoice: "ভয়েস মেসেজ পাঠান",
       openChat: "চ্যাট খুলুন",
+      supportTicket: "সাপোর্ট টিকিট",
+      ticketTitle: "সাপোর্ট টিকিট খুলুন",
+      ticketTopic: "বিষয়",
+      ticketMessage: "আপনার সমস্যাটি লিখুন",
+      ticketName: "আপনার নাম (ঐচ্ছিক)",
+      ticketContact: "ইমেইল বা ফোন (ঐচ্ছিক)",
+      ticketSubmit: "টিকিট পাঠান",
+      ticketCancel: "বাতিল",
+      ticketNeedMessage: "পাঠানোর আগে আপনার সমস্যাটি লিখুন (কমপক্ষে ১০ অক্ষর)।",
+      topicGeneral: "সাধারণ",
+      topicPayment: "পেমেন্ট",
+      topicTechnical: "কারিগরি",
+      topicFeedback: "মতামত",
       sentPhotoAlt: "পাঠানো ছবি",
       productFallback: "পণ্য",
       order: "অর্ডার করুন",
@@ -671,6 +769,10 @@
     if (videoBtn) { videoBtn.title = t("sendVideo"); videoBtn.setAttribute("aria-label", t("sendVideo")); }
     var micBtn = document.getElementById("rbai-widget-mic");
     if (micBtn) { micBtn.title = t("sendVoice"); micBtn.setAttribute("aria-label", t("sendVoice")); }
+    var ticketBtn = document.getElementById("rbai-widget-ticket");
+    if (ticketBtn) { ticketBtn.title = t("supportTicket"); ticketBtn.setAttribute("aria-label", t("supportTicket")); }
+    var ticketForm = document.getElementById("rbai-ticket-form");
+    if (ticketForm && !ticketForm.hidden) refreshTicketFormStrings();
     var launcher = document.getElementById("rbai-widget-btn");
     if (launcher) launcher.setAttribute("aria-label", t("openChat"));
     var pausedTitle = document.querySelector("#rbai-paused-notice h4");
@@ -767,7 +869,7 @@
       #rbai-widget-container{position:fixed;bottom:20px;" + config.position + ":20px;z-index:999999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}\n\
       #rbai-widget-btn{width:56px;height:56px;border-radius:50%;background:" + config.color + ";border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .2s}\n\
       #rbai-widget-btn:hover{transform:scale(1.05)}\n\
-      #rbai-widget-btn{overflow:hidden;padding:0}\n\.rbai-avatarwrap{position:relative;display:block;overflow:hidden;background:#fff}\n\#rbai-widget-btn .rbai-avatarwrap{width:56px;height:56px;border-radius:50%}\n\#rbai-widget-header .rbai-avatarwrap{width:36px;height:36px;border-radius:50%;margin-right:10px;flex:none}\n\.rbai-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;pointer-events:none}\n\.rbai-vid.active{display:block}\n\.rbai-avatar-fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}\n\.rbai-avatarwrap.novid .rbai-avatar-fallback{display:block}\n\.rbai-avatarwrap.novid .rbai-vid{display:none!important}\n\#rbai-widget-headwrap{display:flex;align-items:center}\n\
+      #rbai-widget-btn{overflow:hidden;padding:0}\n\.rbai-avatarwrap{position:relative;display:block;overflow:hidden;background:#fff}\n\#rbai-widget-btn .rbai-avatarwrap{width:56px;height:56px;border-radius:50%}\n\#rbai-widget-header .rbai-avatarwrap{width:36px;height:36px;border-radius:50%;margin-right:10px;flex:none}\n\.rbai-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;pointer-events:none}\n\.rbai-vid.active{display:block}\n\.rbai-avatar-fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}\n\.rbai-avatarwrap.novid .rbai-avatar-fallback{display:block}\n\.rbai-avatarwrap.novid .rbai-vid{display:none!important}\n\#rbai-widget-headwrap{display:flex;align-items:center}\n\#rbai-widget-headwrap .rbai-tenant-logo{width:28px;height:28px;border-radius:6px;background:#fff;object-fit:contain;flex:none;margin-right:8px}\n\
       #rbai-widget-panel{display:none;width:370px;max-width:calc(100vw - 40px);height:520px;max-height:calc(100vh - 100px);background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.12);margin-bottom:12px;overflow:hidden;flex-direction:column}\n\
       #rbai-widget-panel.open{display:flex}\n\
       #rbai-widget-btn{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}\n\
@@ -839,6 +941,18 @@
       #rbai-paused-notice p{margin:0 0 12px;font-size:13px;line-height:1.5;color:#475569}\n\
       #rbai-paused-retry{background:" + config.color + ";color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer}\n\
       #rbai-paused-retry:hover{filter:brightness(.92)}\n\
+      #rbai-ticket-form{display:block;border-top:1px solid #E2E8F0;padding:12px;margin:0}\n\
+      #rbai-ticket-form[hidden]{display:none}\n\
+      #rbai-ticket-form h4{margin:0 0 10px;font-size:14px;font-weight:700;color:#0F172A}\n\
+      .rbai-ticket-field{margin:0 0 10px}\n\
+      .rbai-ticket-field label{display:block;font-size:12px;font-weight:600;color:#475569;margin:0 0 4px}\n\
+      .rbai-ticket-field select,.rbai-ticket-field textarea,.rbai-ticket-field input{width:100%;box-sizing:border-box;border:1px solid #CBD5E1;border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;color:#0F172A;background:#fff}\n\
+      .rbai-ticket-field textarea{resize:vertical;min-height:72px}\n\
+      #rbai-ticket-error{color:#DC2626;font-size:12px;margin:0 0 10px}\n\
+      #rbai-ticket-error[hidden]{display:none}\n\
+      .rbai-ticket-row{display:flex;gap:8px;align-items:center}\n\
+      .rbai-ticket-row .rbai-order-btn{flex:1}\n\
+      #rbai-ticket-cancel{background:none;border:1px solid #CBD5E1;border-radius:8px;padding:9px 12px;font-size:13px;font-weight:600;color:#475569;cursor:pointer}\n\
     ";
     document.head.appendChild(style);
   }
@@ -849,23 +963,38 @@
   var SVG_LIKE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>';
   var SVG_DISLIKE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2M9 18.12L10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg>';
   var SVG_PAUSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/></svg>';
+  var SVG_TICKET = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2.5 2.5 0 0 0 0 5v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2.5 2.5 0 0 0 0-5z"/><path d="M13 5v2M13 11v2M13 17v2"/></svg>';
 
   function createWidget() {
     var container = document.createElement("div");
     container.id = "rbai-widget-container";
     widgetContainer = container;
+    // Tenant logo badge when the identity fetch already answered before
+    // the widget was built; otherwise applyTenantLogoToDom inserts it
+    // when the fetch lands. Empty = no element (never a broken image).
+    var tenantLogoHtml = tenantLogoUrl ? '<img class="rbai-tenant-logo" src="' + escapeHtml(tenantLogoUrl) + '" alt=""/>' : '';
     container.innerHTML = '\
       <div id="rbai-widget-panel">\
         <div id="rbai-widget-header">\
-          <div id="rbai-widget-headwrap"><span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="none" disablepictureinpicture data-src="' + workingVideoUrl + '"></video><video class="rbai-vid rbai-vid-done" muted playsinline preload="none" disablepictureinpicture data-src="' + doneVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span><h3>' + escapeHtml(config.title) + '</h3></div>\
+          <div id="rbai-widget-headwrap"><span class="rbai-avatarwrap"><video class="rbai-vid rbai-vid-idle active" muted loop playsinline autoplay preload="auto" disablepictureinpicture src="' + idleVideoUrl + '"></video><video class="rbai-vid rbai-vid-working" muted loop playsinline preload="none" disablepictureinpicture data-src="' + workingVideoUrl + '"></video><video class="rbai-vid rbai-vid-done" muted playsinline preload="none" disablepictureinpicture data-src="' + doneVideoUrl + '"></video><img class="rbai-avatar-fallback" src="' + avatarUrl + '" alt=""/></span>' + tenantLogoHtml + '<h3>' + escapeHtml(config.title) + '</h3></div>\
           <button id="rbai-widget-close">&times;</button>\
         </div>\
         <div id="rbai-widget-status" hidden><span class="rbai-status-dot"></span><span id="rbai-widget-status-text"></span></div>\
         <div id="rbai-widget-messages"></div>\
+        <div id="rbai-ticket-form" hidden>\
+          <h4 id="rbai-ticket-form-title">' + t("ticketTitle") + '</h4>\
+          <div class="rbai-ticket-field"><label id="rbai-ticket-topic-label" for="rbai-ticket-topic">' + t("ticketTopic") + '</label><select id="rbai-ticket-topic"><option value="general">' + t("topicGeneral") + '</option><option value="payment">' + t("topicPayment") + '</option><option value="technical">' + t("topicTechnical") + '</option><option value="feedback">' + t("topicFeedback") + '</option></select></div>\
+          <div class="rbai-ticket-field"><label id="rbai-ticket-message-label" for="rbai-ticket-message">' + t("ticketMessage") + '</label><textarea id="rbai-ticket-message" rows="4"></textarea></div>\
+          <div class="rbai-ticket-field"><label id="rbai-ticket-name-label" for="rbai-ticket-name">' + t("ticketName") + '</label><input id="rbai-ticket-name" type="text" maxlength="100" /></div>\
+          <div class="rbai-ticket-field"><label id="rbai-ticket-contact-label" for="rbai-ticket-contact">' + t("ticketContact") + '</label><input id="rbai-ticket-contact" type="text" maxlength="120" /></div>\
+          <p id="rbai-ticket-error" hidden></p>\
+          <div class="rbai-ticket-row"><button type="button" id="rbai-ticket-submit" class="rbai-order-btn">' + t("ticketSubmit") + '</button><button type="button" id="rbai-ticket-cancel">' + t("ticketCancel") + '</button></div>\
+        </div>\
         <div id="rbai-widget-input">\
           <button type="button" class="rbai-iconbtn" id="rbai-widget-photo" title="' + t("sendPhoto") + '" aria-label="' + t("sendPhoto") + '">' + SVG_PHOTO + '</button>\
           <button type="button" class="rbai-iconbtn" id="rbai-widget-video" title="' + t("sendVideo") + '" aria-label="' + t("sendVideo") + '">' + SVG_VIDEO + '</button>\
           <button type="button" class="rbai-iconbtn" id="rbai-widget-mic" title="' + t("sendVoice") + '" aria-label="' + t("sendVoice") + '">' + SVG_MIC + '</button>\
+          <button type="button" class="rbai-iconbtn" id="rbai-widget-ticket" title="' + t("supportTicket") + '" aria-label="' + t("supportTicket") + '">' + SVG_TICKET + '</button>\
           <textarea id="rbai-widget-text" rows="1" placeholder="' + t("typeMessage") + '"></textarea>\
           <button id="rbai-widget-send">' + t("send") + '</button>\
         </div>\
@@ -934,6 +1063,9 @@
       if (!isPaused) document.getElementById("rbai-widget-videofile").click();
     };
     document.getElementById("rbai-widget-mic").onclick = toggleRecording;
+    document.getElementById("rbai-widget-ticket").onclick = function () {
+      if (!isPaused) toggleTicketForm();
+    };
     document.getElementById("rbai-widget-file").onchange = function (e) {
       var f = e.target.files && e.target.files[0];
       e.target.value = "";
@@ -1300,7 +1432,8 @@
   // events only; a movement threshold separates a tap (opens the
   // panel, unchanged) from a drag (moves the widget; the click the
   // drag produces is swallowed exactly once). The position persists
-  // for the tab session and is always clamped inside the viewport.
+  // across reloads and restarts (localStorage, see bubblePosGet/
+  // bubblePosSet) and is always clamped inside the viewport.
 
   function applyBubblePos(left, top, save) {
     var c = widgetContainer;
@@ -1317,18 +1450,11 @@
     c.style.right = "auto";
     c.style.bottom = "auto";
     bubblePos = { left: left, top: top };
-    if (save) {
-      try {
-        window.sessionStorage.setItem(BUBBLE_POS_KEY, JSON.stringify(bubblePos));
-      } catch (e) {}
-    }
+    if (save) bubblePosSet(JSON.stringify(bubblePos));
   }
 
   function restoreBubblePos() {
-    var raw = null;
-    try {
-      raw = window.sessionStorage.getItem(BUBBLE_POS_KEY);
-    } catch (e) {}
+    var raw = bubblePosGet();
     if (!raw) return;
     try {
       var p = JSON.parse(raw);
@@ -2268,13 +2394,50 @@
   // before settling to idle. Anything else — errors, gates,
   // silence, aborts — settles straight to idle: no happy pose
   // on a failure.
-  function settleRequest(typing, succeeded) {
+  function settleRequest(typing, succeeded, flushAccepted) {
     if (typing) { typing.remove(); renderStatus(); }
     pendingRequests = Math.max(0, pendingRequests - 1);
     if (pendingRequests === 0) {
       setAgentState(succeeded ? "done" : "idle");
       stopActivityPolling();
       pokeThreadSync();
+      // In-flight coalescing (see flushPendingTexts below): a text
+      // send settling releases at most ONE burst flush. A flush that
+      // settles here is decided from flushAccepted, NOT from
+      // `succeeded`: a silent / draft-pending turn shows no reply
+      // yet its customer message WAS persisted, so it counts as
+      // accepted and must never be requeued (that would duplicate
+      // it). A caller that omits flushAccepted falls back to
+      // `succeeded`.
+      if (burstFlushInFlight) {
+        var flushed = burstFlushInFlight;
+        burstFlushInFlight = null;
+        // Attribution: the flush's own outcome wins. It is captured
+        // at flush-response time in burstFlushOutcome (see
+        // handleApiResponse / sendTextStreaming) so a concurrent
+        // media/voice send settling last cannot decide the flush.
+        // Without a captured outcome, fall back to this settle's
+        // flushAccepted, then to `succeeded`.
+        var accepted = (typeof burstFlushOutcome === "boolean")
+          ? burstFlushOutcome
+          : ((typeof flushAccepted === "boolean") ? flushAccepted : !!succeeded);
+        burstFlushOutcome = null;
+        if (!accepted) {
+          // Flush failure: requeue at the FRONT, in order, ahead of
+          // any text queued during the failed flush. NO automatic
+          // retry here — an immediate retry would loop on a dead
+          // endpoint. The failure itself is already surfaced by
+          // handleApiResponse (connection / limit / too-long
+          // bubble), and the requeued texts flush with the
+          // visitor's next send (sendText flushes a non-empty
+          // queue first), so nothing is lost in-session.
+          pendingTextQueue = flushed.texts.concat(pendingTextQueue);
+        } else if (pendingTextQueue.length > 0) {
+          flushPendingTexts();
+        }
+      } else if (pendingTextQueue.length > 0) {
+        flushPendingTexts();
+      }
     }
   }
 
@@ -2292,7 +2455,35 @@
       !data.silent &&
       typeof data.response === "string" &&
       data.response.length > 0;
-    settleRequest(typing, succeeded);
+    // Flush acceptance (in-flight coalescing): a burst POST counts
+    // as accepted — its texts were persisted server-side — unless
+    // the turn never reached the engine (transport failure, gate
+    // 401/402/429, validation 400, server 5xx) or carried an error
+    // payload. Silent / draft-pending turns are accepted: the
+    // engine persisted the customer message before going silent.
+    var flushAccepted = burstFlushInFlight
+      ? (!!data &&
+        status !== 401 &&
+        status !== 402 &&
+        status !== 429 &&
+        status < 500 &&
+        !data.error)
+      : null;
+    // Flush-outcome capture (JSON path): the typing bubble object
+    // identifies this send, so a concurrent media/voice response
+    // (different typing bubble) never overwrites the flush outcome.
+    // The streaming done/error branches capture the same outcome
+    // from their payload (see sendTextStreaming), where the typing
+    // bubble is already gone after the first token.
+    if (burstFlushInFlight && typing && typing === burstFlushInFlight.typing) {
+      burstFlushOutcome = flushAccepted;
+    }
+    // Bridge the response's conversationId into a flush fired by
+    // the settle below (see flushConversationOverride).
+    if (data && data.conversationId) {
+      flushConversationOverride = data.conversationId;
+    }
+    settleRequest(typing, succeeded, flushAccepted);
 
     if (!data) {
       // Genuine transport failure only (network down / unreadable
@@ -2322,6 +2513,8 @@
       }
       conversationId = data.conversationId;
       storeSet("conv", conversationId);
+      // The global now carries the id, so the bridge is spent.
+      flushConversationOverride = null;
     }
     // Human takeover: pure silence — render nothing at all.
     if (data.silent) return;
@@ -2358,12 +2551,110 @@
     }
   }
 
+  // ---- In-flight coalescing: ONE reply to many messages ----
+  // Head call 2026-11-03 (NOT an owner rule): texts sent WHILE a
+  // send is already in flight are held in pendingTextQueue and
+  // flushed as ONE POST when the in-flight send settles — never
+  // one POST per queued text. There is NO timed burst window
+  // here: that window is UNDECIDED (head's call still owed), so
+  // coalescing happens only for texts that arrive during an
+  // actual in-flight send, and a failed flush is never retried
+  // on a timer (timed/delayed flush workers are out of scope).
+  // Queue rendering: a queued text renders as a user bubble at
+  // once (the visitor sees what they typed) and registers a
+  // pendingEcho, exactly like a sent text; only its POST waits.
+  // The server persists ONE customer row per POST (the combined
+  // text), so a queued text's individual echo never matches the
+  // combined server row — harmless, because thread sync renders
+  // customer rows only on the initial (restored-conversation)
+  // sync and skips them during live polling.
+  // MAX_FLUSH_BATCH_TEXTS bounds ONE flush POST (not the queue):
+  // 20 is 2x the owner's "ten messages at once" example, keeps a
+  // wedged-turn queue from becoming one gigantic POST, and any
+  // overflow is NEVER dropped — it follows as a subsequent burst
+  // POST in order once the first flush settles. The server's
+  // combined 5000-char cap still binds each POST (see the route).
+  var pendingTextQueue = [];
+  var MAX_FLUSH_BATCH_TEXTS = 20;
+  // The batch currently in flight as a burst POST (null otherwise).
+  // Its texts are requeued at the front by settleRequest if the
+  // flush is not accepted — never silently dropped. burstFlushOutcome
+  // holds that flush's own accepted/not-accepted verdict (captured
+  // at response time) until settleRequest consumes it.
+  var burstFlushInFlight = null;
+  var burstFlushOutcome = null;
+  // Harness-caught correctness gap (2026-11-03): handleApiResponse
+  // settles (and therefore flushes) BEFORE it assigns the response's
+  // conversationId to the global. A flush fired from that settle
+  // would otherwise carry the STALE id — null on a session's first
+  // turn, so the burst would land in a brand-new conversation
+  // instead of the first turn's. The response's id is therefore
+  // bridged through this override: flushPendingTexts uses it for
+  // its payload, and it is cleared once consumed (or once the
+  // global assignment below lands, whichever is first).
+  var flushConversationOverride = null;
+
+  function flushPendingTexts() {
+    // Only ever one flush at a time, and only while nothing else
+    // is in flight: the flush itself becomes the in-flight send,
+    // so texts typed during it queue behind it in order.
+    if (pendingRequests > 0 || pendingTextQueue.length === 0) return;
+    var batch = pendingTextQueue.splice(0, MAX_FLUSH_BATCH_TEXTS);
+    pendingRequests++;
+    setAgentState("working");
+
+    // ONE typing bubble and ONE activityToken for the whole flush
+    // — not one per queued text. The session activityToken is
+    // reused on this single POST, so the route binds it to the
+    // conversation exactly once for this burst.
+    var typing = addMessage(t("typing"), "bot typing");
+    burstFlushInFlight = { texts: batch, typing: typing };
+    burstFlushOutcome = null;
+
+    var payload = {
+      // messages[] is canonical on the route; message carries the
+      // same texts joined, for old servers that only read message.
+      messages: batch,
+      message: batch.join("\n"),
+      // The bridged id when a flush fires from a response settle
+      // (see flushConversationOverride); the live id otherwise.
+      conversationId: flushConversationOverride || conversationId,
+      siteKey: config.siteKey,
+      visitorId: config.visitorId,
+      activityToken: activityToken,
+    };
+    flushConversationOverride = null;
+    // Same branch selection as a single send: streaming first,
+    // plain JSON where fetch-streaming is unavailable.
+    if (typeof ReadableStream !== "undefined" && typeof TextDecoder !== "undefined") {
+      sendTextStreaming(payload, typing);
+    } else {
+      postApi("/api/chat/widget", payload, typing);
+    }
+  }
+
   function sendText(text) {
     text = (text || "").trim();
     if (!text || isPaused) return;
 
     addMessage(text, "user");
     pendingEcho.push({ role: "customer", content: text });
+    // While ANY send is in flight (text, media, voice), hold the
+    // text for the burst flush — no POST, no typing bubble, no
+    // pendingRequests bump for this text.
+    if (pendingRequests > 0) {
+      pendingTextQueue.push(text);
+      return;
+    }
+    // Idle with a non-empty queue: the queue holds a previously
+    // failed flush (requeued, not dropped). Fold this text into
+    // it and flush the whole burst in order — never send this
+    // text ahead of the failed burst.
+    if (pendingTextQueue.length > 0) {
+      pendingTextQueue.push(text);
+      flushPendingTexts();
+      return;
+    }
     pendingRequests++;
     setAgentState("working");
 
@@ -2476,16 +2767,28 @@
         return pump().then(function () {
           if (buffer.trim()) handleEvent(buffer);
           if (doneData) {
+            // Flush-outcome capture (streaming path): the terminal
+            // done payload is this send's own verdict. A done
+            // payload without an error means the engine accepted
+            // the turn (silent / draft-pending included); capture
+            // it BEFORE handleApiResponse, whose typing argument
+            // is already null once tokens have streamed.
+            if (payload.messages) burstFlushOutcome = !doneData.error;
             handleApiResponse(doneData, 200, currentTyping, bubble);
           } else if (errorData) {
+            if (payload.messages) burstFlushOutcome = false;
             handleApiResponse(errorData, 500, currentTyping);
           } else if (bubble) {
             // The stream ended abruptly after tokens: drop the partial
             // bubble and settle silently — if the turn completed
             // server-side, the thread sync renders the saved reply;
-            // a kept partial would duplicate it.
+            // a kept partial would duplicate it. Tokens streamed
+            // means the engine ran, so a burst flush here counts
+            // as accepted (flushAccepted true) — requeueing it
+            // would duplicate the persisted message.
             bubble.remove();
-            settleRequest(currentTyping);
+            if (payload.messages) burstFlushOutcome = true;
+            settleRequest(currentTyping, false, true);
           } else {
             handleApiResponse(null, 0, currentTyping);
           }
@@ -2493,8 +2796,12 @@
       })
       .catch(function () {
         if (bubble) {
+          // Tokens already streamed: the engine ran, so a burst
+          // flush counts as accepted (see the abrupt-end branch
+          // above) — it must not be requeued.
           bubble.remove();
-          settleRequest(currentTyping);
+          if (payload.messages) burstFlushOutcome = true;
+          settleRequest(currentTyping, false, true);
         } else {
           handleApiResponse(null, 0, currentTyping);
         }
@@ -2579,6 +2886,100 @@
     var typedLang = detectTextLang(text);
     if (typedLang) setUiLang(typedLang);
     sendText(text);
+  }
+
+  // ---- Support ticket button + in-chat form ----
+  // Opening the form sends NOTHING. Submitting sends ONE ordinary chat
+  // message through sendMessage(), so the existing detectHandoff /
+  // performHandoff path handles it exactly as a typed ticket request.
+  // The first line is the explicit request in the current UI language,
+  // which guarantees detectHandoff kind ticket_request (or
+  // explicit_human when the visitor's own text contains a human
+  // pattern) — never the serious_problem path, and never silent
+  // auto-creation. The full details live in the conversation the ticket
+  // links to; the escalation fix additionally writes them into the
+  // ticket record itself.
+  function refreshTicketFormStrings() {
+    var title = document.getElementById("rbai-ticket-form-title");
+    if (title) title.textContent = t("ticketTitle");
+    var map = [
+      ["rbai-ticket-topic-label", "ticketTopic"],
+      ["rbai-ticket-message-label", "ticketMessage"],
+      ["rbai-ticket-name-label", "ticketName"],
+      ["rbai-ticket-contact-label", "ticketContact"],
+      ["rbai-ticket-submit", "ticketSubmit"],
+      ["rbai-ticket-cancel", "ticketCancel"],
+    ];
+    for (var i = 0; i < map.length; i++) {
+      var el = document.getElementById(map[i][0]);
+      if (el) el.textContent = t(map[i][1]);
+    }
+    var topic = document.getElementById("rbai-ticket-topic");
+    if (topic && topic.options.length >= 4) {
+      topic.options[0].text = t("topicGeneral");
+      topic.options[1].text = t("topicPayment");
+      topic.options[2].text = t("topicTechnical");
+      topic.options[3].text = t("topicFeedback");
+    }
+    var msg = document.getElementById("rbai-ticket-message");
+    if (msg) msg.setAttribute("placeholder", t("ticketMessage"));
+    var nm = document.getElementById("rbai-ticket-name");
+    if (nm) nm.setAttribute("placeholder", t("ticketName"));
+    var ct = document.getElementById("rbai-ticket-contact");
+    if (ct) ct.setAttribute("placeholder", t("ticketContact"));
+  }
+
+  function toggleTicketForm() {
+    var form = document.getElementById("rbai-ticket-form");
+    if (!form) return;
+    var opening = form.hidden;
+    form.hidden = !opening;
+    if (opening) {
+      refreshTicketFormStrings();
+      var err = document.getElementById("rbai-ticket-error");
+      if (err) { err.textContent = ""; err.hidden = true; }
+    }
+  }
+
+  function hideTicketForm() {
+    var form = document.getElementById("rbai-ticket-form");
+    if (form) form.hidden = true;
+  }
+
+  function submitTicketForm() {
+    var topicEl = document.getElementById("rbai-ticket-topic");
+    var msgEl = document.getElementById("rbai-ticket-message");
+    var nameEl = document.getElementById("rbai-ticket-name");
+    var contactEl = document.getElementById("rbai-ticket-contact");
+    var errEl = document.getElementById("rbai-ticket-error");
+    var topic = topicEl ? topicEl.value : "general";
+    var message = msgEl ? msgEl.value.trim() : "";
+    var name = nameEl ? nameEl.value.trim() : "";
+    var contact = contactEl ? contactEl.value.trim() : "";
+    if (!message || message.length < 10) {
+      if (errEl) { errEl.textContent = t("ticketNeedMessage"); errEl.hidden = false; }
+      return;
+    }
+    if (errEl) { errEl.textContent = ""; errEl.hidden = true; }
+    var bn = uiLang === "bn";
+    var lines = [
+      bn ? "আমি একটি সাপোর্ট টিকিট খুলতে চাই।" : "I want to open a support ticket.",
+      (bn ? "বিষয়: " : "Topic: ") + topic,
+      (bn ? "বার্তা: " : "Message: ") + message,
+    ];
+    if (name) lines.push((bn ? "নাম: " : "Name: ") + name);
+    if (contact) lines.push((bn ? "যোগাযোগ: " : "Contact: ") + contact);
+    var input = document.getElementById("rbai-widget-text");
+    if (!input) return;
+    input.value = lines.join("\n");
+    // Reset the form only after composing: the request itself is now
+    // the compose box content, sent by the existing path below.
+    if (msgEl) msgEl.value = "";
+    if (nameEl) nameEl.value = "";
+    if (contactEl) contactEl.value = "";
+    if (topicEl) topicEl.selectedIndex = 0;
+    hideTicketForm();
+    sendMessage();
   }
 
   // ---- Photo upload -> /api/chat/vision ----

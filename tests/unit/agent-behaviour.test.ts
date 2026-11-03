@@ -437,7 +437,7 @@ describe("(c) same customer again within the cap → no second ask", () => {
 });
 
 describe("(d) factual question → grounded in the KB fixture, no invented figures", () => {
-  it("delivery-charge answer carries the KB figure; prompt carries KB + discipline", async () => {
+  it("delivery-charge answer suppresses the KB fare figure (owner rule 7: agent says nothing about fares, no figures ever); prompt still carries KB + discipline", async () => {
     wirePrisma({
       kb: [
         {
@@ -458,9 +458,13 @@ describe("(d) factual question → grounded in the KB fixture, no invented figur
     });
 
     const res = await chat("conv-1", "How much is the delivery charge inside Faridpur Sadar?");
-    expect(res.response).toContain("৳50");
-    // No figure other than the KB's ৳50 appears anywhere in the answer.
-    expect(res.response.match(/৳\d+/g)).toEqual(["৳50"]);
+    // Coordinator 2026-11-03: the old expectation (reply carries ৳50)
+    // directly contradicted owner rule 7. The deterministic fare filter
+    // now strips the fare-figure sentence; a whole-fare reply goes
+    // silent (team-visible) rather than emitting any figure.
+    expect(res.response).not.toContain("৳50");
+    expect(res.response.match(/৳\d+/g)).toBeNull();
+    expect(res.silent).toBe(true);
     // The model was actually given the KB fact and the discipline text.
     const systemPrompt = captured.providerRequests[0].messages[0].content;
     expect(systemPrompt).toContain("Delivery charge inside Faridpur Sadar is ৳50 per order.");
@@ -784,7 +788,7 @@ describe("(g) explicit human ask → ticket created, handoff message, agent yiel
     // the ticket reference.
     expect(res.response).toContain("human agent");
     expect(res.response).toContain("this same conversation");
-    expect(res.response).toContain("ticket-1"); // reference = first 8 chars
+    expect(res.response).toContain("RB-TICKET-1"); // Coordinator 2026-11-03: recording scheme is SITE-XXXXXXXX (ticketReference), not a raw id fragment — old "ticket-1" expectation was stale.
     expect(res.silent).toBe(false);
     // (d) handoff state flipped: aiEnabled=false + escalated + metadata.
     const flip = captured.conversationUpdates.find(
@@ -841,7 +845,7 @@ describe("(g) explicit human ask → ticket created, handoff message, agent yiel
       expect.anything(),
       expect.anything()
     );
-    expect(res.response).toContain("ticket-e"); // existing ticket's reference
+    expect(res.response).toContain("RB-TICKET-E"); // Coordinator 2026-11-03: recording scheme is SITE-XXXXXXXX (ticketReference), not a raw id fragment — old "ticket-e" expectation was stale.
     const flip = captured.conversationUpdates.find(
       (u) => (u as { data?: Record<string, unknown> }).data?.aiEnabled === false
     ) as { data: { metadata: Record<string, unknown> } } | undefined;

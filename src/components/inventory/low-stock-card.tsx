@@ -24,6 +24,7 @@
  * (D5) and is NOT built in this leg.
  */
 import { useEffect, useState } from "react";
+import { withBusinessParam } from "@/lib/business-param";
 
 interface AlertItem {
   productId: string;
@@ -58,7 +59,15 @@ export function LowStockCard() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/inventory/alerts")
+    // FIX (2026-11-03, setup-data): carry ?business=<slug> when the
+    // dashboard URL carries one. Without it a Super Admin with
+    // several active businesses got 400 BUSINESS_REQUIRED here and
+    // the card showed "could not be loaded" instead of reaching the
+    // route (which answers 503 stock_store_not_configured until the
+    // Leg A store lands). This does NOT make alerts load: the store
+    // is still a stub, so the honest post-fix state is the
+    // "not connected yet" 503 message, not counts.
+    fetch(withBusinessParam("/api/inventory/alerts"))
       .then(async (res) => {
         if (cancelled) return;
         if (res.status === 503) {

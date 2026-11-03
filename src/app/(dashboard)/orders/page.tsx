@@ -289,7 +289,16 @@ function OrdersTab({ toast }: { toast: (t: "success" | "error", m: string) => vo
       const res = await fetch(`/api/orders/${order.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        // Coordinator 2026-11-03: a confirmed→cancelled restock requires a
+        // reason (missing_reason refuses otherwise). The dashboard cancel
+        // action supplies its own factual reason so the team's cancel
+        // restocks exactly what confirmation decremented.
+        body: JSON.stringify({
+          status,
+          ...(status === "cancelled"
+            ? { reason: "Cancelled by team via dashboard" }
+            : {}),
+        }),
       });
       if (!res.ok) throw new Error((await res.json()).error || "Update failed");
       toast("success", `Order ${status}.`);

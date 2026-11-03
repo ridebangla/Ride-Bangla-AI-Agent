@@ -61,6 +61,179 @@ export function requiresHumanApproval(
 }
 
 /**
+ * FARE-FIGURE SUPPRESSION (owner rule: the agent says NOTHING about
+ * fares — no figures ever; Team A audit 2026-11-03).
+ *
+ * A fare figure reaching a reply is a defect, whatever its source:
+ * the model inventing one, a stale knowledge entry quoting one, or a
+ * browsed page's fare table. Prompt instructions alone cannot enforce
+ * this — the model is told to use the knowledge base exactly, so a
+ * stale ৳50/৳70 entry would otherwise be quoted verbatim. This is
+ * therefore a DETERMINISTIC post-filter over the finished reply text,
+ * applied by the engine before the reply is saved/sent (main path
+ * and approval-mode drafts; identity/greeting templates are filtered
+ * at their own return points).
+ *
+ * Scope, deliberately narrow so legitimate product prices survive:
+ * a sentence/line is removed ONLY when it contains BOTH a fare
+ * context word (fare, ভাড়া, delivery charge/fee/cost, ডেলিভারি
+ * চার্জ/ফি, shipping/courier charge/fee/cost, per-km rate) AND a
+ * numeric figure. "Delivery is free" (no figure) survives; "Price
+ * ৳500" (no fare context) survives; "delivery charge ৳60" is
+ * removed whole — the figure is never replaced with another figure,
+ * and no replacement sentence is invented here. A reply that would
+ * become empty is the engine's fail-closed case (silent, team-visible),
+ * not a case for inventing fallback copy in this module.
+ */
+const FARE_CONTEXT_PATTERN =
+  /fare|ভাড়া|delivery\s+(charge|fee|cost|price)|ডেলিভারি\s*(চার্জ|ফি|মূল্য)|shipping\s+(charge|fee|cost)|courier\s+(charge|fee|cost)|per[-\s]?km|\/\s*km|প্রতি\s*কিলোমিটার/i;
+const FIGURE_PATTERN = /[0-9০-৯]/;
+
+function isFareFigureSegment(segment: string): boolean {
+  return FARE_CONTEXT_PATTERN.test(segment) && FIGURE_PATTERN.test(segment);
+}
+
+/* ------------------------------------------------------------------ */
+/* FARE-BOUNDARY EXEMPTION (head call, decision A4, 2026-11-03).       */
+/*                                                                      */
+/* The agent never states fare-table figures — but a tenant's OWN     */
+/* saved delivery charge, presented via composePriceAnswer (price +  */
+/* delivery charge + total together, only when both figures are       */
+/* known and currencies match), is a business-configured figure,     */
+/* NOT a fare-table quote, and is ALLOWED. A line rendered from a     */
+/* composed price answer looks exactly like a fare-context + figure   */
+/* sentence to the filter above, so without an exemption the filter   */
+/* would strip the legitimate line.                                   */
+/*                                                                      */
+/* Mechanism — machine marker, NOT a whitelist: only a block          */
+/* produced verbatim by renderComposedPriceAnswer (business-rules)    */
+/* survives, and only when it passes STRUCTURAL validation here:     */
+/* exactly three lines (Price / Delivery charge / Total), one        */
+/* shared 3-letter currency, non-negative finite figures, and         */
+/* price + delivery == total. An arbitrary "delivery charge"          */
+/* sentence carries no marker and is still stripped; a marked block   */
+/* with wrong arithmetic or mismatched currencies is DROPPED whole    */
+/* (sentinels included) — never delivered, never repaired. The        */
+/* sentinels are control characters that no model, knowledge entry,   */
+/* or browsed page produces in normal text; if an upstream layer      */
+/* strips them, the block degrades to unmarked text and is fare-      */
+/* stripped — the safe direction (a legitimate line lost, never a     */
+/* fare figure leaked). Sentinels NEVER reach the customer: valid     */
+/* blocks are emitted with sentinels removed, invalid blocks are      */
+/* removed entirely.                                                  */
+/*                                                                      */
+/* This module stays dependency-free: it validates the wire format    */
+/* only and never imports the composer. The renderer and this         */
+/* validator must agree on the format; tests pin both sides.          */
+/* ------------------------------------------------------------------ */
+
+const COMPOSED_START = "\u0001COMPOSED-PRICE-START\u0001";
+const COMPOSED_END = "\u0001COMPOSED-PRICE-END\u0001";
+const COMPOSED_BLOCK_PATTERN = new RegExp(
+  `\u0001COMPOSED-PRICE-START\u0001\n?([\\s\\S]*?)\n?\u0001COMPOSED-PRICE-END\u0001`,
+  "g"
+);
+const COMPOSED_LINE_PATTERN =
+  /^(Price|Delivery charge|Total): (\d+(?:\.\d+)?) ([A-Z]{3})$/;
+
+/**
+ * Validate a marked block's inner text. Returns the three clean
+ * customer-visible lines on success, null on any shape failure.
+ */
+function parseComposedPriceBlock(inner: string): string[] | null {
+  const lines = inner
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (lines.length !== 3) return null;
+  const parsed: Array<{ label: string; amount: number; currency: string }> = [];
+  const expected = ["Price", "Delivery charge", "Total"];
+  for (let i = 0; i < 3; i++) {
+    const m = COMPOSED_LINE_PATTERN.exec(lines[i]);
+    if (!m || m[1] !== expected[i]) return null;
+    const amount = Number(m[2]);
+    if (!Number.isFinite(amount) || amount < 0) return null;
+    parsed.push({ label: m[1], amount, currency: m[3] });
+  }
+  if (
+    parsed[0].currency !== parsed[1].currency ||
+    parsed[0].currency !== parsed[2].currency
+  ) {
+    return null;
+  }
+  const sum = parsed[0].amount + parsed[1].amount;
+  if (Math.abs(parsed[2].amount - sum) > 1e-9 * Math.max(1, sum)) return null;
+  return lines;
+}
+
+/**
+ * Split text into marked blocks (validated) and the remaining
+ * unmarked text. Valid blocks are replaced by placeholders in the
+ * remainder; invalid blocks are removed from the remainder.
+ */
+function extractComposedPriceBlocks(
+  text: string
+): { remainder: string; blocks: string[][] } {
+  const blocks: string[][] = [];
+  COMPOSED_BLOCK_PATTERN.lastIndex = 0;
+  const remainder = text.replace(COMPOSED_BLOCK_PATTERN, (_match, inner: string) => {
+    const valid = parseComposedPriceBlock(inner);
+    if (!valid) return "";
+    const idx = blocks.length;
+    blocks.push(valid);
+    return `\u0000COMPOSED-PRICE-EXEMPT-${idx}\u0000`;
+  });
+  return { remainder, blocks };
+}
+
+/** True when any sentence/line of the text carries a fare figure. Valid composed-price blocks are exempt; invalid marked blocks still count (fail-closed). */
+export function containsFareFigure(text: string): boolean {
+  if (!text) return false;
+  const { remainder } = extractComposedPriceBlocks(text);
+  for (const line of remainder.split("\n")) {
+    // Terminator RUNS ([.!?।]*) stay attached: "see..." is one
+    // segment, not "see." plus dropped dots (Team A fix: the [.]?
+    // form silently ate trailing ellipses from kept sentences).
+    const sentences = line.match(/[^.!?।]+[.!?।]*/g) ?? [];
+    for (const s of sentences) {
+      if (s.trim() && isFareFigureSegment(s)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Remove every fare-figure sentence/line from a reply. Returns the
+ * reply with those segments dropped (other sentences untouched, in
+ * order). Valid composed-price blocks survive with their sentinels
+ * stripped; invalid marked blocks are dropped whole. Returns ""
+ * when nothing non-fare remains — the caller decides the
+ * fail-closed handling for that case.
+ */
+export function suppressFareFigures(text: string): string {
+  if (!text) return "";
+  const { remainder, blocks } = extractComposedPriceBlocks(text);
+  const keptLines: string[] = [];
+  for (const line of remainder.split("\n")) {
+    const sentences = line.match(/[^.!?।]+[.!?।]*/g) ?? [];
+    const kept = sentences
+      .filter((s) => s.trim() && !isFareFigureSegment(s))
+      .map((s) => s.trim());
+    if (kept.length > 0) keptLines.push(kept.join(" "));
+  }
+  let out = keptLines.join("\n").trim();
+  // Restore exempt blocks (sentinels already gone — the placeholder
+  // held the place, the stored lines are the customer-visible text).
+  blocks.forEach((lines, idx) => {
+    out = out.replace(
+      `\u0000COMPOSED-PRICE-EXEMPT-${idx}\u0000`,
+      lines.join("\n")
+    );
+  });
+  return out.trim();
+}
+
+/**
  * Truncate AI response to maximum allowed length.
  */
 export function enforceResponseLength(

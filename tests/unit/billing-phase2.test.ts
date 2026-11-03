@@ -452,6 +452,7 @@ describe("billing countdown (pure)", () => {
         plan: "growth",
         subscriptionEndsAt: days(30),
         aiMessagesUsed: 100,
+        usagePeriodStart: days(-1),
       },
       NOW
     );
@@ -463,7 +464,7 @@ describe("billing countdown (pure)", () => {
 
   it("fires usage 80 at 84% and both 80+100 at 100%", () => {
     const at84 = buildCountdown(
-      { subscriptionStatus: "active", plan: "growth", aiMessagesUsed: 4200 },
+      { subscriptionStatus: "active", plan: "growth", aiMessagesUsed: 4200, usagePeriodStart: days(-1) },
       NOW
     );
     expect(at84.percentUsed).toBe(84);
@@ -473,7 +474,7 @@ describe("billing countdown (pure)", () => {
     expect(usage84).toEqual([80]);
 
     const at100 = buildCountdown(
-      { subscriptionStatus: "active", plan: "growth", aiMessagesUsed: 5000 },
+      { subscriptionStatus: "active", plan: "growth", aiMessagesUsed: 5000, usagePeriodStart: days(-1) },
       NOW
     );
     const usage100 = at100.notices
@@ -501,6 +502,58 @@ describe("billing countdown (pure)", () => {
       NOW
     );
     expect(c.adminNotice?.message).toBe("Please update your details.");
+  });
+
+  it("rolled-over period counts as 0 (gate-consistent, no stale 100% banner)", () => {
+    const c = buildCountdown(
+      {
+        subscriptionStatus: "active",
+        plan: "growth",
+        aiMessagesUsed: 5000,
+        usagePeriodStart: days(-31),
+      },
+      NOW
+    );
+    expect(c.percentUsed).toBe(0);
+    expect(c.messagesRemaining).toBe(5000);
+    expect(c.notices.filter((n) => n.type === "usage")).toHaveLength(0);
+  });
+
+  it("free tier in a rolled-over period shows the full 100 again", () => {
+    const c = buildCountdown(
+      {
+        subscriptionStatus: "trialing",
+        plan: "trial",
+        trialEndsAt: days(-1),
+        aiMessagesUsed: 100,
+        usagePeriodStart: days(-31),
+      },
+      NOW
+    );
+    expect(c.plan).toBe("free");
+    expect(c.messagesLimit).toBe(100);
+    expect(c.percentUsed).toBe(0);
+    expect(c.messagesRemaining).toBe(100);
+    expect(c.notices.filter((n) => n.type === "usage")).toHaveLength(0);
+  });
+
+  it("free tier exhausted inside a live period still fires 80+100", () => {
+    const c = buildCountdown(
+      {
+        subscriptionStatus: "trialing",
+        plan: "trial",
+        trialEndsAt: days(-1),
+        aiMessagesUsed: 100,
+        usagePeriodStart: days(-1),
+      },
+      NOW
+    );
+    expect(c.plan).toBe("free");
+    expect(c.messagesRemaining).toBe(0);
+    expect(c.percentUsed).toBe(100);
+    expect(
+      c.notices.filter((n) => n.type === "usage").map((n) => (n.type === "usage" ? n.threshold : -1))
+    ).toEqual([80, 100]);
   });
 });
 

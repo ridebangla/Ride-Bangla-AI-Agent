@@ -45,7 +45,7 @@ export interface JwtPayload {
   userId: string;
   role: string;
   jti: string;
-  type: "access" | "refresh";
+  type: "access" | "refresh" | "twofa_pending";
   iat?: number;
   exp?: number;
 }
@@ -76,6 +76,60 @@ export function generateRefreshToken(userId: string, role: string): string {
     { expiresIn: REFRESH_TOKEN_EXPIRY }
   );
 }
+
+// --- TEAM 2FA (2026-11-03): second-factor pending token -----------------
+// Issued INSTEAD of session cookies when a 2FA-enabled account passes the
+// first factor (Firebase sign-in). It is NOT a session: verifySessionToken
+// and verifyRefreshToken both reject it (type check), middleware never
+// sees it (it lives in its own rbai-twofa cookie, never rbai-token), and
+// the only thing it can ever be exchanged for is a full session via
+// POST /api/auth/two-factor/verify with a valid second-factor code.
+// 10-minute life: a stale pending token cannot linger as a login shortcut.
+const TWOFA_PENDING_TOKEN_NAME = "rbai-twofa";
+const TWOFA_PENDING_EXPIRY = "10m";
+
+export function generateTwoFactorPendingToken(userId: string, role: string): string {
+  return jwt.sign(
+    { userId, role, jti: randomUUID(), type: "twofa_pending" },
+    JWT_SECRET,
+    { expiresIn: TWOFA_PENDING_EXPIRY }
+  );
+}
+
+/** Verify a pending token: signature + expiry + exact type. */
+export function verifyTwoFactorPendingToken(token: string): JwtPayload | null {
+  const payload = verifyToken(token);
+  if (!payload) return null;
+  if (payload.type !== "twofa_pending") return null;
+  return payload;
+}
+
+export function getTwoFactorPendingCookieName(): string {
+  return TWOFA_PENDING_TOKEN_NAME;
+}
+
+export function setTwoFactorPendingCookie(token: string) {
+  return {
+    name: TWOFA_PENDING_TOKEN_NAME,
+    value: token,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    maxAge: 60 * 10, // 10 minutes — matches TWOFA_PENDING_EXPIRY
+    path: "/api/auth/two-factor",
+  };
+}
+
+export function clearTwoFactorPendingCookie() {
+  return {
+    name: TWOFA_PENDING_TOKEN_NAME,
+    value: "",
+    httpOnly: true,
+    maxAge: 0,
+    path: "/api/auth/two-factor",
+  };
+}
+// --- END TEAM 2FA ----------------------------------------------------------
 
 /**
  * Verify signature + expiry only (no DB). Use `verifySessionToken` for

@@ -211,10 +211,39 @@ export async function POST(request: NextRequest) {
     // context, so the admin lookup must use the unscoped client.
     const admin = await getUnscopedPrisma().admin.findUnique({
       where: { id: payload.userId },
-      select: { id: true, username: true, name: true, role: true },
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        role: true,
+        twoFactorEnabled: true,
+        twoFactorActivatedAt: true,
+      } as Record<string, unknown>,
     });
     if (!admin) {
       return NextResponse.json({ error: "User not found" }, { status: 401 });
+    }
+
+    // TEAM 2FA (2026-11-03) — refresh-chain kill, delimited addition: a
+    // refresh token minted BEFORE 2FA was activated must not silently
+    // restore a full session past the new challenge. Its iat predates
+    // activation, so revoke it and send the holder back through sign-in
+    // (which now presents the second-factor challenge). Access tokens
+    // have the same 1h tail at most and expire on their own.
+    {
+      const tfaEnabled = (admin as { twoFactorEnabled?: unknown }).twoFactorEnabled === true;
+      const activatedAt = (admin as { twoFactorActivatedAt?: unknown }).twoFactorActivatedAt;
+      const activatedMs = activatedAt ? new Date(activatedAt as string | number | Date).getTime() : NaN;
+      if (tfaEnabled && !Number.isNaN(activatedMs) && payload.iat && payload.iat * 1000 < activatedMs) {
+        await revokeToken(
+          payload.jti,
+          new Date((payload.exp ?? 0) * 1000 || Date.now() + 7 * 24 * 3600 * 1000)
+        );
+        return NextResponse.json(
+          { error: "Sign-in required. Please sign in again." },
+          { status: 401 }
+        );
+      }
     }
 
     await revokeToken(

@@ -17,6 +17,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // TEAM 2FA (2026-11-03) — second-factor challenge, delimited addition:
+  // when /api/auth/firebase answers twoFactorRequired, no session was
+  // issued (only a pending token cookie); this form collects the code
+  // and POSTs it to /api/auth/two-factor/verify, which alone mints the
+  // session. Dashboard access without that step stays impossible: there
+  // is simply no access token until the code verifies.
+  const [twoFactorRequired, setTwoFactorRequired] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [twoFactorLoading, setTwoFactorLoading] = useState(false);
   const [resetSending, setResetSending] = useState(false);
   const [resetMsg, setResetMsg] = useState("");
 
@@ -103,6 +112,14 @@ export default function LoginPage() {
         return;
       }
 
+      // TEAM 2FA: first factor passed but no session was issued — the
+      // second-factor code form below is now the only way forward.
+      if (data.twoFactorRequired) {
+        setTwoFactorRequired(true);
+        setLoading(false);
+        return;
+      }
+
       router.replace("/dashboard");
     } catch (err: unknown) {
       const code =
@@ -126,6 +143,31 @@ export default function LoginPage() {
         setError("An unexpected error occurred. Please try again.");
       }
       setLoading(false);
+    }
+  }
+
+  // TEAM 2FA: submit the second-factor code (current authenticator code
+  // or a single-use backup code). Only a verified code mints a session.
+  async function handleTwoFactorSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setTwoFactorLoading(true);
+    try {
+      const res = await fetch("/api/auth/two-factor/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: twoFactorCode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Verification failed. Please try again.");
+        setTwoFactorLoading(false);
+        return;
+      }
+      router.replace("/dashboard");
+    } catch {
+      setError("Network error. Check your connection and try again.");
+      setTwoFactorLoading(false);
     }
   }
 
@@ -158,11 +200,17 @@ export default function LoginPage() {
         </p>
       </div>
 
-      <GoogleButton
-        endpoint="/api/auth/firebase"
-        label="Continue with Google"
-        onError={setError}
-      />
+      {/* TEAM 2FA: Google sign-in that lands on a 2FA challenge shows the
+          code form instead of navigating to the dashboard (no session
+          exists yet at that point). */}
+      {!twoFactorRequired && (
+        <GoogleButton
+          endpoint="/api/auth/firebase"
+          label="Continue with Google"
+          onError={setError}
+          onTwoFactorRequired={() => setTwoFactorRequired(true)}
+        />
+      )}
 
       <div className="flex items-center gap-3 my-6">
         <span className="h-px flex-1 bg-rbai-border" />
@@ -172,6 +220,61 @@ export default function LoginPage() {
         <span className="h-px flex-1 bg-rbai-border" />
       </div>
 
+      {/* TEAM 2FA: second-factor code form — shown only after the first
+          factor passed and the server answered twoFactorRequired. */}
+      {twoFactorRequired && (
+        <form onSubmit={handleTwoFactorSubmit} className="space-y-5">
+          <div>
+            <label
+              htmlFor="two-factor-code"
+              className="block text-sm font-medium text-rbai-text mb-1.5"
+            >
+              Authenticator code
+            </label>
+            <input
+              id="two-factor-code"
+              type="text"
+              inputMode="text"
+              autoComplete="one-time-code"
+              required
+              value={twoFactorCode}
+              onChange={(e) => setTwoFactorCode(e.target.value)}
+              className="w-full rounded-lg border border-rbai-border bg-rbai-bg px-3.5 py-2.5 text-sm text-rbai-text placeholder:text-rbai-text-light focus:outline-none focus:ring-2 focus:ring-rbai-primary focus:border-transparent transition-shadow"
+              placeholder="6-digit code or backup code"
+            />
+            <p className="text-xs text-rbai-text-light mt-1.5">
+              Open your authenticator app and enter the current 6-digit code
+              for this account. If you lost the app, enter one of your backup
+              codes instead (each works once).
+            </p>
+          </div>
+          {error && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-3.5 py-2.5 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={twoFactorLoading}
+            className="w-full rounded-lg bg-rbai-primary text-white font-medium py-2.5 text-sm hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          >
+            {twoFactorLoading ? "Verifying…" : "Verify and sign in"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTwoFactorRequired(false);
+              setTwoFactorCode("");
+              setError("");
+            }}
+            className="w-full text-xs text-rbai-primary hover:underline"
+          >
+            Back to sign-in
+          </button>
+        </form>
+      )}
+
+      {!twoFactorRequired && (
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label
@@ -248,6 +351,7 @@ export default function LoginPage() {
           )}
         </button>
       </form>
+      )}
       <p className="text-rbai-text-light text-xs mt-5 text-center">
         The same email and password you use for the Admin Console.
       </p>

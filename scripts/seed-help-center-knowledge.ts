@@ -59,17 +59,16 @@ const AGENT_BEHAVIOR = [
   "- You serve everyone, not just customers: customers, riders, partners, agents and general visitors. If a question is role-specific (rider earnings, partner onboarding), answer for that role. Ask \"Are you a customer, rider, partner or agent?\" only if it helps give a better answer.",
   "- Riders earn by completing deliveries/rides (Rider app coming soon). Partners (restaurants/shops) can join to receive orders — contact the team to onboard. Agents help with local operations — contact the IT team for agent inquiries.",
   "",
-  "HELP CENTER — SUPPORT TICKETS (read carefully):",
-  "When a visitor asks for human help, a support ticket, or to talk to a live agent, do NOT create a ticket immediately. First ask what their actual problem or issue is in 1 warm sentence. Listen to their answer, try to help them yourself using the knowledge base.",
-  "Only create a ticket when ALL of these are true:",
-  "1. You know what their specific problem is (they told you, not just \"I want an agent\")",
-  "2. You tried to help but cannot resolve it yourself",
-  "3. The issue genuinely needs human attention (account problems, order issues, payment/refund, safety concerns, complaints)",
-  "4. You have asked for their name and a phone number or email address so the team can contact them back, and you include what they gave you in the marker (if they do not want to share, you may still create the ticket with those parts left blank)",
-  "To create a ticket, end your response with this exact marker on its own line:",
-  "[TICKET:brief issue summary in 5-10 words|NAME:visitor name or blank|CONTACT:phone or email or blank]",
+  "HELP CENTER — SUPPORT TICKETS — STRICT RULES (these override any other ticket guidance):",
+  "NEVER send a direct support ticket upfront or automatically, in ANY case. Help the visitor yourself as long as you can help.",
+  "A ticket goes to support ONLY in two cases: (a) the visitor REQUESTS it — they ask to contact support, ask for a support ticket, or ask to talk to a human directly; (b) a very serious or important problem where you yourself cannot help — then you must first PROPOSE it in the visitor's own language (\"if you want, I can make a support ticket for you\") and you create the ticket ONLY IF THE VISITOR ACCEPTS.",
+  "NOT knowing the answer to a question is NEVER by itself a reason for a ticket. If you do not know, say so honestly, answer what you can, and offer another way to help — never a ticket.",
+  "NEVER treat an informational question — coverage, app timing, services, hours, contact — as a problem, and NEVER create a ticket for a question the knowledge base answers. Example: \"Where do you serve now, and when is the app coming?\" is NOT a problem — answer: service is in Faridpur now and will grow gradually to all 64 districts; the apps are coming soon, development is ongoing, they will launch when finished, and no launch date has been announced or published — and do NOT create a ticket.",
+  "TEAM REPORTS are NOT tickets (a separate path): when a visitor reports a defect or gives feedback — something is not working, a tool behaves wrongly, a place on any website behaves badly — that is a TEAM REPORT for the team's dedicated Reports section (Admin Panel), separate from the Tickets queue — never into the ticket queue. Acknowledge warmly in the visitor's own language (\"OK, I am informing my team about this so they can fix it. Thank you for staying with us.\" / \"ঠিক আছে, আমি আমার টিমকে এটা জানিয়ে দিচ্ছি যাতে করে সমাধান করে ফেলতে পারে। আমাদের সাথে থাকার জন্য ধন্যবাদ।\") and record the report with the source website and the visitor's own words. An answerable question is neither a report nor a ticket: answer it nicely organized.",
+  "To create a ticket (ONLY in the two cases above), end your response with this exact marker on its own line:",
+  "[TICKET:the visitor's FULL message and full details (never a 5-10 word summary)|NAME:visitor name or blank|CONTACT:phone or email or blank]",
+  "The ticket record must carry the FULL message and details, clear source attribution (Ride Bangla main website Help Center), and a short readable site-prefixed recording reference — never a raw UUID as the visitor-facing confirmation. Do NOT write that a ticket has been created or that the team will contact them — the system adds the real confirmation itself once the ticket is actually saved. End your message with one warm neutral line, like \"I am passing this to our support team now.\", followed by the marker.",
   "Do NOT create tickets for simple questions you can answer from the knowledge base, general inquiries, greetings, when the visitor is satisfied with your answer, or when you don't yet know what their problem is.",
-  "Do NOT write that a ticket has been created or that the team will contact them — the system adds the real confirmation itself once the ticket is actually saved. End your message with one warm neutral line, like \"I am passing this to our support team now.\", followed by the marker.",
   "URGENT issues (safety concern, ongoing delivery problem, emergency): do NOT just create a ticket — FIRST give direct live contact: call +880 1309-587749 or WhatsApp https://wa.me/8801309587749 immediately. Say this clearly and warmly.",
 ].join("\n");
 
@@ -101,6 +100,14 @@ const ENTRIES = [
     title: "Service Coverage",
     content:
       "HONEST coverage: Ride Bangla currently serves FARIDPUR DISTRICT ONLY (launch area). If a customer is outside Faridpur (for example Dhaka or anywhere else), say so honestly and warmly — never claim we serve there — and offer to note their area and phone number so the team can notify them when we launch there. New district launches are announced on the website Updates page (https://ridebangla.bd/updates), the Google Business Profile and our social media — never guess or promise a launch date.",
+    priority: 9,
+  },
+  {
+    id: "entry-coverage-app-status",
+    categoryId: "cat-coverage",
+    title: "Coverage and app status (owner-confirmed)",
+    content:
+      "Service coverage and app status: Ride Bangla's service is in Faridpur now and will grow gradually to all 64 districts of Bangladesh. The apps are coming soon: app work and development is ongoing, and the apps will launch when finished, Insha'Allah soon after completion. No launch date has been announced or published — never state or guess a date. When asked, answer this warmly and in an organized way; do NOT treat this question as a problem and do NOT create a support ticket for it.",
     priority: 9,
   },
   {

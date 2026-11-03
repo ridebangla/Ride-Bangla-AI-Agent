@@ -404,10 +404,14 @@ export function buildCountdown(
         : limitOverride !== undefined
           ? limitOverride
           : messagesLimitForPlan(plan === "trial" ? "trial" : plan);
-  const used =
-    typeof biz.aiMessagesUsed === "number" && biz.aiMessagesUsed >= 0
-      ? Math.trunc(biz.aiMessagesUsed)
-      : 0;
+  // Period-aware count (Team D 2026-11-03): the spend gate reads
+  // effectiveAiMessagesUsed (a rolled-over 30-day period counts as 0),
+  // so the countdown must too — a raw aiMessagesUsed showed a stale
+  // 100% banner after the period rolled while the gate still allowed
+  // work, contradicting the popup (which already used the effective
+  // count). A missing usagePeriodStart also reads as 0, exactly as
+  // the gate treats it.
+  const used = effectiveAiMessagesUsed(biz, nowMs);
   const messagesRemaining = limit !== null ? Math.max(0, limit - used) : null;
   const percentUsed =
     limit !== null && limit > 0 ? Math.round((used / limit) * 100) : null;

@@ -143,7 +143,7 @@ const BASE_CSS = `
   .lp-nav { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
   .lp-nav-inner { max-width: 1120px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .lp-brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 17px; text-decoration: none; color: inherit; }
-  .lp-logo { width: 42px; height: 42px; border-radius: 12px; object-fit: cover; background: #fff; }
+  .lp-logo { width: 42px; height: 42px; border-radius: 12px; object-fit: contain; background: #fff; }
   .lp-monogram { width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; background: var(--lp-brand); color: var(--lp-on-brand); flex-shrink: 0; }
   .lp-nav-links { display: flex; gap: 26px; font-size: 14px; font-weight: 600; }
   .lp-nav-links a { color: var(--lp-muted); text-decoration: none; transition: color .15s; }

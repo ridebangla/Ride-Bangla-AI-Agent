@@ -38,6 +38,7 @@ import {
   isFreshActivity,
   type AgentActivity,
 } from "@/lib/ai/activity-labels";
+import { withBusinessParam } from "@/lib/business-param";
 
 // ---------------------------------------------------------------------------
 // Channel identity — distinct icon + color + label per channel.
@@ -274,7 +275,7 @@ export default function InboxPage() {
 
   const fetchTab = useCallback(async (t: string, query: string) => {
     if (t === "comments") {
-      const res = await fetch("/api/social/comments?status=pending");
+      const res = await fetch(withBusinessParam("/api/social/comments?status=pending"));
       if (!res.ok) throw new Error("Failed to load comments");
       const data = await res.json();
       setComments(data.comments || []);
@@ -287,7 +288,7 @@ export default function InboxPage() {
     // page-post comments appear ALONGSIDE messages on their channel.
     const isUnifiedTab = t === "facebook" || t === "instagram";
     if (isUnifiedTab) params.set("include", "comments");
-    const res = await fetch(`/api/inbox?${params.toString()}`);
+    const res = await fetch(withBusinessParam(`/api/inbox?${params.toString()}`));
     if (!res.ok) throw new Error("Failed to load inbox");
     const data = await res.json();
     // /api/inbox returns the paginated envelope { data, pagination, unreadTotal }.
@@ -319,7 +320,9 @@ export default function InboxPage() {
           // Comments queue), so an unanswered comment lights up its channel.
           const unified = t === "facebook" || t === "instagram";
           const res = await fetch(
-            `/api/inbox?channel=${t}&limit=1${unified ? "&include=comments" : ""}`
+            withBusinessParam(
+              `/api/inbox?channel=${t}&limit=1${unified ? "&include=comments" : ""}`
+            )
           );
           if (res.ok) {
             const data = await res.json();
@@ -331,7 +334,7 @@ export default function InboxPage() {
     );
     // Pending comments badge.
     try {
-      const res = await fetch("/api/social/comments?status=pending");
+      const res = await fetch(withBusinessParam("/api/social/comments?status=pending"));
       if (res.ok) {
         const data = await res.json();
         counts.comments = data.pending || 0;
@@ -342,7 +345,7 @@ export default function InboxPage() {
 
   const fetchGlobalAi = useCallback(async () => {
     try {
-      const res = await fetch("/api/settings");
+      const res = await fetch(withBusinessParam("/api/settings"));
       if (res.ok) {
         const data = await res.json();
         setGlobalAiOff(data.aiEnabled === false);
@@ -450,9 +453,11 @@ export default function InboxPage() {
       const deltaTs =
         threadDeltaRef.current?.id === id ? threadDeltaRef.current.ts : "";
       const res = await fetch(
-        deltaTs
-          ? `/api/conversations/${id}?since=${encodeURIComponent(deltaTs)}`
-          : `/api/conversations/${id}`
+        withBusinessParam(
+          deltaTs
+            ? `/api/conversations/${id}?since=${encodeURIComponent(deltaTs)}`
+            : `/api/conversations/${id}`
+        )
       );
       if (res.ok) {
         const data = await res.json();
@@ -599,7 +604,7 @@ export default function InboxPage() {
     if (!selectedId || togglingAi) return;
     setTogglingAi(true);
     try {
-      const res = await fetch(`/api/conversations/${selectedId}`, {
+      const res = await fetch(withBusinessParam(`/api/conversations/${selectedId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ aiEnabled: enabled }),
@@ -627,7 +632,7 @@ export default function InboxPage() {
     setSending(true);
     setDeliveryNote(null);
     try {
-      const res = await fetch(`/api/conversations/${selectedId}/messages`, {
+      const res = await fetch(withBusinessParam(`/api/conversations/${selectedId}/messages`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: replyText.trim(), role: "admin" }),
@@ -649,7 +654,7 @@ export default function InboxPage() {
   const handleApproveComment = async (id: string, text: string) => {
     if (!text.trim()) return;
     try {
-      const res = await fetch(`/api/social/comments/${id}/approve`, {
+      const res = await fetch(withBusinessParam(`/api/social/comments/${id}/approve`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: text.trim() }),
@@ -666,7 +671,7 @@ export default function InboxPage() {
 
   const handleDismissComment = async (id: string) => {
     try {
-      const res = await fetch(`/api/social/comments/${id}/dismiss`, { method: "POST" });
+      const res = await fetch(withBusinessParam(`/api/social/comments/${id}/dismiss`), { method: "POST" });
       if (!res.ok) throw new Error("Failed");
       setComments((prev) => prev.filter((c) => c.id !== id));
       refreshUnread();

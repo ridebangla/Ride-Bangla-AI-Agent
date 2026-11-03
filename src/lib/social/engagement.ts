@@ -12,6 +12,7 @@
 import { prisma, withBusinessId } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { getActiveAccounts, getDecryptedToken } from "./accounts";
+import { findCustomerByChannelContact } from "@/lib/customer-resolver";
 import { getOpenAI, getKnowledgeContext } from "./ai";
 import type { SocialAccount } from "@/lib/models";
 
@@ -547,6 +548,40 @@ export async function syncEngagement(): Promise<SyncResult> {
         } // Leg C: end of global-off else (comment auto-post gate)
       }
 
+      // Customer-identity wiring (Team H): link a comment/message
+      // author to their existing chat Customer ONLY on an exact
+      // platform-identifier match — Facebook comment authors share
+      // the page-scoped PSID namespace with Messenger threads, and
+      // Instagram comment authors with Instagram DM threads — via
+      // the LOOKUP-ONLY resolver (never auto-create: a commenter who
+      // has never chatted stays unlinked, never merged on name
+      // similarity or any guessed signal). X author ids have no
+      // chat-channel equivalent, so they stay unlinked (residual
+      // limit). Fail-soft: a lookup failure leaves the interaction
+      // stored exactly as before, unlinked, and the sync continues.
+      let linkedCustomerId: string | null = null;
+      const commentChannel =
+        item.platform === "facebook"
+          ? "messenger"
+          : item.platform === "instagram"
+            ? "instagram"
+            : null;
+      if (commentChannel && item.customerRef) {
+        try {
+          linkedCustomerId = await findCustomerByChannelContact(
+            commentChannel,
+            item.customerRef
+          );
+        } catch (err) {
+          logger.warn("Comment author resolution failed — storing unlinked", {
+            platform: item.platform,
+            externalId: item.externalId,
+            reason: err instanceof Error ? err.message : String(err),
+          });
+          linkedCustomerId = null;
+        }
+      }
+
       await prisma.socialInteraction.create({
         data: withBusinessId({
           platform: item.platform,
@@ -554,6 +589,7 @@ export async function syncEngagement(): Promise<SyncResult> {
           externalId: item.externalId,
           parentRef: item.parentRef,
           customerRef: item.customerRef,
+          ...(linkedCustomerId ? { customerId: linkedCustomerId } : {}),
           content: item.content,
           likes: item.likes,
           replied,

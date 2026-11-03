@@ -355,6 +355,15 @@ export interface Admin {
   businessId: string | null;
   failedLoginAttempts: number;
   lockedUntil: Date | null;
+  // TEAM 2FA (2026-11-03): authenticator-app 2FA. Absent = never set up.
+  // Secrets are stored ENCRYPTED (see src/lib/two-factor.ts); backup
+  // codes are stored as SHA-256 hashes only, never plaintext.
+  twoFactorEnabled?: boolean;
+  twoFactorSecretEncrypted?: string | null;
+  twoFactorPendingSecretEncrypted?: string | null;
+  twoFactorPendingExpiresAt?: Date | null;
+  twoFactorBackupCodeHashes?: string[];
+  twoFactorActivatedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -538,6 +547,14 @@ export interface TestChatMessage {
   createdAt: Date;
 }
 
+export interface TicketAttachment {
+  name: string;
+  mimeType: string;
+  size: number;
+  /** Base64 payload (temporary until Storage migration, same as /api/contact). */
+  dataBase64: string;
+}
+
 export interface Ticket {
 
   [key: string]: unknown;  id: string;
@@ -550,6 +567,16 @@ export interface Ticket {
   status: string;
   priority: string;
   resolution: string;
+  /** Short readable recording number (SITE-XXXXXXXX), never a raw UUID. */
+  reference?: string | null;
+  /** Origin host the ticket came from, e.g. tools.ridebangla.bd. */
+  sourceWebsite?: string | null;
+  /** Intake channel: "help-center-form" (page forms) or "widget-chat". */
+  sourceChannel?: string | null;
+  visitorName?: string | null;
+  visitorContact?: string | null;
+  pageUrl?: string | null;
+  attachments?: TicketAttachment[] | null;
   createdAt: Date;
   updatedAt: Date;
   conversation: Conversation | null;

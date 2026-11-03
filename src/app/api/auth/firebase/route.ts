@@ -4,8 +4,10 @@ import { getUnscopedPrisma } from "@/lib/prisma";
 import {
   generateRefreshToken,
   generateToken,
+  generateTwoFactorPendingToken,
   isDatastoreQuotaError,
   setSessionCookies,
+  setTwoFactorPendingCookie,
 } from "@/lib/auth";
 import { resolveSignInAdmin } from "@/lib/admin-resolution";
 import { logger } from "@/lib/logger";
@@ -128,6 +130,34 @@ export async function POST(request: NextRequest) {
       logger.warn(
         `[Auth] Firebase bootstrap: ${email} became Super Admin of the AI Agent`
       );
+    }
+
+    // TEAM 2FA (2026-11-03) — second-factor challenge, delimited addition:
+    // a 2FA-enabled account gets NO session cookies here. Instead it gets
+    // a short-lived pending token (its own cookie) and the client shows
+    // the code-entry form; POST /api/auth/two-factor/verify exchanges
+    // pending token + valid code for the session pair below. A pending
+    // token is not an access token (verifySessionToken rejects its type),
+    // so it opens no dashboard or API route on its own.
+    if (
+      (agentAdmin as { twoFactorEnabled?: unknown }).twoFactorEnabled === true
+    ) {
+      const pendingToken = generateTwoFactorPendingToken(
+        agentAdmin.id,
+        agentAdmin.role
+      );
+      const pendingResponse = NextResponse.json({
+        success: true,
+        twoFactorRequired: true,
+        user: {
+          id: agentAdmin.id,
+          email,
+          name: agentAdmin.name,
+          role: agentAdmin.role,
+        },
+      });
+      pendingResponse.cookies.set(setTwoFactorPendingCookie(pendingToken));
+      return pendingResponse;
     }
 
     const token = generateToken(agentAdmin.id, agentAdmin.role);

@@ -89,37 +89,62 @@ export default async function DashboardLayout({
   }
   if (!admin && !degraded) redirect("/login");
 
+  // Login/dashboard performance (owner directive 2026-10-22, extended):
+  // getSubscription, getBillingCountdown and getLimitExhaustedState are
+  // INDEPENDENT — all three key off businessId only and none consumes
+  // another's result — so they run in ONE Promise.allSettled window
+  // instead of two sequential windows (subscription, then the
+  // countdown/limit pair). Wall-clock on the active path drops from
+  // sum(subscription, max(countdown, limit)) to
+  // max(subscription, countdown, limit); the read COUNT on that path
+  // is unchanged (the same three calls).
+  // Outcome preservation (checked, not assumed):
+  //  - subscription throws -> degraded=true and the other two results
+  //    are DISCARDED, exactly as before when they never ran;
+  //  - subscription definitively inactive -> redirect("/billing");
+  //  - countdown/limit never throw (both catch internally to null),
+  //    so a rejected settled result is treated as null, matching
+  //    their old null-on-failure behaviour.
+  // Trade-off, stated plainly: on the inactive and subscription-failure
+  // paths the countdown/limit reads now run speculatively and are
+  // discarded (before, they never ran there). Those paths end in a
+  // redirect or a degraded shell, so the extra reads buy nothing
+  // there; they are the price of the single window on the active
+  // path, which is the path that actually paints a dashboard.
+  // The subscription GATE itself is untouched: only a definitive
+  // inactive answer redirects, and a failed read still degrades
+  // instead of redirecting.
+  let countdown: Awaited<ReturnType<typeof getBillingCountdown>> = null;
+  let limitState: Awaited<ReturnType<typeof getLimitExhaustedState>> = null;
   if (admin?.businessId && !sessionDegraded) {
-    let subInactive = false;
-    try {
-      const sub = await getSubscription(admin.businessId);
-      subInactive = !sub.isActive;
-    } catch {
+    const businessId = admin.businessId;
+    const [subResult, countdownResult, limitResult] =
+      await Promise.allSettled([
+        getSubscription(businessId),
+        getBillingCountdown(businessId),
+        getLimitExhaustedState(businessId),
+      ]);
+    if (subResult.status === "rejected") {
       // Read failed (quota wall): state unknown — degrade, never redirect.
       degraded = true;
+    } else {
+      if (!subResult.value.isActive) redirect("/billing");
+      countdown =
+        countdownResult.status === "fulfilled"
+          ? countdownResult.value
+          : null;
+      limitState =
+        limitResult.status === "fulfilled" ? limitResult.value : null;
     }
-    if (subInactive) redirect("/billing");
   }
 
   // Billing Phase 2: countdown banner — shown ONLY when a warning threshold
   // is breached (days 7/3/1, usage 80%/100%) or the team posted an
   // adminNotice. Otherwise the dashboard stays exactly as it was.
-  // Login/dashboard performance (owner directive 2026-10-22): the
-  // countdown and limit-state reads are independent of each other (both
-  // key off businessId only) — run them CONCURRENTLY instead of serially
-  // so a dashboard load pays one round-trip window for the pair, not two.
-  // Results and all downstream behaviour are unchanged.
   // Q-SIGNIN: in degraded mode these billing reads are skipped entirely
   // (they would only re-hit the down data store); the shell renders
   // with the honest notice below and no limit UX — the spend gates in
   // the API routes remain the enforcement point once the store is back.
-  const [countdown, limitState] =
-    admin?.businessId && !degraded
-      ? await Promise.all([
-          getBillingCountdown(admin.businessId),
-          getLimitExhaustedState(admin.businessId),
-        ])
-      : [null, null];
 
   // Limit-exhausted UX (owner directive 2026-10-22): when the tenant's
   // product limit is finished, the dashboard still renders fully — a
@@ -167,15 +192,26 @@ export default async function DashboardLayout({
         </div>
       )}
       {limitState && <LimitExhaustedBar reset={limitState.reset} />}
-      {limitState && (
-        <LimitExhaustedPopup
-          reset={limitState.reset}
-          plans={limitPlans}
-          currentPlanId={limitState.planId}
-          used={limitState.used}
-          limit={limitState.limit}
-        />
-      )}
+      {/*
+        Always mounted (not only when limitState is non-null): a
+        mid-session client trigger (402 from a dashboard caller after
+        page load) calls openPopup(), and a popup that was never
+        mounted cannot render at all. When limitState is null the
+        props are absent and the popup falls back to headline + CTA
+        only — no invented reset, usage, or plan details — and the
+        Modal stays closed until openPopup() fires, so a
+        not-exhausted dashboard renders exactly as before. Server
+        state computation above is untouched: this changes only
+        whether the popup component is mounted, never when the
+        server considers the limit exhausted.
+      */}
+      <LimitExhaustedPopup
+        reset={limitState?.reset}
+        plans={limitPlans}
+        currentPlanId={limitState?.planId}
+        used={limitState?.used}
+        limit={limitState?.limit}
+      />
       {showCountdownBanner && countdown && (
         <div
           role="status"

@@ -12,6 +12,14 @@
  * business record — the same pattern the catalog uses for product images.
  * Payment-proof and support-attachment uploads are NOT cropped (evidence
  * must stay whole) and are untouched by this page.
+ *
+ * Business logo (Team Logo-Feature 2026-11-03): the same page also edits
+ * the tenant's OWN business logo — the SAME Business.logoUrl field the
+ * Landing settings write, saved by the same Save button through PUT
+ * /api/profile (tenant-scoped, validated there). The logo renders with
+ * object-contain (whole mark, never centre-cropped) on the Profile card,
+ * the public landing page, the dashboard header menu, and the customer
+ * widget header; empty means the business initial, never another mark.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -34,6 +42,7 @@ interface ProfileState {
   businessName: string;
   hasBusiness: boolean;
   profilePhoto: string;
+  logoUrl: string;
   contactName: string;
   contactPhone: string;
   contactAddress: string;
@@ -63,12 +72,15 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<ProfileState | null>(null);
   const [photo, setPhoto] = useState("");
+  const [logo, setLogo] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [contactAddress, setContactAddress] = useState("");
   const [cropFile, setCropFile] = useState<File | null>(null);
+  const [logoCropFile, setLogoCropFile] = useState<File | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const logoFileRef = useRef<HTMLInputElement>(null);
 
   const toast = (type: "success" | "error", message: string) => {
     const id = Date.now() + Math.random();
@@ -102,12 +114,14 @@ export default function ProfilePage() {
           businessName: b?.name ?? "",
           hasBusiness: !!b,
           profilePhoto: b?.profilePhoto ?? "",
+          logoUrl: b?.logoUrl ?? "",
           contactName: b?.contactName ?? "",
           contactPhone: b?.contactPhone ?? "",
           contactAddress: b?.contactAddress ?? "",
         };
         setProfile(state);
         setPhoto(state.profilePhoto);
+        setLogo(state.logoUrl);
         setContactName(state.contactName || state.adminName);
         setContactPhone(state.contactPhone);
         setContactAddress(state.contactAddress);
@@ -136,6 +150,7 @@ export default function ProfilePage() {
           contactPhone: contactPhone.trim(),
           contactAddress: contactAddress.trim(),
           profilePhoto: photo,
+          logoUrl: logo,
         }),
       });
       const json = await res.json();
@@ -270,6 +285,79 @@ export default function ProfilePage() {
                 </div>
               </div>
 
+              {/* Business logo card — the tenant's own mark (same
+                  Business.logoUrl field as Landing settings). Displayed
+                  with object-contain so a wide logo is never cropped;
+                  empty falls back to the business initial. */}
+              <div className="bg-rbai-surface border border-rbai-border rounded-2xl p-6 sm:p-8">
+                <div className="flex items-center gap-3 mb-6">
+                  <span className="p-3 rounded-xl bg-rbai-primary-50 text-rbai-primary">
+                    <ImagePlus className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <h3 className="font-semibold text-rbai-text">
+                      Business logo
+                    </h3>
+                    <p className="text-xs text-rbai-text-light mt-0.5">
+                      Your business logo — shown on your landing page, in
+                      the dashboard header, and in your customer chat widget.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
+                  <div className="flex-shrink-0">
+                    {logo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={logo}
+                        alt="Business logo"
+                        className="h-20 w-20 rounded-xl object-contain bg-white border border-rbai-border p-1"
+                      />
+                    ) : (
+                      <div className="h-20 w-20 rounded-xl bg-rbai-primary text-white flex items-center justify-center text-3xl font-semibold">
+                        {(profile.businessName.trim()[0] || "?").toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-3">
+                    <input
+                      ref={logoFileRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (f) setLogoCropFile(f);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => logoFileRef.current?.click()}
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-rbai-primary text-white hover:bg-rbai-primary-dark transition-colors"
+                    >
+                      <ImagePlus className="h-4 w-4" />
+                      {logo ? "Change logo" : "Upload logo"}
+                    </button>
+                    {logo && (
+                      <button
+                        type="button"
+                        onClick={() => setLogo("")}
+                        className="ml-2 inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-rbai-border text-rbai-text hover:bg-rbai-bg transition-colors"
+                      >
+                        <Trash2 className="h-4 w-4" /> Remove
+                      </button>
+                    )}
+                    <p className="text-xs text-rbai-text-light leading-relaxed">
+                      After you pick a logo, a crop window opens. Press Save
+                      below to apply it — the same logo is used on your
+                      Landing Page settings.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* Details card */}
               <div className="bg-rbai-surface border border-rbai-border rounded-2xl p-6 sm:p-8">
                 <div className="flex items-center gap-3 mb-6">
@@ -347,6 +435,26 @@ export default function ProfilePage() {
           )}
         </div>
       </div>
+
+      {/* Logo crop step — the full aspect list (square / 4:3 / 16:9 /
+          free) so a wide logo need not be forced square; display uses
+          object-contain, so the whole mark stays visible. */}
+      <ImageCropper
+        open={logoCropFile !== null}
+        file={logoCropFile}
+        title="Crop your logo"
+        defaultAspectId="square"
+        maxOutputSize={1024}
+        onConfirm={(dataUrl) => {
+          setLogoCropFile(null);
+          if (!isImageDataUrl(dataUrl)) {
+            toast("error", "That image could not be cropped. Please try a different logo.");
+            return;
+          }
+          setLogo(dataUrl);
+        }}
+        onCancel={() => setLogoCropFile(null)}
+      />
 
       {/* Crop step — 1:1 only; the centered square is what gets saved. */}
       <ImageCropper

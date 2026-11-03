@@ -11,7 +11,8 @@
  *
  * Auth: platform-wide, mirroring POST /api/followups/process — a
  * scheduler holding CRON_SECRET (`Authorization: Bearer <secret>`) OR
- * a platform Super Admin session (businessId null). There is no
+ * a platform Super Admin session (role super_admin; session calls
+ * include ?business=<slug>). There is no
  * in-repo clock and no vercel.json in this project: like the other
  * cron endpoints, an external scheduler must POST to this route
  * (daily is the recommended cadence; the per-run site cap bounds
@@ -43,7 +44,12 @@ export async function POST(request: NextRequest) {
     allowed = true;
   } else {
     const auth = await requireAuth(request);
-    if (isAuthenticated(auth) && auth.businessId === null) {
+    // Super Admin by ROLE, not businessId: a Super Admin calling with
+    // ?business=<slug> resolves businessId to that business, so the old
+    // businessId === null check wrongly rejected them (403). Session
+    // callers must still include ?business=<slug> (business resolution
+    // requires it); Bearer CRON_SECRET needs no ?business=.
+    if (isAuthenticated(auth) && auth.role === "super_admin") {
       allowed = true; // Super Admin
     } else if (!isAuthenticated(auth)) {
       return auth; // 401/403 response

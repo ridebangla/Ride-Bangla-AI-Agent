@@ -7,15 +7,22 @@
  * editable after creation:
  *
  * GET  — { admin: { name, email, role },
- *          business: { name, slug, profilePhoto, contactName,
+ *          business: { name, slug, profilePhoto, logoUrl, contactName,
  *                      contactPhone, contactAddress, siteKey } | null }
  *        business is null for the Super Admin (businessId null — they
  *        belong to no workspace), in which case only admin info is
  *        editable info.
- * PUT  — update { contactName, contactPhone, contactAddress, profilePhoto }
+ * PUT  — update { contactName, contactPhone, contactAddress, profilePhoto,
+ *        logoUrl }
  *        on the caller's business (fail-closed, same pattern as
  *        /api/landing: unscoped client + explicit `where: { id:
- *        auth.businessId }`). The sign-in email is deliberately NOT
+ *        auth.businessId }`). logoUrl is the SAME Business.logoUrl field
+ *        the Landing settings write — one stored field, two edit
+ *        surfaces — validated identically (image data URL via
+ *        checkImageDataUrl, else http(s) URL max 500 chars, else 400;
+ *        empty clears it). Overwriting replaces the old value outright:
+ *        data URLs live inline in the row, so there is no orphan file
+ *        to delete. The sign-in email is deliberately NOT
  *        editable here — it is the Firebase identity and is managed in
  *        the Firebase console (same rule as the old admin panel: this
  *        app never touches credentials).
@@ -29,6 +36,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUnscopedPrisma, runWithBusiness } from "@/lib/prisma";
 import { checkImageDataUrl } from "@/lib/data-url";
+import { MAX_TENANT_LOGO_HTTP_CHARS } from "@/lib/tenant-logo";
 import { logger } from "@/lib/logger";
 import { requireAuth, isAuthenticated } from "@/lib/route-auth";
 
@@ -66,6 +74,7 @@ export async function GET(request: NextRequest) {
         name: true,
         slug: true,
         profilePhoto: true,
+        logoUrl: true,
         contactName: true,
         contactPhone: true,
         contactAddress: true,
@@ -89,6 +98,7 @@ export async function GET(request: NextRequest) {
           name: business.name ?? "",
           slug: business.slug ?? "",
           profilePhoto: business.profilePhoto ?? "",
+          logoUrl: business.logoUrl ?? "",
           contactName: business.contactName ?? "",
           contactPhone: business.contactPhone ?? "",
           contactAddress: business.contactAddress ?? "",
@@ -144,6 +154,32 @@ export async function PUT(request: NextRequest) {
         }
         data.profilePhoto = photo || null;
       }
+      if (body.logoUrl !== undefined) {
+        // Tenant business logo — same field + same rules as PUT
+        // /api/landing (see header comment). Never truncated: a sliced
+        // data URL is a corrupted image, so oversize/invalid is an
+        // honest 400, never a silent rewrite.
+        const rawLogo = String(body.logoUrl ?? "").trim();
+        if (rawLogo.startsWith("data:")) {
+          const check = checkImageDataUrl(rawLogo);
+          if (!check.ok) {
+            return NextResponse.json({ error: check.error }, { status: 400 });
+          }
+          data.logoUrl = rawLogo;
+        } else if (!rawLogo) {
+          data.logoUrl = null;
+        } else if (
+          rawLogo.length > MAX_TENANT_LOGO_HTTP_CHARS ||
+          !/^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(rawLogo)
+        ) {
+          return NextResponse.json(
+            { error: "logoUrl must be a valid http(s) URL." },
+            { status: 400 }
+          );
+        } else {
+          data.logoUrl = rawLogo;
+        }
+      }
 
       if (Object.keys(data).length === 0) {
         return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
@@ -154,6 +190,7 @@ export async function PUT(request: NextRequest) {
         data,
         select: {
           profilePhoto: true,
+          logoUrl: true,
           contactName: true,
           contactPhone: true,
           contactAddress: true,
@@ -162,6 +199,7 @@ export async function PUT(request: NextRequest) {
 
       const b = updated as {
         profilePhoto?: string | null;
+        logoUrl?: string | null;
         contactName?: string | null;
         contactPhone?: string | null;
         contactAddress?: string | null;
@@ -169,6 +207,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({
         business: {
           profilePhoto: b.profilePhoto ?? "",
+          logoUrl: b.logoUrl ?? "",
           contactName: b.contactName ?? "",
           contactPhone: b.contactPhone ?? "",
           contactAddress: b.contactAddress ?? "",

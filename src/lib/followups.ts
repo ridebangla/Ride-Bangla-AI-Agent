@@ -1,4 +1,4 @@
-import { getUnscopedPrisma, runWithBusiness, prisma, withBusinessId } from "./prisma";
+import { getUnscopedPrisma, runWithBusiness, prisma, withBusinessId, getBusinessId } from "./prisma";
 import { sendWhatsAppMessage } from "./channels/whatsapp";
 import { sendSms } from "./channels/sms";
 import { sendEmail } from "./channels/email";
@@ -28,6 +28,13 @@ import {
 } from "./booking-reminders";
 import { evaluateBookingReminderGate } from "./booking-reminder-scheduler";
 import { sendMessengerTemplateMessage } from "./channels/messenger-template";
+import { getSettingsOwnerControlAdapter } from "./owner-controls/settings-owner-control-adapter";
+import type { OwnerControlDoc } from "./owner-controls/channel-control-store";
+import {
+  normalizeControls,
+  type MessageControlState,
+} from "./owner-controls/message-controls";
+import { decideFollowUpOwnerGate, ownerRecordFromFollowUp } from "./followup-owner-gate";
 export interface FollowUpResult {
   processed: number;
   sent: number;
@@ -79,6 +86,31 @@ async function processBusinessFollowUps(): Promise<FollowUpResult> {
   // follow-ups (incl. customer-requested reminders) still deliver below.
   const settings = await prisma.settings.findFirst();
   const behaviour = getBehaviourSettings(settings);
+  // Team J owner gate (block-only, see src/lib/followup-owner-gate.ts):
+  // loaded once per business, AFTER the settings read above. A missing
+  // controls doc is the normal case for existing tenants (no control
+  // set = family switches + channel toggles still govern); a corrupt
+  // owner-controls doc, or no tenant context at all, defers every
+  // record in this run (fail-closed, records stay pending).
+  const ownerBusinessId = getBusinessId();
+  let ownerControlsDoc: OwnerControlDoc | null = null;
+  let ownerControlsError = ownerBusinessId === null;
+  if (!ownerControlsError) {
+    try {
+      ownerControlsDoc = await getSettingsOwnerControlAdapter().getDoc(
+        ownerBusinessId as string
+      );
+    } catch {
+      ownerControlsError = true;
+    }
+  }
+  const ownerMessageControls: MessageControlState | null =
+    settings &&
+    (settings as { messageControls?: unknown }).messageControls !== undefined
+      ? normalizeControls(
+          (settings as { messageControls?: unknown }).messageControls
+        )
+      : null;
   if (behaviour.followUpsEnabled) {
     await createDroppedRevivalFollowUps(
       behaviour,
@@ -164,6 +196,45 @@ async function processBusinessFollowUps(): Promise<FollowUpResult> {
       // switch); F still gates every non-reminder kind below. The
       // handler sets the record's final status itself; the record is
       // still "pending" at this point, not "sending".
+      // Team J owner gate, booking-reminder branch: reminders own
+      // their delivery (LEG D) and bypass the Leg F gate below, so
+      // their owner gate runs HERE, after the Leg J toggle gate and
+      // before handleBookingReminder. A deferred reminder stays
+      // "pending" (message, due time, and slot untouched) and
+      // delivers on a later run after resume / hand-back.
+      if ((fu as { kind?: string }).kind === "booking_reminder") {
+        const view = ownerRecordFromFollowUp(
+          fu as {
+            id: string;
+            message: string;
+            kind?: unknown;
+            slot?: unknown;
+            ownerPaused?: unknown;
+            ownerPausedUntil?: unknown;
+          }
+        );
+        const reminderGate = decideFollowUpOwnerGate({
+          businessId: ownerBusinessId ?? "",
+          controlBusinessId: ownerControlsDoc?.businessId ?? null,
+          controls: ownerMessageControls,
+          channelControls: ownerControlsDoc?.channelControls,
+          channel: conv.channel,
+          docError: ownerControlsError,
+          record: view.record,
+          kind: view.kind,
+          slot: view.slot,
+          nowMs: Date.now(),
+        });
+        if (!reminderGate.send) {
+          deferred++;
+          logger.warn("[followups] delivery deferred by owner gate", {
+            followUpId: fu.id,
+            kind: fu.kind,
+            reason: reminderGate.reason,
+          });
+          continue;
+        }
+      }
       if ((fu as { kind?: string }).kind === "booking_reminder") {
         // Narrow the Conversation to the handler's shape: its metadata
         // is JsonValue, so extract metaPageId only from a plain object;
@@ -287,6 +358,47 @@ async function processBusinessFollowUps(): Promise<FollowUpResult> {
           reason: "customer_left_number",
         });
         continue;
+      }
+
+      // Team J owner gate (all other kinds): runs AFTER the Leg F +
+      // Leg I suppressions above and BEFORE the status="sending"
+      // update, exactly where the ordering note reserves the Leg D
+      // channel-hold insertion. A deferred record stays "pending"
+      // (no write at all — it already is pending), so pausing stops
+      // the send without deleting or rewriting anything, and the
+      // record delivers on a later run after resume / hand-back.
+      {
+        const view = ownerRecordFromFollowUp(
+          fu as {
+            id: string;
+            message: string;
+            kind?: unknown;
+            slot?: unknown;
+            ownerPaused?: unknown;
+            ownerPausedUntil?: unknown;
+          }
+        );
+        const ownerGate = decideFollowUpOwnerGate({
+          businessId: ownerBusinessId ?? "",
+          controlBusinessId: ownerControlsDoc?.businessId ?? null,
+          controls: ownerMessageControls,
+          channelControls: ownerControlsDoc?.channelControls,
+          channel: conv.channel,
+          docError: ownerControlsError,
+          record: view.record,
+          kind: view.kind,
+          slot: view.slot,
+          nowMs: Date.now(),
+        });
+        if (!ownerGate.send) {
+          deferred++;
+          logger.warn("[followups] delivery deferred by owner gate", {
+            followUpId: fu.id,
+            kind: fu.kind,
+            reason: ownerGate.reason,
+          });
+          continue;
+        }
       }
 
       await prisma.followUp.update({

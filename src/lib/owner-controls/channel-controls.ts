@@ -282,6 +282,15 @@ export function handBackChannel(input: {
 export interface OnboardingState {
   /** The business attached at least one website / channel source. */
   websiteAttached: boolean;
+  /**
+   * TEAM F (2026-11-03) — the approved onboarding fallback: a tenant
+   * with NO website gets an AI landing page instead, and that landing
+   * page IS the tenant's website source. A published landing page
+   * therefore counts as an attached source exactly like an attached
+   * website. Absent (older callers) = false: existing behaviour is
+   * unchanged for callers that do not pass it.
+   */
+  landingPagePublished?: boolean;
   /** An active trial OR an active paid subscription exists. */
   hasActiveTrialOrPaid: boolean;
   /**
@@ -301,10 +310,19 @@ export interface OnboardingState {
  * predicate, enforces the trial clock). Paid = works per the
  * subscription month/plan (the caller enforces plan limits).
  * The internal holder always passes (company unlimited).
+ *
+ * TEAM F (2026-11-03): "attached" includes a PUBLISHED AI landing
+ * page (the approved no-website fallback). Without this, the
+ * no-website branch could never reach a working agent: the tenant
+ * would be gated off for exactly the reason the landing page exists
+ * to solve. An unpublished landing page does NOT count — the tenant
+ * has not put their page up yet.
  */
 export function canAiWork(state: OnboardingState): boolean {
   if (state.isInternalHolder === true) return true;
-  return state.websiteAttached === true && state.hasActiveTrialOrPaid === true;
+  const sourceAttached =
+    state.websiteAttached === true || state.landingPagePublished === true;
+  return sourceAttached && state.hasActiveTrialOrPaid === true;
 }
 
 // ---------------------------------------------------------------------------

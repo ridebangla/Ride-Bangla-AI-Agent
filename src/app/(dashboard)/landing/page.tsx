@@ -28,6 +28,7 @@ import {
   ImagePlus,
 } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useLimitUx } from "@/components/billing/limit-ux-context";
 
 const inputClasses =
   "w-full px-3 py-2 text-sm border border-rbai-border rounded-lg bg-rbai-bg text-rbai-text placeholder:text-rbai-text-light/60 focus:outline-none focus:ring-2 focus:ring-rbai-primary/30 focus:border-rbai-primary transition-colors";
@@ -171,7 +172,7 @@ function LivePreview({
         <div className="flex items-center gap-2">
           {logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt="" className="w-8 h-8 rounded-lg object-cover" />
+            <img src={logoUrl} alt="" className="w-8 h-8 rounded-lg object-contain bg-white" />
           ) : (
             <div
               className="w-8 h-8 rounded-lg flex items-center justify-center font-extrabold text-sm"
@@ -255,6 +256,11 @@ export default function LandingPage() {
   const [quality, setQuality] = useState<QualityStatus | null>(null);
   const [qualityRecord, setQualityRecord] = useState<QualityRecord | null>(null);
   const [checkingQuality, setCheckingQuality] = useState(false);
+  // Limit-exhausted UX: same pattern as the knowledge-test caller —
+  // while the product limit is finished, the work-action routes to the
+  // layout's existing limit-exhausted popup instead of surfacing a raw
+  // 402 code as a toast.
+  const { exhausted: limitExhausted, openPopup: openLimitPopup } = useLimitUx();
 
   const toast = (type: "success" | "error", message: string) => {
     const id = Date.now() + Math.random();
@@ -335,9 +341,30 @@ export default function LandingPage() {
   const enhanceWithAI = async () => {
     setEnhancing(true);
     try {
+      // Pre-action guard (knowledge-test precedent): the limit is
+      // already finished, so reopen the layout's popup instead of
+      // spending a doomed fetch that would answer 402.
+      if (limitExhausted) {
+        openLimitPopup();
+        return;
+      }
       const res = await fetch("/api/landing/enhance", { method: "POST" });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Enhancement failed");
+      if (!res.ok) {
+        // Limit/subscription 402s route to the EXISTING limit-exhausted
+        // popup (same component/state the dashboard layout renders) —
+        // never a raw "message_limit_reached" / "subscription_paused"
+        // toast. Every other failure keeps the old toast path exactly.
+        if (
+          res.status === 402 &&
+          (json.error === "message_limit_reached" ||
+            json.error === "subscription_paused")
+        ) {
+          openLimitPopup();
+          return;
+        }
+        throw new Error(json.error || "Enhancement failed");
+      }
       if (!json.enhanced) {
         toast("error", json.reason || "AI enhancement is not available right now.");
         return;
@@ -479,7 +506,7 @@ export default function LandingPage() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-3 rounded-lg border border-rbai-border bg-rbai-bg px-3 py-2">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={logoUrl} alt="Logo preview" className="h-9 w-9 rounded-lg object-cover" />
+                    <img src={logoUrl} alt="Logo preview" className="h-9 w-9 rounded-lg object-contain bg-white" />
                     <span className="text-sm text-rbai-text">Uploaded logo attached</span>
                   </div>
                   <p className="text-xs text-rbai-text-light">

@@ -1,5 +1,7 @@
 import { prisma, withBusinessId } from "./prisma";
 import { getBusinessId, TenantContextError } from "./prisma";
+import { checkStock } from "./inventory/stock-guard";
+import { logger } from "./logger";
 
 /**
  * Normalize a product's tags to a lowercase string regardless of storage
@@ -20,6 +22,95 @@ export interface CatalogProduct {
   tags: string[];
   isAvailable: boolean;
   categoryName: string | null;
+  /**
+   * Team J stock guard (checkStock, quantity-1 probe): machine data
+   * for the agent's availability answers — NEVER customer copy by
+   * itself. mayPromise === true ONLY when the ledger can fulfil one
+   * unit; out-of-stock and unknown-stock (no stock record, or a
+   * failed stock read) both yield mayPromise === false, so the item
+   * must never be promised as available. Absent = the product was
+   * not passed through annotateCatalogStock (non-agent callers).
+   * Multi-unit promises are still gated at confirm time by the
+   * stock-movement guard in setOrderStatus, not by this probe.
+   */
+  stock?: {
+    mayPromise: boolean;
+    outcome: string;
+    fulfillableQuantity: number | null;
+  };
+}
+
+/** Team J stock annotation (see CatalogProduct.stock). Idempotent:
+ *  products already carrying a stock field are returned untouched, so
+ *  a findAlternatives chain that passes through matchProductsInMessage
+ *  reads stock once, not once per layer. */
+export async function annotateCatalogStock(
+  products: CatalogProduct[]
+): Promise<CatalogProduct[]> {
+  const businessId = getBusinessId();
+  if (!businessId) return products;
+  const pending = products.filter((p) => !p.stock);
+  if (pending.length === 0) return products;
+  let levels: Map<string, number> | null = null;
+  try {
+    const rows = (await prisma.stockLevel.findMany({
+      where: { businessId },
+    })) as Array<{
+      productId?: unknown;
+      variantKey?: unknown;
+      quantityOnHand?: unknown;
+    }>;
+    levels = new Map();
+    for (const row of rows) {
+      if (typeof row.productId !== "string") continue;
+      if (row.variantKey !== undefined && row.variantKey !== "" && row.variantKey !== null) {
+        continue; // Product-level probe only: variant rows never stand in for the product itself.
+      }
+      if (
+        typeof row.quantityOnHand === "number" &&
+        Number.isInteger(row.quantityOnHand) &&
+        row.quantityOnHand >= 0
+      ) {
+        levels.set(row.productId, row.quantityOnHand);
+      }
+      // A malformed quantity row is left OUT of the map: checkStock
+      // then reports unknown-stock for that product (fail-closed).
+    }
+  } catch (err) {
+    // Stock read failure is NOT "no stock": it is unknown-stock for
+    // every pending product (fail-closed — never promise on a read
+    // that did not happen). The catalog answer itself still goes out.
+    logger.warn("[catalog] stockLevels read failed; annotating unknown-stock", {
+      reason: err instanceof Error ? err.message : String(err),
+    });
+    levels = null;
+  }
+  const annotated = new Map<string, CatalogProduct>();
+  for (const p of pending) {
+    const onHand = levels?.get(p.id);
+    const result = checkStock(
+      { businessId, productId: p.id, productName: p.name, quantity: 1 },
+      onHand === undefined
+        ? null
+        : {
+            businessId,
+            productId: p.id,
+            variantId: null,
+            stockKnown: true,
+            availableQuantity: onHand,
+            source: "ledger",
+          }
+    );
+    annotated.set(p.id, {
+      ...p,
+      stock: {
+        mayPromise: result.mayPromise,
+        outcome: result.outcome,
+        fulfillableQuantity: result.fulfillableQuantity,
+      },
+    });
+  }
+  return products.map((p) => annotated.get(p.id) ?? p);
 }
 
 /**
@@ -99,11 +190,13 @@ export async function searchCatalog(query: string, limit = 5): Promise<CatalogPr
     return { p, score };
   });
 
-  return scored
-    .filter((s) => s.score > 0 || terms.length === 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((s) => toCatalogProduct(s.p));
+  return annotateCatalogStock(
+    scored
+      .filter((s) => s.score > 0 || terms.length === 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((s) => toCatalogProduct(s.p))
+  );
 }
 
 export async function listAvailableProducts(limit = 20): Promise<CatalogProduct[]> {
@@ -115,7 +208,7 @@ export async function listAvailableProducts(limit = 20): Promise<CatalogProduct[
     orderBy: { name: "asc" },
     take: limit,
   });
-  return products.map(toCatalogProduct);
+  return annotateCatalogStock(products.map(toCatalogProduct));
 }
 
 /**
@@ -343,11 +436,13 @@ export async function matchProductsInMessage(
     return { p, score };
   });
 
-  return scored
-    .filter((s) => s.score >= 3)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, Math.max(1, limit))
-    .map((s) => toCatalogProduct(s.p));
+  return annotateCatalogStock(
+    scored
+      .filter((s) => s.score >= 3)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(1, limit))
+      .map((s) => toCatalogProduct(s.p))
+  );
 }
 
 /* =====================================================================
@@ -414,23 +509,25 @@ export async function matchCategoryProducts(
   }
   if (!best) return [];
 
-  return best.products
-    .slice(0, Math.max(1, limit))
-    .map((p) =>
-      toCatalogProduct({
-        ...(p as {
-          id: string;
-          name: string;
-          description: string;
-          price: number | null;
-          currency: string;
-          imageUrl: string;
-          tags: string;
-          isAvailable: boolean;
-        }),
-        category: { name: best!.name },
-      })
-    );
+  return annotateCatalogStock(
+    best.products
+      .slice(0, Math.max(1, limit))
+      .map((p) =>
+        toCatalogProduct({
+          ...(p as {
+            id: string;
+            name: string;
+            description: string;
+            price: number | null;
+            currency: string;
+            imageUrl: string;
+            tags: string;
+            isAvailable: boolean;
+          }),
+          category: { name: best!.name },
+        })
+      )
+  );
 }
 
 /**
@@ -475,11 +572,13 @@ export async function productsInPriceBand(
       take: 60,
     })) ?? [];
 
-  return products
-    .filter((p) => p.price != null && p.price >= lo && p.price <= hi)
-    .sort((a, b) => Math.abs((a.price ?? 0) - budget) - Math.abs((b.price ?? 0) - budget))
-    .slice(0, Math.max(1, limit))
-    .map((p) => toCatalogProduct(p));
+  return annotateCatalogStock(
+    products
+      .filter((p) => p.price != null && p.price >= lo && p.price <= hi)
+      .sort((a, b) => Math.abs((a.price ?? 0) - budget) - Math.abs((b.price ?? 0) - budget))
+      .slice(0, Math.max(1, limit))
+      .map((p) => toCatalogProduct(p))
+  );
 }
 
 /**

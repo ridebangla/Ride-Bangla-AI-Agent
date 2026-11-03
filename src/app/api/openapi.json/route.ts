@@ -119,6 +119,9 @@ const spec = {
       get: { tags: ["Tickets"], summary: "List tickets (paginated)", parameters: [{ name: "page", in: "query", schema: { type: "integer" } }, { name: "limit", in: "query", schema: { type: "integer" } }, { name: "status", in: "query", schema: { type: "string" } }, { name: "priority", in: "query", schema: { type: "string" } }], responses: { "200": { description: "Paginated ticket list" } } },
       post: { tags: ["Tickets"], summary: "Create a ticket", responses: { "201": { description: "Created ticket" } } },
     },
+    "/public/tickets": {
+      post: { tags: ["Public AI"], summary: "Create a support ticket from a Help Center form (public, site-key auth; one Prisma queue)", requestBody: { content: { "application/json": { schema: { type: "object", required: ["siteKey", "name", "contact", "topic", "message"], properties: { siteKey: { type: "string" }, name: { type: "string" }, contact: { type: "string" }, topic: { type: "string", enum: ["general", "payment", "technical", "feedback"] }, message: { type: "string", maxLength: 5000 }, pageUrl: { type: "string" }, conversationId: { type: "string" } } } } } }, responses: { "201": { description: "Ticket created; returns the recording reference" }, "400": { description: "Validation error" }, "401": { description: "Invalid site key" }, "403": { description: "Origin not allowed" }, "429": { description: "Rate limited" } } },
+    },
     "/customers": {
       get: { tags: ["Customers"], summary: "List customers (paginated)", responses: { "200": { description: "Paginated customer list" } } },
       post: { tags: ["Customers"], summary: "Create a customer", responses: { "201": { description: "Created customer" } } },
@@ -141,6 +144,15 @@ const spec = {
     "/knowledge/categories": {
       get: { tags: ["Knowledge"], summary: "List categories (paginated)", responses: { "200": { description: "Paginated categories" } } },
       post: { tags: ["Knowledge"], summary: "Create category", responses: { "201": { description: "Created" } } },
+    },
+    "/business/websites": {
+      get: { tags: ["Websites"], summary: "List the business's websites", responses: { "200": { description: "Website list" } } },
+      post: { tags: ["Websites"], summary: "Add a website and index it", responses: { "200": { description: "Added website" } } },
+      patch: { tags: ["Websites"], summary: "Re-index one listed website; optional fullSite flag upgrades/downgrades its crawl mode", responses: { "200": { description: "Re-indexed website" } } },
+      delete: { tags: ["Websites"], summary: "Remove a listed website and its learned entries", responses: { "200": { description: "Removed" } } },
+    },
+    "/websites/reindex-all": {
+      post: { tags: ["Websites"], summary: "Scheduled re-index sweep (Bearer CRON_SECRET or Super Admin)", responses: { "200": { description: "Sweep summary" } } },
     },
     "/automation": {
       get: { tags: ["Automation"], summary: "List automation rules (paginated)", responses: { "200": { description: "Paginated rules" } } },

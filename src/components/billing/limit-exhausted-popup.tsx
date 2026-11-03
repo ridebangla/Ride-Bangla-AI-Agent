@@ -22,13 +22,24 @@ function fmtCount(n: number): string {
 }
 
 export interface LimitExhaustedPopupProps {
-  reset: LimitReset;
+  /**
+   * Server-provided exhausted state (from the dashboard layout).
+   * Every field is optional so the layout can mount this popup
+   * unconditionally: when the limit was NOT exhausted at page load
+   * there is no server state, and a mid-session client trigger
+   * (402) must still render the popup. In that fallback case the
+   * content renders ONLY what is known — headline + upgrade CTA —
+   * and omits the reset line, usage line, and plans section rather
+   * than inventing figures, dates, or plan details. When the server
+   * state is present, rendering is exactly as before.
+   */
+  reset?: LimitReset;
   /** Active plans from the LIVE ai_plans catalog (never hardcoded). */
-  plans: CatalogPlanView[];
+  plans?: CatalogPlanView[];
   /** The plan id the exhausted gate resolved to. */
-  currentPlanId: string;
-  used: number;
-  limit: number;
+  currentPlanId?: string;
+  used?: number;
+  limit?: number;
 }
 
 export interface LimitExhaustedPopupContentProps
@@ -42,7 +53,7 @@ export interface LimitExhaustedPopupContentProps
  */
 export function LimitExhaustedPopupContent({
   reset,
-  plans,
+  plans = [],
   currentPlanId,
   used,
   limit,
@@ -57,12 +68,16 @@ export function LimitExhaustedPopupContent({
         <h2 className="text-xl font-bold text-rbai-text mt-4">
           {LIMIT_UX_TEXTS.headline}
         </h2>
-        <p className="text-sm text-rbai-text-light mt-2 max-w-lg mx-auto">
-          {buildLimitBody(reset)}
-        </p>
-        <p className="text-xs text-rbai-text-light mt-2">
-          {fmtCount(used)} / {fmtCount(limit)} AI messages used this period
-        </p>
+        {reset && (
+          <p className="text-sm text-rbai-text-light mt-2 max-w-lg mx-auto">
+            {buildLimitBody(reset)}
+          </p>
+        )}
+        {used !== undefined && limit !== undefined && (
+          <p className="text-xs text-rbai-text-light mt-2">
+            {fmtCount(used)} / {fmtCount(limit)} AI messages used this period
+          </p>
+        )}
       </div>
 
       {plans.length > 0 && (
@@ -155,16 +170,34 @@ export function LimitExhaustedPopupContent({
  * rendered from the LIVE ai_plans catalog, and the upgrade path.
  * Dismissible — the dashboard behind it stays fully usable; only the
  * work-action is disabled while exhausted.
+ *
+ * Two open paths, both rendering this same popup with no page reload
+ * (so unsaved page edits are never destroyed):
+ *  1. Page load already exhausted: the layout passes the server state
+ *     and this auto-opens once, exactly as before.
+ *  2. Mid-session client trigger: a dashboard caller hits a 402
+ *     (message_limit_reached / subscription_paused) after page load
+ *     and calls openPopup(). The context's clientTriggered flag keeps
+ *     this mounted instance rendering even though the server state at
+ *     page load was not exhausted; without server state the content
+ *     falls back to headline + CTA only (no invented reset, usage, or
+ *     plan details — see LimitExhaustedPopupProps).
  */
 export function LimitExhaustedPopup(props: LimitExhaustedPopupProps) {
-  const { exhausted, popupOpen, openPopup, closePopup } = useLimitUx();
+  const { exhausted, clientTriggered, popupOpen, openPopup, closePopup } =
+    useLimitUx();
 
   // Auto-open once when the dashboard loads in the exhausted state.
   useEffect(() => {
     if (exhausted) openPopup();
   }, [exhausted, openPopup]);
 
-  if (!exhausted) return null;
+  // Previously `if (!exhausted) return null` — that made a client-side
+  // openPopup() render nothing whenever the limit was crossed (or the
+  // subscription paused) after page load. The Modal itself still gates
+  // visibility on popupOpen, so a mounted-but-closed popup renders
+  // nothing until either open path fires.
+  if (!exhausted && !clientTriggered) return null;
 
   return (
     <Modal open={popupOpen} onClose={closePopup} size="lg">

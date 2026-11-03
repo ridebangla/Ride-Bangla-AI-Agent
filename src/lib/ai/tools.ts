@@ -11,7 +11,7 @@ export const agentTools: ToolDefinition[] = [
     function: {
       name: "create_ticket",
       description:
-        "Create a support ticket for an issue that needs human attention. Use this when the customer reports a problem that cannot be resolved through the knowledge base.",
+        "Create a support ticket for an issue that needs human attention. Use this ONLY when the visitor explicitly asked for a support ticket or a human, or accepted your proposal to create one after a very serious problem you could not help with. NEVER create a ticket just because you do not know an answer, and NEVER for an informational question or a defect/feedback report (those go to the team-report path, not a ticket).",
       parameters: {
         type: "object",
         properties: {
@@ -499,6 +499,162 @@ export async function executeToolCall(
   }
 }
 
+/**
+ * TEAM I (ticket reference gaps, G1): attribution + short-reference
+ * helpers shared by the two ticket creates in this file (createTicket
+ * and the order-ticket create in takeOrder).
+ *
+ * - sourceChannel: the conversation's own channel; "widget-chat" only
+ *   when there is no conversation or no channel on it.
+ * - sourceWebsite: the widget route's per-site signal, stored on the
+ *   conversation as metadata.sourceSite (Origin/Referer host, or an
+ *   explicit body.source) — set only when recorded, never invented.
+ * - The short recording reference uses the SAME ticketReference
+ *   helper + SITE-XXXXXXXX scheme as POST /api/tickets and
+ *   POST /api/public/tickets. It is id-derived, so it cannot sit in
+ *   the initial create data (the id does not exist yet): it is
+ *   computed right after create and stored by an immediate follow-up
+ *   update, exactly like those routes. The helper is loaded by
+ *   dynamic import: behaviour.ts statically imports this module
+ *   (executeToolCall), so a static import here would close a
+ *   tools <-> behaviour cycle; at call time both modules are loaded
+ *   and the dynamic import is safe. No second scheme is defined here.
+ * - The full customer message: the ticket record has no separate
+ *   customer-message field, so the latest user message in the
+ *   conversation is appended to the description (deduplicated against
+ *   text the caller already embedded, e.g. performHandoff's
+ *   "Customer's FULL message" line), never replacing the supplied
+ *   title/description. A failed attribution/reference lookup never
+ *   fails the ticket itself.
+ */
+interface ConversationAttribution {
+  channel: string;
+  sourceSite: string | null;
+  lastUserMessage: string | null;
+}
+
+async function resolveConversationAttribution(
+  conversationId?: string
+): Promise<ConversationAttribution> {
+  const empty: ConversationAttribution = {
+    channel: "",
+    sourceSite: null,
+    lastUserMessage: null,
+  };
+  if (!conversationId) return empty;
+  try {
+    const conv = (await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        messages: { take: 5, orderBy: { createdAt: "desc" } },
+      },
+    })) as unknown as {
+      channel?: unknown;
+      metadata?: unknown;
+      messages?: Array<{ role?: unknown; content?: unknown }>;
+    } | null;
+    if (!conv) return empty;
+    const channel =
+      typeof conv.channel === "string" ? conv.channel : "";
+    const meta =
+      conv.metadata &&
+      typeof conv.metadata === "object" &&
+      !Array.isArray(conv.metadata)
+        ? (conv.metadata as Record<string, unknown>)
+        : null;
+    const sourceSite =
+      meta &&
+      typeof meta.sourceSite === "string" &&
+      meta.sourceSite.trim()
+        ? meta.sourceSite.trim()
+        : null;
+    const lastUserMessage =
+      (conv.messages ?? []).find(
+        (m) =>
+          m.role === "user" &&
+          typeof m.content === "string" &&
+          (m.content as string).trim() !== ""
+      )?.content ?? null;
+    return {
+      channel,
+      sourceSite,
+      lastUserMessage:
+        typeof lastUserMessage === "string" ? lastUserMessage : null,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+function appendFullCustomerMessage(
+  description: string,
+  fullMessage: string | null
+): string {
+  if (!fullMessage) return description;
+  // Already embedded verbatim (e.g. by performHandoff) — do not repeat.
+  if (fullMessage.slice(0, 80) && description.includes(fullMessage.slice(0, 80))) {
+    return description;
+  }
+  return `${description}\n\nCustomer's full message: "${fullMessage}"`;
+}
+
+/** Short SITE-XXXXXXXX reference for a record id, or null on failure. */
+async function computeShortReference(
+  businessId: string | null,
+  recordId: string
+): Promise<string | null> {
+  try {
+    const { ticketReference } = await import("./behaviour");
+    let slugOrName: string | null = null;
+    if (businessId) {
+      try {
+        const { getUnscopedPrisma } = await import("../prisma");
+        const biz = (await getUnscopedPrisma().business.findUnique({
+          where: { id: businessId },
+          select: { slug: true, name: true },
+        })) as { slug?: unknown; name?: unknown } | null;
+        slugOrName =
+          (typeof biz?.slug === "string" && biz.slug) ||
+          (typeof biz?.name === "string" && biz.name) ||
+          null;
+      } catch {
+        // Fall through to the "RB" fallback inside ticketReference.
+      }
+    }
+    return ticketReference(slugOrName, recordId);
+  } catch {
+    return null;
+  }
+}
+
+/** Compute + best-effort store a ticket's short reference. */
+async function storeTicketReference(
+  ticketId: string,
+  businessId: string | null
+): Promise<string | null> {
+  const reference = await computeShortReference(businessId, ticketId);
+  if (!reference) return null;
+  try {
+    await prisma.ticket.update({
+      where: { id: ticketId },
+      data: { reference },
+    });
+  } catch {
+    // Deterministic from the ticket id: the caller still receives the
+    // correct recording number, and a later read backfills the row.
+  }
+  return reference;
+}
+
+async function resolveTenantBusinessId(): Promise<string | null> {
+  try {
+    const { getBusinessId } = await import("../prisma");
+    return getBusinessId() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function createTicket(
   args: Record<string, unknown>,
   conversationId?: string
@@ -511,20 +667,38 @@ async function createTicket(
       })
     : null;
 
+  const attribution = await resolveConversationAttribution(conversationId);
+  const description = appendFullCustomerMessage(
+    args.description as string,
+    attribution.lastUserMessage
+  );
+
   const ticket = await prisma.ticket.create({
     data: withBusinessId({
       title: args.title as string,
-      description: args.description as string,
+      description,
       priority: (args.priority as string) || "medium",
       conversationId: conversationId || null,
       departmentId: department?.id || null,
+      sourceChannel: attribution.channel || "widget-chat",
+      ...(attribution.sourceSite
+        ? { sourceWebsite: attribution.sourceSite }
+        : {}),
     }),
   });
+
+  const reference = await storeTicketReference(
+    ticket.id,
+    await resolveTenantBusinessId()
+  );
 
   return JSON.stringify({
     success: true,
     ticketId: ticket.id,
-    message: `Ticket created: ${ticket.title} (Priority: ${ticket.priority})`,
+    ...(reference ? { reference } : {}),
+    message: `Ticket created: ${ticket.title} (Priority: ${ticket.priority})${
+      reference ? ` (Reference: ${reference})` : ""
+    }`,
   });
 }
 
@@ -841,6 +1015,27 @@ async function takeOrder(
         ? parsedTotal
         : null;
 
+  // Coordinator (Team J §c patch): courier suggestion for courier/delivery
+  // orders only — machine codes for the model to present, never a booking
+  // (booking stays team-confirmed only). Fail-soft: a suggestion error
+  // never fails the order itself.
+  let courierSuggestion: import("../courier-suggestion").CourierSuggestion | null =
+    null;
+  if (/courier|delivery|parcel|পার্সেল|কুরিয়ার|ডেলিভারি/i.test(serviceType)) {
+    try {
+      const { courierSuggestionForOrder } = await import(
+        "../courier-suggestion"
+      );
+      courierSuggestion = courierSuggestionForOrder({
+        customFields,
+        deliveryAddress:
+          typeof args.dropoff === "string" ? args.dropoff : null,
+      });
+    } catch {
+      courierSuggestion = null;
+    }
+  }
+
   // Link the order to the conversation's customer when known. Never link
   // across tenants: the conversation must belong to this business.
   let customerId: string | null = null;
@@ -869,24 +1064,35 @@ async function takeOrder(
     summary: `${serviceType}: ${details}`.slice(0, 300),
   });
 
+  // TEAM I (G1): same source attribution + full-message rule as
+  // createTicket, for the order ticket too.
+  const attribution = await resolveConversationAttribution(conversationId);
+
   // Keep the ticket as the team's fulfillment queue (existing dashboard
   // surface), now linked to the order doc via metadata.orderId.
   const ticket = await prisma.ticket.create({
     data: withBusinessId({
       title: `Order: ${serviceType}`,
-      description: [
-        `Service: ${serviceType}`,
-        args.pickup ? `Pickup: ${args.pickup}` : null,
-        args.dropoff ? `Drop-off: ${args.dropoff}` : null,
-        `Details: ${details}`,
-        args.customerName ? `Customer: ${args.customerName}` : null,
-        args.customerPhone ? `Phone: ${args.customerPhone}` : null,
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      description: appendFullCustomerMessage(
+        [
+          `Service: ${serviceType}`,
+          args.pickup ? `Pickup: ${args.pickup}` : null,
+          args.dropoff ? `Drop-off: ${args.dropoff}` : null,
+          `Details: ${details}`,
+          args.customerName ? `Customer: ${args.customerName}` : null,
+          args.customerPhone ? `Phone: ${args.customerPhone}` : null,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        attribution.lastUserMessage
+      ),
       priority: "high",
       status: "open",
       conversationId: conversationId || null,
+      sourceChannel: attribution.channel || "widget-chat",
+      ...(attribution.sourceSite
+        ? { sourceWebsite: attribution.sourceSite }
+        : {}),
       metadata: {
         kind: "order",
         orderId: order.id,
@@ -904,13 +1110,27 @@ async function takeOrder(
     }),
   });
 
+  // TEAM I (G1): the order ticket carries its own short reference,
+  // stored by immediate follow-up update like every other intake.
+  await storeTicketReference(ticket.id, businessId);
+
+  // TEAM I (G2): the customer-facing reference is the SAME
+  // SITE-XXXXXXXX scheme (derived from the order id) — never a raw id
+  // fragment. The reply text is otherwise unchanged: pending, the team
+  // confirms, the agent never confirms. orderId stays in the JSON so
+  // follow-up tools (e.g. record_advance_payment) keep working.
+  const orderReference = await computeShortReference(businessId, order.id);
+
   return JSON.stringify({
     success: true,
     orderId: order.id,
     ticketId: ticket.id,
+    ...(orderReference ? { reference: orderReference } : {}),
+    ...(courierSuggestion ? { courierSuggestion } : {}),
     message:
       `Order recorded (${serviceType}). The team has been notified and will ` +
-      `confirm shortly. Order reference: ${order.id.slice(0, 8)}.`,
+      `confirm shortly.` +
+      (orderReference ? ` Order reference: ${orderReference}.` : ""),
   });
 }
 
@@ -1026,15 +1246,20 @@ async function requestBooking(
       reminders: Array.isArray(args.reminders) ? (args.reminders as string[]) : [],
       summary: `${service}: ${requestedSlot}`.slice(0, 300),
     });
+    const bookingReference = await computeShortReference(
+      businessId,
+      result.bookingId
+    );
     return JSON.stringify({
       success: true,
       bookingId: result.bookingId,
+      ...(bookingReference ? { reference: bookingReference } : {}),
       status: result.status,
       availability: result.availability,
       message:
         `Booking request recorded (${service}) for ${requestedSlot}. The team has been notified and will ` +
-        `confirm it shortly — this is a request, not a confirmed booking yet. ` +
-        `Request reference: ${result.bookingId.slice(0, 8)}.`,
+        `confirm it shortly — this is a request, not a confirmed booking yet.` +
+        (bookingReference ? ` Request reference: ${bookingReference}.` : ""),
     });
   } catch (err) {
     return JSON.stringify({

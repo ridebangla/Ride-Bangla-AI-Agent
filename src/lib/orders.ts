@@ -27,6 +27,11 @@ import {
   prismaRatingStore,
 } from "./order-rating-requests";
 import type { JsonValue } from "./models";
+import {
+  applyCancelMovement,
+  applyConfirmMovement,
+} from "./inventory/stock-movements";
+import { prismaStockStore } from "./inventory/stock-store-adapter";
 
 export type OrderFieldType = "text" | "select" | "date" | "number" | "textarea";
 
@@ -307,6 +312,73 @@ export async function setOrderStatus(
   });
   if (!plan.allowed) {
     throw new Error(plan.message);
+  }
+  // Team J stock wiring (Option B — see stock-store-adapter.ts):
+  // the movement runs BEFORE the status write, because the
+  // executors' guard reads the order's from-status inside their
+  // transaction (pending for confirm, confirmed for cancel). The
+  // status update below merges (it never replaces the doc), so the
+  // movement marker written here survives it. A movement failure
+  // NEVER blocks the human's status change — it is logged with its
+  // machine code and the status still records (fail-soft, like the
+  // courier bridge below): confirm can be retried by re-affirming
+  // confirmed -> confirmed (marker-idempotent); a failed cancel
+  // restock has no status-transition retry and needs a manual
+  // adjustment once that route is wired. missingStock "skip" is the
+  // documented migration bridge: tracked lines move, untracked
+  // lines move nothing and are reported as skipped — "fail" would
+  // move nothing at all for every tenant that has not entered
+  // stock yet. No reason is ever invented: a confirmed -> cancelled
+  // restock without a team reason refuses with missing_reason and
+  // is logged (today's dashboard buttons send no reason).
+  // Reopen transitions move nothing: the movements module defines
+  // no reopen movement, and none is invented here.
+  try {
+    const stockStore = prismaStockStore(
+      orderId,
+      typeof (current as { businessId?: unknown }).businessId === "string"
+        ? ((current as { businessId: string }).businessId as string)
+        : ""
+    );
+    if (status === "confirmed" && currentStatus === "pending") {
+      await applyConfirmMovement(stockStore, {
+        missingStock: "skip",
+        nowIso,
+        actor: opts?.actorId ?? undefined,
+        reason: opts?.reason ?? undefined,
+        transition: { from: "pending", to: "confirmed" },
+      });
+    } else if (status === "confirmed" && currentStatus === "confirmed") {
+      await applyConfirmMovement(stockStore, {
+        missingStock: "skip",
+        nowIso,
+        actor: opts?.actorId ?? undefined,
+        reason: opts?.reason ?? undefined,
+        transition: { from: "confirmed", to: "confirmed" },
+      });
+    } else if (status === "cancelled" && currentStatus === "confirmed") {
+      await applyCancelMovement(stockStore, {
+        missingStock: "skip",
+        nowIso,
+        actor: opts?.actorId ?? undefined,
+        reason: opts?.reason ?? undefined,
+        transition: { from: "confirmed", to: "cancelled" },
+      });
+    } else if (status === "cancelled" && currentStatus === "pending") {
+      await applyCancelMovement(stockStore, {
+        missingStock: "skip",
+        nowIso,
+        actor: opts?.actorId ?? undefined,
+        reason: opts?.reason ?? undefined,
+        transition: { from: "pending", to: "cancelled" },
+      });
+    }
+  } catch (err) {
+    logger.warn("[orders] stock movement failed (status change unaffected)", {
+      orderId,
+      transition: `${currentStatus} -> ${status}`,
+      reason: err instanceof Error ? err.message : String(err),
+    });
   }
   const existingTrail = (current as { lockAudit?: unknown }).lockAudit;
   const trail: LockAuditEntry[] = appendAuditTrail(

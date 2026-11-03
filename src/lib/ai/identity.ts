@@ -180,6 +180,29 @@ function containsPhrase(normalized: string, phrases: string[]): boolean {
   return phrases.some((p) => normalized.includes(p));
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Boundary-aware phrase match, used for the WHO group only (Team A
+ * 2026-11-03): plain contains() misclassifies "What are YOUR opening
+ * hours?" as "who are you", because "your" starts with "you" — so an
+ * opening-hours question was answered by the unconfigured-identity
+ * template instead of the full pipeline. A phrase matches only when
+ * it is bounded by a non-word character or a string edge on both
+ * sides; polite wrappers ("তুমি কে বলো তো") still match, since the
+ * normalised text separates words with spaces.
+ */
+function containsPhraseBounded(normalized: string, phrases: string[]): boolean {
+  return phrases.some((p) =>
+    new RegExp(
+      `(^|[^a-z0-9\u0980-\u09FF])${escapeRegExp(p)}([^a-z0-9\u0980-\u09FF]|$)`,
+      "u"
+    ).test(normalized)
+  );
+}
+
 /**
  * Classify an identity question, or null for anything else. The
  * "are you Ride Bangla?" trap is checked FIRST: in the old code it fell
@@ -198,7 +221,7 @@ export function classifyIdentityQuestion(text: string): IdentityQuestion | null 
   }
   if (containsPhrase(n, BUSINESS_NAME_PHRASES)) return "business_name";
   if (containsPhrase(n, SERVICES_PHRASES)) return "services";
-  if (containsPhrase(n, WHO_PHRASES)) return "who";
+  if (containsPhraseBounded(n, WHO_PHRASES)) return "who";
   return null;
 }
 

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { t } from "@/lib/i18n";
+import TicketForm from "@/components/TicketForm";
 import {
   Mail,
   Phone,
@@ -421,6 +422,7 @@ export default function ContactBody() {
             </form>
           )}
         </div>
+        <TicketForm siteKey="rbsite-00f37b79c72f4e678febbd82d43bb46c" />
     </>
   );
 }

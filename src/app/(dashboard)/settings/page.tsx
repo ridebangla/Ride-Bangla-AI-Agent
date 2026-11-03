@@ -22,6 +22,7 @@ import {
   Globe,
 } from "lucide-react";
 import WebsitesManager from "@/components/dashboard/websites-manager";
+import { withBusinessParam } from "@/lib/business-param";
 import { useEffect, useState, useCallback } from "react";
 
 // ---------------------------------------------------------------------------
@@ -999,7 +1000,11 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/settings")
+    // FIX (2026-11-03, setup-data): carry ?business=<slug> (same
+    // BUSINESS_REQUIRED fault as the checklist — without it a Super
+    // Admin with several active businesses read only the page's
+    // "My Business"/"" defaults, never the real row, and saves 400ed).
+    fetch(withBusinessParam("/api/settings"))
       .then((r) => r.json())
       .then((settings) => {
         const merged = { ...defaultSettings };
@@ -1027,7 +1032,7 @@ export default function SettingsPage() {
         payload[f] = data[f];
       }
 
-      const res = await fetch("/api/settings", {
+      const res = await fetch(withBusinessParam("/api/settings"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

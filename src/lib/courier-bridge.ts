@@ -1,12 +1,14 @@
 /**
  * courier-bridge.ts — Agent-order → Ride Bangla courier bridge.
  *
- * Owner directive 2026-10-21: when the AI Agent confirms an order for a
- * business (any channel — website widget, Messenger, WhatsApp, …), the
- * order AUTOMATICALLY becomes a courier booking in Ride Bangla's own
+ * Owner directive 2026-10-21, as reconciled with the never-confirm doctrine
+ * (2026-11-03): when the TEAM confirms an order for a business (any
+ * channel — website widget, Messenger, WhatsApp, …), the order
+ * AUTOMATICALLY becomes a courier booking in Ride Bangla's own
  * courier system and appears in the Rider app dispatch flow. Nobody books
- * a courier separately; the agent's order confirmation IS the courier
- * booking.
+ * a courier separately; the TEAM's order confirmation IS the courier
+ * booking. The agent itself never confirms an order and never triggers
+ * this bridge — it only records a pending order for the team.
  *
  * HOW IT WORKS
  * - Trigger: `setOrderStatus()` in ./orders is the platform's single

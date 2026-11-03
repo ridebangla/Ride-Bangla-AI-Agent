@@ -37,6 +37,7 @@
 "use client";
 
 import { goLivePayload } from "@/lib/test-chat";
+import { useLimitUx } from "@/components/billing/limit-ux-context";
 import { useCallback, useEffect, useState } from "react";
 
 interface TestSessionRow {
@@ -74,6 +75,13 @@ export default function TestChatPage() {
   const [input, setInput] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  // Limit-exhausted UX: the layout's existing popup, opened when a test
+  // turn is refused with a 402 (see send()). No pre-send guard here, by
+  // design: test turns are deliberately NOT metered and NOT blocked by
+  // the message limit (see the messages route header), so a
+  // limit-exhausted tenant may still test; only a 402 refusal routes
+  // to the popup.
+  const { openPopup: openLimitPopup } = useLimitUx();
 
   const loadList = useCallback(async () => {
     try {
@@ -142,6 +150,22 @@ export default function TestChatPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        // Limit/subscription 402s route to the EXISTING limit-exhausted
+        // popup (same component/state the dashboard layout renders) —
+        // never a raw "subscription_paused" notice. The messages route
+        // emits only subscription_paused as a 402 today (test turns are
+        // unmetered, so no message_limit_reached gate exists there);
+        // that code is matched too so the wiring stays correct if a
+        // quota gate is ever added server-side. All other failures
+        // keep the old notice path exactly.
+        if (
+          res.status === 402 &&
+          (data.error === "subscription_paused" ||
+            data.error === "message_limit_reached")
+        ) {
+          openLimitPopup();
+          return;
+        }
         setNotice(data.error || "That test reply did not come back.");
         return;
       }

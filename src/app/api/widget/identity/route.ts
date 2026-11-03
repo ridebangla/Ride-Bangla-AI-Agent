@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getBusinessBySiteKey } from "@/lib/tenant";
+import { resolveTenantLogoUrl } from "@/lib/tenant-logo";
 import { getCompanyIdentity } from "@/lib/company-identity";
 import {
   PORTAL_ORIGIN_HOST,
@@ -36,8 +37,20 @@ import { getUnscopedPrisma } from "@/lib/prisma";
  * greeting template ("Hi! I'm {title}...") is NOT invented here — it
  * stays an owner-pending item in the widget batch.
  *
+ * Tenant logo (Team Logo-Feature 2026-11-03): the payload also carries
+ * the tenant's OWN Business.logoUrl, resolved server-side from the
+ * siteKey's business and passed through resolveTenantLogoUrl — the
+ * embed shows it as a header badge beside the business name (the
+ * agent mascot avatar itself stays the platform brand record from
+ * GET /api/widget/brand, which has no tenant dimension). A tenant with
+ * no usable logo gets logoUrl: null, and the embed renders no logo
+ * element at all — never the platform default, never another tenant's
+ * mark, never a broken image. Portal turns report null for the same
+ * reason portal turns report no welcome: the portal header is the
+ * product name, not the company business's own mark.
+ *
  * PAYLOAD SAFETY: only the business's public widget name, its public
- * welcome text, and the portal flag. The siteKey is public by design
+ * welcome text, its public logo, and the portal flag. The siteKey is public by design
  * (printed in the dashboard embed snippet). No secrets, no PII, no
  * internal state. CORS is therefore open for GET (credentials: omit):
  * tenant widgets run on arbitrary tenant origins, so a company-origin
@@ -186,9 +199,30 @@ export async function GET(request: NextRequest) {
       ? "Ride Bangla AI Agent"
       : settingsName || cleanName(business.name) || null;
 
+    // Tenant logo: server-resolved from the siteKey's own business row
+    // (never from a client-supplied value — a visitor must not be able
+    // to make a widget display another tenant's logo by passing a URL).
+    // A failed read degrades to null (no logo element), never to a
+    // guessed mark, mirroring the settings-read fallback above.
+    let logoUrl: string | null = null;
+    if (!isPortal) {
+      try {
+        const row = await getUnscopedPrisma().business.findUnique({
+          where: { id: business.id },
+          select: { logoUrl: true },
+        });
+        logoUrl = resolveTenantLogoUrl(
+          (row as { logoUrl?: unknown } | null)?.logoUrl
+        );
+      } catch {
+        logoUrl = null;
+      }
+    }
+
     return NextResponse.json(
       {
         businessName,
+        logoUrl,
         // VERIFIER FIX (2026-10-30): a portal turn must not inherit the
         // company business's custom welcome (Main-site copy) under the
         // portal product name — portal turns report no welcome, so the

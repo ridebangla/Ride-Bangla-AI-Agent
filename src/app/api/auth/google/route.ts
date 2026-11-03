@@ -38,8 +38,10 @@ import { getUnscopedPrisma } from "@/lib/prisma";
 import {
   generateRefreshToken,
   generateToken,
+  generateTwoFactorPendingToken,
   isDatastoreQuotaError,
   setSessionCookies,
+  setTwoFactorPendingCookie,
 } from "@/lib/auth";
 import {
   isInternalAdmin,
@@ -169,6 +171,28 @@ export async function POST(request: NextRequest) {
         logger.warn(
           `[Auth] Owner direct entry: Google sign-in for ${email} resolved to internal business ${agentAdmin.businessId} without an email_verified claim`
         );
+      }
+      // TEAM 2FA (2026-11-03) — second-factor challenge, delimited addition:
+      // same contract as /api/auth/firebase: a 2FA-enabled account gets
+      // NO session cookies here, only a pending token; the client shows
+      // the code-entry form and POST /api/auth/two-factor/verify mints
+      // the session pair after a valid code.
+      if (
+        (agentAdmin as { twoFactorEnabled?: unknown }).twoFactorEnabled === true
+      ) {
+        const pendingToken = generateTwoFactorPendingToken(
+          agentAdmin.id,
+          agentAdmin.role
+        );
+        const pendingResponse = NextResponse.json({
+          success: true,
+          twoFactorRequired: true,
+          isNew: false,
+          email,
+          name: agentAdmin.name,
+        });
+        pendingResponse.cookies.set(setTwoFactorPendingCookie(pendingToken));
+        return pendingResponse;
       }
       const token = generateToken(agentAdmin.id, agentAdmin.role);
       const refreshToken = generateRefreshToken(agentAdmin.id, agentAdmin.role);

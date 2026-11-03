@@ -86,7 +86,15 @@ export function Header({ title, description, actions }: HeaderProps) {
   };
   // Profile photo + display name for the avatar (set on the Profile page).
   // Best-effort only: any failure leaves the letter avatar untouched.
-  const [profile, setProfile] = useState<{ name: string; photo: string } | null>(null);
+  // The tenant's own business logo (Business.logoUrl, same endpoint)
+  // is shown as a row at the top of the user menu — the account button
+  // itself stays the person's photo, never the logo.
+  const [profile, setProfile] = useState<{
+    name: string;
+    photo: string;
+    businessName: string;
+    logoUrl: string;
+  } | null>(null);
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -107,6 +115,12 @@ export function Header({ title, description, actions }: HeaderProps) {
           photo:
             typeof json.business?.profilePhoto === "string"
               ? json.business.profilePhoto
+              : "",
+          businessName:
+            typeof json.business?.name === "string" ? json.business.name : "",
+          logoUrl:
+            typeof json.business?.logoUrl === "string"
+              ? json.business.logoUrl
               : "",
         });
       } catch {
@@ -243,6 +257,25 @@ export function Header({ title, description, actions }: HeaderProps) {
 
           {userMenuOpen && (
             <div className="absolute right-0 mt-2 w-48 bg-rbai-surface border border-rbai-border rounded-lg shadow-lg py-1 z-50 animate-scale-in transition-theme">
+              {profile?.businessName && (
+                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-rbai-border">
+                  {profile.logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={profile.logoUrl}
+                      alt=""
+                      className="h-8 w-8 rounded-lg object-contain bg-white border border-rbai-border p-0.5 flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="h-8 w-8 rounded-lg bg-rbai-primary text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
+                      {(profile.businessName.trim()[0] || "?").toUpperCase()}
+                    </div>
+                  )}
+                  <span className="text-sm font-medium text-rbai-text truncate">
+                    {profile.businessName}
+                  </span>
+                </div>
+              )}
               <button
                 onClick={() => {
                   setUserMenuOpen(false);

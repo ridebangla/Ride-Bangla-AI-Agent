@@ -29,6 +29,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
+import { withBusinessParam } from "@/lib/business-param";
 
 // ---------------------------------------------------------------------------
 // Done-for-you banner — the customer never needs an API key.
@@ -382,7 +383,7 @@ function WhatsAppCard({
     };
     let postRes: Response | null = null;
     try {
-      postRes = await fetch("/api/channels/whatsapp", {
+      postRes = await fetch(withBusinessParam("/api/channels/whatsapp"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "connect" }),
@@ -440,7 +441,7 @@ function WhatsAppCard({
       // Hidden tabs skip the fetch; the next visible tick resumes.
       if (document.visibilityState === "hidden") return;
       try {
-        const statusRes = await fetch("/api/channels/whatsapp");
+        const statusRes = await fetch(withBusinessParam("/api/channels/whatsapp"));
         if (!statusRes.ok) {
           consecutiveFailures += 1;
           if (consecutiveFailures >= 3) {
@@ -733,7 +734,7 @@ function EmailCard({
     // Tests exactly what is typed (the test itself never saves anything).
     setTestResult("Testing…");
     try {
-      const res = await fetch("/api/channels/email", {
+      const res = await fetch(withBusinessParam("/api/channels/email"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -785,7 +786,7 @@ function EmailCard({
       }
       if (document.visibilityState === "hidden") return;
       try {
-        const statusRes = await fetch("/api/channels/email");
+        const statusRes = await fetch(withBusinessParam("/api/channels/email"));
         if (statusRes.ok) {
           const doc = await statusRes.json();
           if (doc.status === "connected") {
@@ -1019,7 +1020,7 @@ function PhoneCard({
     // check. It never saves anything, and no call is placed.
     setTestResult("Verifying…");
     try {
-      const res = await fetch("/api/channels/phone", {
+      const res = await fetch(withBusinessParam("/api/channels/phone"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1398,7 +1399,7 @@ function MetaCard({
   useEffect(() => {
     if (status?.accounts) {
       setAccounts(status.accounts);
-      fetch("/api/social/accounts")
+      fetch(withBusinessParam("/api/social/accounts"))
         .then((r) => (r.ok ? r.json() : []))
         .then((list: Array<{ id: string; autoReply: boolean }>) => {
           const map: Record<string, boolean> = {};
@@ -1416,7 +1417,7 @@ function MetaCard({
     if (m === "connected") {
       onToast("Meta accounts connected", "success");
       window.history.replaceState({}, "", "/channels");
-      fetch("/api/channels/connect-status")
+      fetch(withBusinessParam("/api/channels/connect-status"))
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => d?.meta?.accounts && setAccounts(d.meta.accounts))
         .catch(() => {});
@@ -1432,7 +1433,7 @@ function MetaCard({
   const handleConnect = async () => {
     setConnecting(true);
     try {
-      const res = await fetch("/api/social/meta/connect");
+      const res = await fetch(withBusinessParam("/api/social/meta/connect"));
       const data = await res.json();
       if (!data.configured) {
         onToast(data.reason || "Meta is not configured yet", "error");
@@ -1449,7 +1450,7 @@ function MetaCard({
   const handleAutoReply = async (id: string, value: boolean) => {
     setToggling(id);
     try {
-      const res = await fetch(`/api/social/accounts/${id}`, {
+      const res = await fetch(withBusinessParam(`/api/social/accounts/${id}`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ autoReply: value }),
@@ -1470,7 +1471,7 @@ function MetaCard({
   const handleDisconnect = async (id: string, label: string) => {
     if (!confirm(`Disconnect ${label}?`)) return;
     try {
-      const res = await fetch(`/api/social/accounts/${id}`, { method: "DELETE" });
+      const res = await fetch(withBusinessParam(`/api/social/accounts/${id}`), { method: "DELETE" });
       if (!res.ok) throw new Error("Failed");
       setAccounts((prev) => prev.filter((a) => a.id !== id));
       onToast(`${label} disconnected`, "success");
@@ -1769,7 +1770,7 @@ export default function ChannelsPage() {
       const url = business
         ? `/api/channels?business=${encodeURIComponent(business)}`
         : "/api/channels";
-      const res = await fetch(url);
+      const res = await fetch(withBusinessParam(url));
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
       setChannels(data);
@@ -1787,7 +1788,7 @@ export default function ChannelsPage() {
 
   // Phase 5: social connect status (Meta / WhatsApp Cloud / X).
   useEffect(() => {
-    fetch("/api/channels/connect-status")
+    fetch(withBusinessParam("/api/channels/connect-status"))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => data && setConnectStatus(data))
       .catch(() => {});
@@ -1800,7 +1801,7 @@ export default function ChannelsPage() {
     // Resolve the caller's own key from the tenant-scoped
     // /api/profile (which carries it); the Super Admin keeps the
     // businesses-list fallback (their profile has no business).
-    fetch("/api/profile")
+    fetch(withBusinessParam("/api/profile"))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.business?.siteKey) {
@@ -1813,7 +1814,7 @@ export default function ChannelsPage() {
           if (data.business.name) setBusinessName(data.business.name);
           return undefined;
         }
-        return fetch("/api/businesses")
+        return fetch(withBusinessParam("/api/businesses"))
           .then((r) => (r.ok ? r.json() : null))
           .then((list) => {
             const first = list?.businesses?.[0];
@@ -1831,7 +1832,7 @@ export default function ChannelsPage() {
   ) => {
     setSaving(true);
     try {
-      const res = await fetch(`/api/channels/${type}`, {
+      const res = await fetch(withBusinessParam(`/api/channels/${type}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config, isActive }),
@@ -1851,7 +1852,7 @@ export default function ChannelsPage() {
 
   const handleAction = async (type: string, action: string) => {
     try {
-      const res = await fetch(`/api/channels/${type}`, {
+      const res = await fetch(withBusinessParam(`/api/channels/${type}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),

@@ -149,10 +149,15 @@ export function GoogleButton({
   endpoint,
   label,
   onError,
+  onTwoFactorRequired,
 }: {
   endpoint: "/api/auth/google" | "/api/auth/firebase";
   label: string;
   onError: (message: string) => void;
+  // TEAM 2FA (2026-11-03): when the server answers twoFactorRequired,
+  // no session was issued — the caller shows its code-entry form
+  // instead of navigating. Without a handler, fall back to /login.
+  onTwoFactorRequired?: () => void;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -184,6 +189,13 @@ export function GoogleButton({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         onError(data.error || "Google sign-in failed. Please try again.");
+        return;
+      }
+      // TEAM 2FA: first factor passed, second factor still owed — no
+      // session exists, so do NOT navigate to the dashboard.
+      if (data.twoFactorRequired) {
+        if (onTwoFactorRequired) onTwoFactorRequired();
+        else router.replace("/login");
         return;
       }
       navigating = true;

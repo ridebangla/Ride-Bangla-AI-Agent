@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chat, isPureGreeting, buildGreetingReply } from "@/lib/ai/engine";
+import { groupBursts } from "@/lib/ai/reply-batch";
 import { logger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getBusinessBySiteKey, enterBusinessContext } from "@/lib/tenant";
@@ -12,6 +13,7 @@ import {
   resolvePortalSurface,
 } from "@/lib/portal-surface";
 import { prisma, withBusinessId } from "@/lib/prisma";
+import { resolveCustomer } from "@/lib/customer-resolver";
 import { checkMessageLimitExceeded } from "@/lib/billing-usage";
 import { parseActivityToken, bindActivityToken } from "@/lib/ai/activity";
 import type { MediaInput } from "@/lib/ai/media";
@@ -344,6 +346,15 @@ export async function POST(request: NextRequest) {
         ? suppliedVisitor
         : `anon-${crypto.randomUUID()}`;
     failureVisitorId = visitor;
+    // A client-supplied visitorId is the visitor's stable identity; a
+    // server-generated anon- UUID (missing/reserved visitorId) is NOT —
+    // it is fresh per request, so resolving it would mint a junk
+    // Customer row for a visitor who may never return. A previously
+    // issued anon- id that the embed stored and re-sends IS stable and
+    // resolves like any other supplied id (see the resolution below).
+    const visitorWasSupplied =
+      suppliedVisitor !== "" &&
+      suppliedVisitor.toLowerCase() !== "anonymous";
     // visitorId is client-supplied and rotatable — a second bucket keyed by
     // (siteKey + IP) caps total abuse per network regardless of rotation.
     const clientIp =
@@ -369,7 +380,62 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const text = typeof message === "string" ? message.trim() : "";
+    // Burst acceptance (widget in-flight coalescing, head call
+    // 2026-11-03 — NOT an owner rule). A flushed burst POST carries
+    // `messages: string[]` AND the backwards-compatible `message`
+    // (the same texts joined). When `messages` is present and
+    // non-empty it is CANONICAL: the `message` field is ignored,
+    // even if the two disagree. When `messages` is absent (or an
+    // empty array) the request behaves byte-identically to today.
+    // Validation (chosen values, not owner rules):
+    //  - each item must be a non-empty string after trimming;
+    //  - per-item cap = 5000 chars, deliberately EQUAL to the
+    //    existing single-message cap, so no burst item is ever
+    //    restricted beyond what a single message could carry;
+    //  - combined cap = 5000 chars (join separators included) —
+    //    this is the binding cap, and it reuses the existing
+    //    "Message too long" error so the widget maps it to its
+    //    localized too-long string exactly as for single sends.
+    //  - no separate item-count cap: the combined cap already
+    //    bounds the work (non-empty items, combined <= 5000).
+    // Rate limiting above already ran once for this POST, so a
+    // burst counts as ONE turn for rate limiting, however many
+    // texts it carries.
+    const rawMessages = (body as { messages?: unknown }).messages;
+    let burstTexts: string[] | null = null;
+    let burstCombined = "";
+    if (rawMessages !== undefined) {
+      if (!Array.isArray(rawMessages)) {
+        return NextResponse.json({ error: "Invalid messages" }, { status: 400 });
+      }
+      const trimmed: string[] = [];
+      for (const item of rawMessages) {
+        if (typeof item !== "string") {
+          return NextResponse.json({ error: "Invalid messages" }, { status: 400 });
+        }
+        const itemText = item.trim();
+        if (!itemText) {
+          return NextResponse.json({ error: "Invalid messages" }, { status: 400 });
+        }
+        if (itemText.length > 5000) {
+          return NextResponse.json({ error: "Message too long" }, { status: 400 });
+        }
+        trimmed.push(itemText);
+      }
+      // An empty array carries no texts, so it falls back to the
+      // compat `message` field below (and to the existing
+      // "Message or image is required" check if that is empty too).
+      if (trimmed.length > 0) {
+        burstTexts = trimmed;
+        burstCombined = trimmed.join("\n");
+        if (burstCombined.length > 5000) {
+          return NextResponse.json({ error: "Message too long" }, { status: 400 });
+        }
+        failureText = burstCombined;
+      }
+    }
+
+    const text = burstTexts ? burstCombined : typeof message === "string" ? message.trim() : "";
     failureText = text;
     if (!text && !image?.base64) {
       return NextResponse.json({ error: "Message or image is required" }, { status: 400 });
@@ -397,6 +463,32 @@ export async function POST(request: NextRequest) {
       media = { kind: "image", mimeType, bytes };
     }
 
+    // Customer-identity wiring (Team H): resolve the website visitor
+    // to their existing Customer row when one carries this visitorId,
+    // creating that row on first supplied visit (the same auto-create
+    // pattern as the phone/WhatsApp/Telegram channels) so a returning
+    // visitor resolves to the SAME record. Fail-soft by design: a
+    // resolution failure — or the shared gate deadline — must never
+    // cost the visitor their turn; the conversation is then created
+    // exactly as before, without a customerId, and the next visit
+    // retries. No merge on weak signals: the visitorId matches exactly
+    // against the widgetVisitorId field only — never against a name,
+    // a phone number, or another channel's identifier.
+    let visitorCustomerId: string | null = null;
+    if (visitorWasSupplied) {
+      try {
+        visitorCustomerId = await gated(
+          resolveCustomer("widget", visitor, "Website Visitor")
+        );
+      } catch (err) {
+        logger.warn(
+          "[widget] visitor resolution failed — continuing without customerId",
+          { reason: err instanceof Error ? err.message : String(err) }
+        );
+        visitorCustomerId = null;
+      }
+    }
+
     // Find or create the visitor's conversation.
     let convId = typeof conversationId === "string" ? conversationId : "";
     if (convId) {
@@ -405,8 +497,27 @@ export async function POST(request: NextRequest) {
       // visitor so one visitor cannot read another's thread.
       if (!existing || existing.customerContact !== visitor) {
         convId = "";
-      } else if (activityToken) {
-        await gated(bindActivityToken(convId, activityToken, existing.activityToken));
+      } else {
+        // Backfill customerId on a pre-fix thread (created without one)
+        // when this visitor now resolves. An existing customerId is
+        // never overwritten — that would merge threads across identities.
+        // Fail-soft: a backfill failure leaves the thread usable as-is.
+        if (!existing.customerId && visitorCustomerId) {
+          await gated(
+            prisma.conversation.update({
+              where: { id: convId },
+              data: { customerId: visitorCustomerId },
+            })
+          ).catch((err: unknown) => {
+            logger.warn("[widget] conversation customerId backfill failed", {
+              conversationId: convId,
+              reason: err instanceof Error ? err.message : String(err),
+            });
+          });
+        }
+        if (activityToken) {
+          await gated(bindActivityToken(convId, activityToken, existing.activityToken));
+        }
       }
     }
     if (!convId) {
@@ -434,6 +545,7 @@ export async function POST(request: NextRequest) {
           channel: "widget",
           customerName: "Website Visitor",
           customerContact: visitor,
+          ...(visitorCustomerId ? { customerId: visitorCustomerId } : {}),
           status: "open",
           ...(activityToken ? { activityToken } : {}),
           ...(sourceSite ? { metadata: { sourceSite } } : {}),
@@ -449,6 +561,34 @@ export async function POST(request: NextRequest) {
       stage: "widget.gates",
       ms: Date.now() - gatesStartedAt,
     });
+
+    // Burst grouping (widget apply step only — channel webhooks
+    // and engagement sync are separate apply steps and untouched).
+    // Every item shares this visitor + conversation key, so
+    // groupBursts() yields exactly one burst by construction, and
+    // chat() below is called ONCE with the combined text. Items
+    // are joined with "\n" (verbatim, no numbering added — the
+    // engine must see the customer's own words, unadorned). The
+    // synthetic ids are positional only; nothing is persisted
+    // per item (see the engine-row note: one customer Message
+    // row, containing the combined text, per chat() call).
+    let effectiveText = text;
+    if (burstTexts) {
+      const bursts = groupBursts(
+        burstTexts.map((itemText, index) => ({
+          id: `widget-burst-${index}`,
+          customerRef: visitor,
+          threadId: convId,
+          channel: "widget",
+          kind: "message" as const,
+          text: itemText,
+        }))
+      );
+      effectiveText =
+        bursts.length === 1
+          ? bursts[0].messages.map((m) => m.text).join("\n")
+          : burstCombined;
+    }
 
     if (wantsStream) {
       const encoder = new TextEncoder();
@@ -466,7 +606,7 @@ export async function POST(request: NextRequest) {
           try {
             send("meta", { conversationId: convId });
             const result = await withTurnDeadline(
-              chat(convId, text || "(sent a photo)", {
+              chat(convId, effectiveText || "(sent a photo)", {
                 media,
                 business: { name: business.name },
                 portal: isPortal,
@@ -525,7 +665,7 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await withTurnDeadline(
-      chat(convId, text || "(sent a photo)", {
+      chat(convId, effectiveText || "(sent a photo)", {
         media,
         business: { name: business.name },
         portal: isPortal,

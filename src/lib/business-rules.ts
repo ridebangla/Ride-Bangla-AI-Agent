@@ -697,3 +697,126 @@ export function formatBusinessRulesForPrompt(
     lines.join("\n")
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* TEAM F (2026-11-03) — tenant price + delivery + total composition  */
+/*                                                                      */
+/* Owner rule: the agent answers with price + delivery charge + total  */
+/* TOGETHER, and only from figures the owner actually set. A price     */
+/* answer that omits the delivery charge, bundles it invisibly, or     */
+/* invents a charge is a defect; a missing delivery charge must BLOCK  */
+/* the total (ask / pending), never be guessed. No registration fee    */
+/* exists in this module at all — there is no field, rate, or line     */
+/* for one, so no answer composed here can ever show one. No 15%      */
+/* rate is coded here either: commission is a platform/billing         */
+/* concern, not part of a customer price answer.                        */
+/*                                                                      */
+/* This function composes MACHINE values only — no customer wording.   */
+/* The engine (shared file, coordinator-owned) must use it, or an      */
+/* equivalent gate, before stating any total to a customer; until     */
+/* that wiring lands, the engine's prompt line ("give price plus       */
+/* delivery charge plus total together only when both are actually    */
+/* known") is the only enforcement. Currency is never converted: a     */
+/* price currency that differs from the delivery-charge currency       */
+/* blocks the total rather than guessing a conversion.                 */
+/* ------------------------------------------------------------------ */
+
+export interface PriceAnswerInput {
+  /** Catalog / quoted item price. Null = no price known. */
+  price: number | null;
+  /** Currency of the price (3-letter code), or null when unknown. */
+  priceCurrency?: string | null;
+  /** The tenant's saved delivery charge (business-rules doc). */
+  deliveryCharge?: MoneyValue | null;
+}
+
+export type PriceAnswer =
+  | {
+      ok: true;
+      /** Item price, as supplied. */
+      price: number;
+      /** Delivery charge, as saved by the tenant. */
+      deliveryCharge: number;
+      /** price + deliveryCharge, same currency. */
+      total: number;
+      currency: string;
+    }
+  | {
+      ok: false;
+      reason:
+        | "missing_price"
+        | "missing_delivery_charge"
+        | "invalid_price"
+        | "invalid_delivery_charge"
+        | "currency_mismatch";
+    };
+
+export function composePriceAnswer(input: PriceAnswerInput): PriceAnswer {
+  const price = input.price;
+  if (price === null || price === undefined) {
+    return { ok: false, reason: "missing_price" };
+  }
+  if (typeof price !== "number" || !Number.isFinite(price) || price < 0) {
+    return { ok: false, reason: "invalid_price" };
+  }
+  const dc = input.deliveryCharge;
+  if (dc === null || dc === undefined) {
+    // Missing delivery charge BLOCKS the total: the caller must ask
+    // the owner / leave the order pending, never guess a charge.
+    return { ok: false, reason: "missing_delivery_charge" };
+  }
+  if (
+    typeof dc.amount !== "number" ||
+    !Number.isFinite(dc.amount) ||
+    dc.amount < 0 ||
+    typeof dc.currency !== "string" ||
+    !CURRENCY_RE.test(dc.currency)
+  ) {
+    return { ok: false, reason: "invalid_delivery_charge" };
+  }
+  const priceCurrency =
+    typeof input.priceCurrency === "string" && input.priceCurrency
+      ? input.priceCurrency
+      : null;
+  if (priceCurrency !== null && priceCurrency !== dc.currency) {
+    // Never convert, never pick one currency silently.
+    return { ok: false, reason: "currency_mismatch" };
+  }
+  return {
+    ok: true,
+    price,
+    deliveryCharge: dc.amount,
+    total: price + dc.amount,
+    currency: dc.currency,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* FARE-BOUNDARY RENDERING (head call, decision A4, 2026-11-03).       */
+/*                                                                      */
+/* A composed price answer rendered as plain reply text ("Delivery    */
+/* charge: 80 BDT") would be stripped by the engine's fare filter,    */
+/* which cannot tell it apart from a fare-table quote. This renderer  */
+/* is therefore the ONLY sanctioned way to turn a composePriceAnswer  */
+/* result into reply text: it wraps the three lines in the machine    */
+/* marker the filter recognises (see guardrails.ts), and the filter   */
+/* re-validates the arithmetic before letting it through. Never       */
+/* hand-write a marked block, and never render a blocked answer: a    */
+/* not-ok result renders to null, so the caller must ask / leave      */
+/* pending instead of showing a partial figure. The marker never      */
+/* reaches the customer — the filter strips it from valid blocks      */
+/* and drops invalid blocks whole.                                    */
+/* ------------------------------------------------------------------ */
+
+export function renderComposedPriceAnswer(
+  answer: PriceAnswer
+): string | null {
+  if (!answer.ok) return null;
+  return (
+    "\u0001COMPOSED-PRICE-START\u0001\n" +
+    `Price: ${answer.price} ${answer.currency}\n` +
+    `Delivery charge: ${answer.deliveryCharge} ${answer.currency}\n` +
+    `Total: ${answer.total} ${answer.currency}\n` +
+    "\u0001COMPOSED-PRICE-END\u0001"
+  );
+}

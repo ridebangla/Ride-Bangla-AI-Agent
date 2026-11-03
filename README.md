@@ -33,6 +33,21 @@
 
 ---
 
+### What changed — November 2026 batch
+
+- **Authenticator-app two-factor (TOTP) at `/security`:** a signed-in admin starts setup, scans the QR code (or enters the manual secret) in any TOTP authenticator app, and enters a current code — only then does two-factor turn on. Ten single-use backup codes are shown once. Later sign-ins ask for the app code (or a backup code) before the dashboard opens. Setup requires the `TOTP_ENCRYPTION_KEY` server variable; without it, setup fails closed instead of storing a secret.
+- **Tenant profile logo:** a business uploads its logo on Profile or Landing settings; it appears on the dashboard header, the public landing page, and as a badge in the opened chat-widget header. Wide logos are shown whole, never cropped.
+- **One reply to a burst:** messages typed while a send is still in flight are held and sent as one post, and get one reply covering all of them.
+- **Tickets with recording references:** support tickets carry a short readable reference plus source team and website, and the full customer message. A ticket goes out only when the customer asks for a human, or for a grave problem the agent proposes a ticket and the customer accepts. Technical and feedback reports are tagged as team reports rather than support tickets.
+- **Services answers from real knowledge:** when a tenant's knowledge base or catalog is non-empty, services questions fall through to the full knowledge pipeline instead of the "not set up yet" template.
+- **Limit UX, mid-session:** when a limit is crossed after the dashboard already loaded, the next send attempt reopens the limit popup (limit finished, reset time, plans, **Update your package**) instead of showing a raw error.
+- **Onboarding branches:** the onboarding status route reports website-verify → landing page → landing category → catalog intake → complete, so a business with no website has a next step instead of a dead end.
+- **Stock movements:** a confirmed order decrements stock and a cancelled order restocks exactly what the confirmation decremented; dashboard cancellations now send their reason with the status change.
+- **Courier suggestion:** in a served district the own courier is suggested first and highlighted, and the customer may still choose otherwise; in an unserved district the own courier shows "Coming Soon" and partner-courier ordering is allowed; when the district is unknown the order stays pending for the shop. The agent never books a third-party courier.
+- **Faster sign-in path:** the dashboard gate reads and the session-restore reads now run in one window instead of sequentially; no session rule was weakened.
+
+---
+
 ### Agent-character placement — updated version, 29 October 2026
 
 Same model everywhere (owner decision 29 October 2026): the platform's own
@@ -54,7 +69,7 @@ site code and is kept, not deleted.
 
 **Ride Bangla AI Agent** is the multi-tenant AI customer-support platform of the Ride Bangla ecosystem, built and operated by **Ride Bangla Limited** (Faridpur, Bangladesh).
 
-A business signs up, connects its website(s), and gets its **own** agent — carrying that business's name, knowledge, products and tone — working on its website and messaging channels around the clock. The agent *is* the help centre: there is no separate help system. When a customer has a serious problem or asks for a human, the agent creates a support ticket itself and a human continues **in the same conversation** from the business's inbox.
+A business signs up, connects its website(s), and gets its **own** agent — carrying that business's name, knowledge, products and tone — working on its website and messaging channels around the clock. The agent *is* the help centre: there is no separate help system. When a customer asks for a human, or for a grave problem the agent proposes a ticket and the customer accepts, a support ticket is created and a human continues **in the same conversation** from the business's inbox.
 
 Ride Bangla's own business runs on this same platform. Company accounts sit outside the plan and limit machinery entirely — always free, no caps — and the platform admin can grant the same free access (a “comp”) to any business, with a plan, a duration and a reason.
 
@@ -96,7 +111,7 @@ Ride Bangla's own business runs on this same platform. Company accounts sit outs
 
 ### Tickets & human handover
 
-- The agent creates support tickets itself when a conversation needs a human; tickets carry status, priority and SLA rules, and the human continues in the same thread.
+- Support tickets are created when the customer asks for a human, or for a grave problem the agent proposes a ticket and the customer accepts; tickets carry status, priority and SLA rules, and the human continues in the same thread.
 - Canned responses, automation rules, business hours and a team/departments structure keep a real support operation running behind the agent.
 
 

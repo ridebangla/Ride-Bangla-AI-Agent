@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
+import { withBusinessParam } from "@/lib/business-param";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,17 +45,35 @@ export function OnboardingChecklist() {
       const [authRes, settingsRes, entriesRes, channelsRes, teamRes] =
         await Promise.all([
           fetch("/api/auth"),
-          fetch("/api/settings"),
-          fetch("/api/knowledge/entries"),
-          fetch("/api/channels"),
-          fetch("/api/team/members"),
+          fetch(withBusinessParam("/api/settings")),
+          fetch(withBusinessParam("/api/knowledge/entries")),
+          fetch(withBusinessParam("/api/channels")),
+          fetch(withBusinessParam("/api/team/members")),
         ]);
 
       const auth = authRes.ok ? await authRes.json() : {};
       const settings = settingsRes.ok ? await settingsRes.json() : {};
-      const entries = entriesRes.ok ? await entriesRes.json() : [];
+      // FIX (2026-11-03, setup-data): /api/knowledge/entries and
+      // /api/team/members return the paginated envelope
+      // { data, pagination } (see src/lib/pagination.ts), NOT a bare
+      // array. The old Array.isArray() test therefore never completed
+      // those two items even when entries/members existed. Unwrap
+      // the envelope (bare arrays still accepted). The fetches also
+      // carry withBusinessParam(): without ?business=<slug> a Super
+      // Admin with several active businesses got 400
+      // BUSINESS_REQUIRED from every business-scoped route here, so
+      // the checklist silently counted failures as "not done".
+      const unwrapList = (value: unknown): unknown[] => {
+        if (Array.isArray(value)) return value;
+        if (value && typeof value === "object") {
+          const envelope = value as { data?: unknown };
+          if (Array.isArray(envelope.data)) return envelope.data;
+        }
+        return [];
+      };
+      const entries = entriesRes.ok ? unwrapList(await entriesRes.json()) : [];
       const channels = channelsRes.ok ? await channelsRes.json() : [];
-      const team = teamRes.ok ? await teamRes.json() : [];
+      const team = teamRes.ok ? unwrapList(await teamRes.json()) : [];
 
       const connectedChannels = Array.isArray(channels)
         ? channels.filter((c: { isActive: boolean }) => c.isActive)

@@ -282,6 +282,111 @@ export interface LandingMeta {
  * `checkLandingQuality()` both use this so the gate verifies exactly what
  * visitors (and crawlers) receive.
  */
+/* ------------------------------------------------------------------ */
+/* TEAM F (2026-11-03) — tenant onboarding branch decision (pure)     */
+/*                                                                      */
+/* Approved onboarding spec, in order:                                 */
+/*   1. AI verifies the owner's website first.                          */
+/*   2. No website -> AI landing page (this module's /p/[slug] page).  */
+/*   3. No categories -> AI landing-page category: products with no    */
+/*      category still get a shelf — getLandingData already groups     */
+/*      them under "More items" instead of hiding them (see above).    */
+/*   4. No catalog -> the AI asks the OWNER for photos + names and     */
+/*      builds the catalog from what the owner supplies (never         */
+/*      invents items). This function reports that intake as machine   */
+/*      flags only; the owner-facing ask wording is owner-approval     */
+/*      copy and lives in the TEAM F report, not in shipped code.      */
+/*                                                                      */
+/* The status route (GET /api/onboarding/status) feeds this function   */
+/* from the tenant's own rows; nothing here invents a website, a       */
+/* category, or a catalog item. A tenant that reaches "complete" has   */
+/* a verified website source (or a published landing page), at least   */
+/* one category, and at least one product.                             */
+/* ------------------------------------------------------------------ */
+
+export interface TenantOnboardingSnapshot {
+  /** The owner claimed at least one website (listed, any status). */
+  websiteClaimed: boolean;
+  /** At least one listed website actually indexed (status "indexed"). */
+  websiteVerified: boolean;
+  /** The tenant's AI landing page is published. */
+  landingPublished: boolean;
+  /** Number of product categories the tenant has. */
+  categoryCount: number;
+  /** Number of products the tenant has. */
+  productCount: number;
+}
+
+export type TenantOnboardingBranch =
+  | "website_verify"
+  | "landing_page"
+  | "landing_category"
+  | "catalog_intake"
+  | "complete";
+
+export interface TenantOnboardingBranchResult {
+  branch: TenantOnboardingBranch;
+  /**
+   * For "catalog_intake": exactly what the owner must supply, as
+   * machine flags — photos and names, nothing else, never invented.
+   * Empty for every other branch.
+   */
+  catalogIntakeNeeds: Array<"photos" | "names">;
+  /**
+   * For "landing_category": products without a category are shown
+   * under the landing page's fallback group ("More items").
+   */
+  landingFallbackGroup: boolean;
+}
+
+export function resolveTenantOnboardingBranch(
+  snapshot: TenantOnboardingSnapshot
+): TenantOnboardingBranchResult {
+  const categories = Math.max(0, Math.floor(snapshot.categoryCount) || 0);
+  const products = Math.max(0, Math.floor(snapshot.productCount) || 0);
+  // 1. A claimed-but-unverified website must be verified first — an
+  // unverified URL is never treated as a website source.
+  if (snapshot.websiteClaimed && !snapshot.websiteVerified) {
+    return {
+      branch: "website_verify",
+      catalogIntakeNeeds: [],
+      landingFallbackGroup: false,
+    };
+  }
+  // 2. No website at all and no published landing page -> the AI
+  // landing page is the tenant's website.
+  if (!snapshot.websiteClaimed && !snapshot.landingPublished) {
+    return {
+      branch: "landing_page",
+      catalogIntakeNeeds: [],
+      landingFallbackGroup: false,
+    };
+  }
+  // 3. No categories -> landing-page category fallback. (A published
+  // landing page with zero categories still reaches this branch:
+  // its products, if any, sit in the fallback group.)
+  if (categories === 0) {
+    return {
+      branch: "landing_category",
+      catalogIntakeNeeds: [],
+      landingFallbackGroup: true,
+    };
+  }
+  // 4. No catalog -> ask the owner for photos + names.
+  if (products === 0) {
+    return {
+      branch: "catalog_intake",
+      catalogIntakeNeeds: ["photos", "names"],
+      landingFallbackGroup: false,
+    };
+  }
+  return {
+    branch: "complete",
+    catalogIntakeNeeds: [],
+    landingFallbackGroup: false,
+  };
+}
+
 export function buildLandingMeta(data: PublicLandingData): LandingMeta {
   const description =
     data.copy.tagline ||

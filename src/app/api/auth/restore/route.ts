@@ -74,7 +74,43 @@ export async function GET(request: NextRequest) {
       ?.value;
     if (!refreshTokenValue) return toLogin();
 
-    const payload = await verifyRefreshToken(refreshTokenValue);
+    // Performance: the revocation check (verifyRefreshToken) and the
+    // admin lookup are INDEPENDENT — both key off the refresh token's
+    // own claims (userId comes from the token's signature, decoded
+    // locally by decodeRefreshPayload with no DB read) and neither
+    // consumes the other's result — so they run in one window instead
+    // of two sequential DB windows. Outcome preservation:
+    //  - a revoked/invalid token still lands on toLogin() and the
+    //    admin row is never used (discarded, never trusted);
+    //  - a throwing revocation read rethrows into the catch below,
+    //    preserving the quota branch (cookies preserved) and the
+    //    fail-closed toLogin() for other errors exactly; a throwing
+    //    admin read rethrows only when the token itself verified —
+    //    for a revoked token it is discarded, as the old code never
+    //    ran the lookup then;
+    //  - rotation, revocation and expiry checks are untouched:
+    //    verifyRefreshToken still performs signature + type +
+    //    revocation, and nothing here mints a session on its own.
+    // (When the token fails even local signature/type decoding, no
+    // admin read runs at all — matching the old path, where the admin
+    // lookup never ran for an invalid token.)
+    const decoded = decodeRefreshPayload(refreshTokenValue);
+    const [refreshResult, adminResult] = await Promise.allSettled([
+      verifyRefreshToken(refreshTokenValue),
+      decoded
+        ? getUnscopedPrisma().admin.findUnique({
+            where: { id: decoded.userId },
+            select: {
+              id: true,
+              role: true,
+              twoFactorEnabled: true,
+              twoFactorActivatedAt: true,
+            } as Record<string, unknown>,
+          })
+        : Promise.resolve(null),
+    ]);
+    if (refreshResult.status === "rejected") throw refreshResult.reason;
+    const payload = refreshResult.value;
     if (!payload) {
       // Rotation race (session-persistence fix, 2026-10-22): another
       // tab rotated this exact token moments ago and its fresh cookie
@@ -90,11 +126,42 @@ export async function GET(request: NextRequest) {
       return toLogin();
     }
 
-    const admin = await getUnscopedPrisma().admin.findUnique({
-      where: { id: payload.userId },
-      select: { id: true, role: true },
-    });
+    // Only now is the admin result needed: a null payload above
+    // returned before this point, so a failing admin read for a
+    // revoked token is discarded exactly as before (the old code
+    // never ran the lookup then). For a VERIFIED token, a failing
+    // admin read rethrows into the catch below (quota branch intact).
+    if (adminResult.status === "rejected") throw adminResult.reason;
+    const admin = adminResult.value;
     if (!admin) return toLogin();
+
+    // TEAM 2FA (2026-11-03) — restore-chain kill, delimited addition:
+    // same rule as POST /api/auth {action:"refresh"}: a refresh token
+    // minted before 2FA activation must not restore a session past the
+    // challenge. Revoke it and land on /login (cookies cleared there).
+    {
+      const a = admin as unknown as {
+        twoFactorEnabled?: unknown;
+        twoFactorActivatedAt?: unknown;
+      };
+      const activatedMs = a.twoFactorActivatedAt
+        ? new Date(a.twoFactorActivatedAt as string | number | Date).getTime()
+        : NaN;
+      if (
+        a.twoFactorEnabled === true &&
+        !Number.isNaN(activatedMs) &&
+        payload.iat &&
+        payload.iat * 1000 < activatedMs
+      ) {
+        await revokeToken(
+          payload.jti,
+          new Date(
+            (payload.exp ?? 0) * 1000 || Date.now() + 30 * 24 * 3600 * 1000
+          )
+        );
+        return toLogin();
+      }
+    }
 
     // Rotation: the presented refresh token is single-use from here.
     await revokeToken(

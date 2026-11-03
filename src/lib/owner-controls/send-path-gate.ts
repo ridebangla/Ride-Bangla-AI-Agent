@@ -40,6 +40,11 @@
  * in the same batch as the wiring set — it is marked below and must
  * not be called before that set lands.
  *
+ * TEAM F (2026-11-03): the onboarding check below delegates to
+ * channel-controls canAiWork (single definition) instead of inlining
+ * its own predicate — the two used to drift (a published landing page
+ * counted in one place and not the other).
+ *
  * Call sites (apply order — all AFTER existing suppressions, BEFORE
  * the actual send call):
  *  - src/lib/social/comments.ts handleCommentEvent auto-post branch
@@ -55,6 +60,8 @@
  *    Leg E offer control supplied by the caller — this helper never
  *    supplies offer content.
  */
+
+import { canAiWork } from "./channel-controls";
 
 export type OwnerControlsDocInput = {
   businessId: string;
@@ -78,7 +85,13 @@ export function decideAiSendWithOwnerControls(input: {
   /** HEAD global kill-switch. */
   globalAiOff: boolean;
   /** Onboarding predicate inputs; see channel-controls canAiWork. */
-  onboarding: { websiteAttached: boolean; hasActiveTrialOrPaid: boolean; isInternalHolder?: boolean };
+  onboarding: {
+    websiteAttached: boolean;
+    /** Published AI landing page counts as an attached source (TEAM F). */
+    landingPagePublished?: boolean;
+    hasActiveTrialOrPaid: boolean;
+    isInternalHolder?: boolean;
+  };
   kind: "message" | "offer";
   /** Leg E offer control, for kind "offer" only; null = missing = block. */
   offerControl?: {
@@ -96,8 +109,11 @@ export function decideAiSendWithOwnerControls(input: {
     return { allowed: false, reason: "cross_tenant", diagnostic: true };
   }
   // Onboarding gate (channel-controls precedence 1), then global off (2).
-  const isHolder = input.onboarding.isInternalHolder === true;
-  if (!isHolder && !(input.onboarding.websiteAttached && input.onboarding.hasActiveTrialOrPaid)) {
+  // Single definition: canAiWork (landing-page-published counts as an
+  // attached source — TEAM F 2026-11-03). Previously this helper
+  // inlined its own predicate and would have blocked a tenant whose
+  // only website source is a published landing page.
+  if (!canAiWork(input.onboarding)) {
     return { allowed: false, reason: "onboarding_not_complete", diagnostic: true };
   }
   if (input.globalAiOff === true) {

@@ -25,6 +25,64 @@ export function normalizePhone(input: string): string {
   return legacy;
 }
 
+/** Channels whose contact IS a phone number (Twilio SMS `from` is a
+ * phone number, exactly like `phone`/`whatsapp`). SMS was previously
+ * excluded here, so an SMS number in any non-canonical form
+ * ("+880 1711-111111", "01711111111") never matched the canonical
+ * phone/whatsapp field and silently created a second Customer for
+ * the same person (Team C fix 2026-11-03). */
+const PHONE_CHANNELS = new Set(["phone", "whatsapp", "sms"]);
+
+/**
+ * Channels whose contact is an opaque platform identifier stored in its
+ * OWN scalar Customer field (Team H, 2026-11-03). Before this, these
+ * channels fell through findByChannelField (default: null) and
+ * createCustomer dropped the contact entirely, so the same telegram
+ * user / Meta PSID / website visitor got a NEW Customer row on every
+ * message — conversation reuse hid it, but anything keyed by
+ * customerId fragmented. Field names match the existing
+ * email/phone/whatsapp convention (one scalar field per contact);
+ * `widget` maps to `widgetVisitorId` because a browser visitor token
+ * is not a contact address. A metadata.channelIds design was rejected:
+ * the query engine has no array-`has`/nested-path operator, so it
+ * could only be resolved by scanning the tenant's whole customer set.
+ */
+const CHANNEL_ID_FIELD: Record<string, string> = {
+  telegram: "telegram",
+  messenger: "messenger",
+  instagram: "instagram",
+  widget: "widgetVisitorId",
+};
+
+/** Canonical form of a channel-identifier contact for storage + lookup.
+ * Telegram usernames are case-insensitive, so they are lowercased (a
+ * numeric chat id is unaffected); every other identifier is matched
+ * exactly as supplied — never normalized, guessed, or merged across
+ * channels. */
+export function normalizeChannelContact(channel: string, contact: string): string {
+  const trimmed = contact.trim();
+  return channel === "telegram" ? trimmed.toLowerCase() : trimmed;
+}
+
+/**
+ * Lookup-only identity resolution (Team H, 2026-11-03): returns the id
+ * of the Customer that already carries this channel identifier, or
+ * null. It NEVER creates or updates a row — callers that must not
+ * invent an identity from weak evidence (e.g. social-comment authors,
+ * who have never chatted) use this instead of resolveCustomer.
+ * Per-tenant scoping holds via the tenant-scoped prisma proxy, exactly
+ * as for resolveCustomer: a lookup can only return this tenant's row.
+ */
+export async function findCustomerByChannelContact(
+  channel: string,
+  contact: string
+): Promise<string | null> {
+  const field = CHANNEL_ID_FIELD[channel];
+  if (!field || !contact) return null;
+  const match = await findByChannelField(channel, contact);
+  return match ? match.id : null;
+}
+
 /**
  * Resolve a customer identity across channels.
  * Finds or creates a Customer record based on contact info.
@@ -46,8 +104,8 @@ export async function resolveCustomer(
     return directMatch.id;
   }
 
-  // Step 2: Normalized phone match (for phone/whatsapp channels)
-  if (channel === "phone" || channel === "whatsapp") {
+  // Step 2: Normalized phone match (for phone/whatsapp/sms channels)
+  if (PHONE_CHANNELS.has(channel)) {
     const normalized = normalizePhone(customerContact);
     if (normalized.length >= 7) {
       const phoneMatch = await prisma.customer.findFirst({
@@ -84,10 +142,9 @@ export async function resolveCustomer(
   }
 
   // Step 3: Cross-field fallback (search all contact fields)
-  const normalizedContact =
-    channel === "phone" || channel === "whatsapp"
-      ? normalizePhone(customerContact)
-      : customerContact;
+  const normalizedContact = PHONE_CHANNELS.has(channel)
+    ? normalizePhone(customerContact)
+    : customerContact;
   const crossMatch = await prisma.customer.findFirst({
     where: {
       OR: [
@@ -118,9 +175,23 @@ async function findByChannelField(channel: string, contact: string) {
         where: { whatsapp: normalizePhone(contact) },
       });
     case "phone":
+    case "sms":
+      // SMS numbers live in the phone field (there is no sms field on
+      // the Customer record), so an SMS lookup is a phone lookup.
       return prisma.customer.findFirst({
         where: { phone: normalizePhone(contact) },
       });
+    case "telegram":
+    case "messenger":
+    case "instagram":
+    case "widget": {
+      // Channel-identifier channels: stored values are normalized on
+      // write (see normalizeChannelContact) — match on the same form.
+      const field = CHANNEL_ID_FIELD[channel];
+      return prisma.customer.findFirst({
+        where: { [field]: normalizeChannelContact(channel, contact) },
+      });
+    }
     default:
       return null;
   }
@@ -137,11 +208,20 @@ async function createCustomer(
       firstContact: new Date(),
       lastContact: new Date(),
       ...(channel === "email" ? { email: contact } : {}),
-      // Phone/WhatsApp contacts are stored ONLY in normalized form (M-1):
-      // verbatim storage of "+880 1711-111111" / "…@c.us" values is what
-      // fragmented one person into duplicate Customer records.
+      // Phone/WhatsApp/SMS contacts are stored ONLY in normalized form
+      // (M-1): verbatim storage of "+880 1711-111111" / "…@c.us"
+      // values is what fragmented one person into duplicate Customer
+      // records. SMS has no own field, so it stores into `phone`.
       ...(channel === "whatsapp" ? { whatsapp: normalizePhone(contact) } : {}),
-      ...(channel === "phone" ? { phone: normalizePhone(contact) } : {}),
+      ...(channel === "phone" || channel === "sms"
+        ? { phone: normalizePhone(contact) }
+        : {}),
+      // Channel-identifier contacts are stored ONLY in normalized form
+      // too (telegram lowercased): before this they were dropped here,
+      // which is what created a new Customer row per message.
+      ...(CHANNEL_ID_FIELD[channel]
+        ? { [CHANNEL_ID_FIELD[channel]]: normalizeChannelContact(channel, contact) }
+        : {}),
     }),
   });
 
@@ -166,7 +246,16 @@ async function updateExistingCustomer(
   // Backfill empty channel fields
   const customer = await prisma.customer.findUnique({
     where: { id: customerId },
-    select: { name: true, email: true, phone: true, whatsapp: true },
+    select: {
+      name: true,
+      email: true,
+      phone: true,
+      whatsapp: true,
+      telegram: true,
+      messenger: true,
+      instagram: true,
+      widgetVisitorId: true,
+    },
   });
 
   if (!customer) return;
@@ -185,7 +274,7 @@ async function updateExistingCustomer(
       update.whatsapp = canonical;
     }
   }
-  if (channel === "phone") {
+  if (channel === "phone" || channel === "sms") {
     const canonical = normalizePhone(contact);
     if (!customer.phone) {
       update.phone = canonical;
@@ -194,6 +283,24 @@ async function updateExistingCustomer(
       normalizePhone(customer.phone) === canonical
     ) {
       update.phone = canonical;
+    }
+  }
+  // Backfill an empty channel-identifier field. A DIFFERENT stored
+  // identifier is never overwritten: that would merge two platform
+  // identities onto one row on a guessed link. The only rewrite is the
+  // telegram case-only self-heal (same handle, pre-lowercasing row).
+  const channelField = CHANNEL_ID_FIELD[channel];
+  if (channelField) {
+    const canonical = normalizeChannelContact(channel, contact);
+    const stored = (customer as Record<string, unknown>)[channelField];
+    if (typeof stored !== "string" || !stored) {
+      update[channelField] = canonical;
+    } else if (
+      channel === "telegram" &&
+      stored !== canonical &&
+      stored.toLowerCase() === canonical
+    ) {
+      update[channelField] = canonical;
     }
   }
 

@@ -21,6 +21,7 @@ import {
 } from "@/lib/utils";
 import { AgentActivityLine } from "@/components/conversations/agent-activity-line";
 import type { AgentActivity } from "@/lib/ai/activity-labels";
+import { withBusinessParam } from "@/lib/business-param";
 
 interface MessageData {
   id: string;
@@ -108,7 +109,7 @@ export default function ConversationsPage() {
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (searchQuery.trim()) params.set("search", searchQuery.trim());
 
-      const res = await fetch(`/api/conversations?${params.toString()}`);
+      const res = await fetch(withBusinessParam(`/api/conversations?${params.toString()}`));
       if (!res.ok) throw new Error("Failed to load conversations");
       const data = await res.json();
       setConversations(data);
@@ -140,9 +141,11 @@ export default function ConversationsPage() {
         const deltaTs =
           detailDeltaRef.current?.id === id ? detailDeltaRef.current.ts : "";
         const res = await fetch(
-          deltaTs
-            ? `/api/conversations/${id}?since=${encodeURIComponent(deltaTs)}`
-            : `/api/conversations/${id}`
+          withBusinessParam(
+            deltaTs
+              ? `/api/conversations/${id}?since=${encodeURIComponent(deltaTs)}`
+              : `/api/conversations/${id}`
+          )
         );
         if (res.ok) {
           const data = await res.json();
@@ -247,7 +250,7 @@ export default function ConversationsPage() {
     if (!replyText.trim() || !selectedId || sending) return;
     setSending(true);
     try {
-      const res = await fetch(`/api/conversations/${selectedId}/messages`, {
+      const res = await fetch(withBusinessParam(`/api/conversations/${selectedId}/messages`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: replyText.trim(), role: "admin" }),
@@ -267,7 +270,7 @@ export default function ConversationsPage() {
   const handleStatusChange = async (newStatus: string) => {
     if (!selectedId) return;
     try {
-      const res = await fetch(`/api/conversations/${selectedId}`, {
+      const res = await fetch(withBusinessParam(`/api/conversations/${selectedId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),

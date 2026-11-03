@@ -49,6 +49,8 @@ import {
   normalizeApprovalSettings,
 } from "@/lib/reply-approval";
 import { deliverDraftText } from "@/lib/reply-approval-delivery";
+import { getSettingsOwnerControlAdapter } from "@/lib/owner-controls/settings-owner-control-adapter";
+import { isAiSilentOnChannel } from "@/lib/owner-controls/channel-controls";
 
 export async function POST(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -105,7 +107,7 @@ export async function POST(request: NextRequest) {
         const globalAiEnabled =
           (settings as { aiEnabled?: unknown } | null)?.aiEnabled !== false;
 
-        let local = { checked: 0, sent: 0, cancelled: 0, held: 0, errors: 0 };
+        const local = { checked: 0, sent: 0, cancelled: 0, held: 0, errors: 0 };
         for (const draftRow of batch as Array<Record<string, unknown>>) {
           local.checked++;
           try {
@@ -142,6 +144,41 @@ export async function POST(request: NextRequest) {
               continue;
             }
             if (timer.decision !== "send") {
+              local.held++;
+              continue;
+            }
+            // Team J owner gate (auto-send only — manual send-now
+            // through the dashboard is the owner's own action and is
+            // NOT gated here): an owner-held channel, or a corrupt /
+            // unavailable owner-controls doc, holds the draft. The
+            // draft stays "pending" (never deleted, never sent) and
+            // the next sweep re-decides after hand-back.
+            let ownerHeld = false;
+            let ownerGateFailed = false;
+            try {
+              const ownerDoc =
+                await getSettingsOwnerControlAdapter().getDoc(businessId);
+              if (ownerDoc) {
+                if (ownerDoc.businessId !== businessId) {
+                  ownerGateFailed = true;
+                } else {
+                  ownerHeld = isAiSilentOnChannel(
+                    ownerDoc.channelControls,
+                    typeof conv.channel === "string" ? conv.channel : ""
+                  );
+                }
+              }
+            } catch {
+              ownerGateFailed = true;
+            }
+            if (ownerGateFailed || ownerHeld) {
+              logger.warn("[reply-approvals] auto-send held by owner gate", {
+                draftId: draftRow.id as string,
+                channel: conv.channel,
+                reason: ownerGateFailed
+                  ? "owner_controls_store_unavailable"
+                  : "channel_owner_controlled",
+              });
               local.held++;
               continue;
             }

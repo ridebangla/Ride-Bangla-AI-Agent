@@ -380,7 +380,17 @@ const MODEL_META: Record<string, ModelMeta> = {
   }),
   customer: M("customers", {
     hasUpdatedAt: true,
-    defaults: { email: "", phone: "", whatsapp: "", tags: "", isBlocked: false, metadata: {} },
+    // Channel-identifier fields (Team H, 2026-11-03): one scalar field
+    // per channel whose contact is an opaque platform id, exactly like
+    // the existing email/phone/whatsapp fields — so the resolver can
+    // match on them with a plain equality query. A metadata map was
+    // rejected: the query engine (firestore-query.ts) has no array-`has`
+    // or nested-path operator, so a metadata.channelIds design could
+    // only be looked up by scanning every customer of the tenant.
+    // telegram = "@username" (lowercased) or chat id; messenger /
+    // instagram = Meta PSID / IG-scoped id; widgetVisitorId = the
+    // website widget's supplied visitorId.
+    defaults: { email: "", phone: "", whatsapp: "", telegram: "", messenger: "", instagram: "", widgetVisitorId: "", tags: "", isBlocked: false, metadata: {} },
   }),
   customerNote: M("customerNotes", { defaults: { authorName: "Admin" } }),
   automationRule: M("automationRules", {

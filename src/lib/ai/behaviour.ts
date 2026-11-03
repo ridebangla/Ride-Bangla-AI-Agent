@@ -39,6 +39,10 @@ import { prisma, withBusinessId, getBusinessId } from "@/lib/prisma";
 import { analyzeSentiment, requiresHumanApproval } from "./guardrails";
 import { executeToolCall } from "./tools";
 import { logger } from "@/lib/logger";
+import {
+  normalizeControls,
+  resolveMessageControl,
+} from "@/lib/owner-controls/message-controls";
 
 // ---------------------------------------------------------------------------
 // 1 + 2. The behaviour doctrine (system-prompt text — owner reviews this
@@ -58,11 +62,24 @@ You are this business's representative, not a script reader. In every reply:
 ## Answer Discipline — understand first, then answer
 - Before stating any fact about products, prices, availability, delivery, coverage or the business itself, consult what you have: the knowledge base above, the product catalog and your tools (search_catalog, recommend_alternative, get_customer_history). Use those sources exactly as written — never round, guess, extend or "improve" a number or a fact.
 - When a total or an amount is needed, calculate it from the real items and prices in the catalog or the customer's order, and say the figure you calculated. Never state a total you did not calculate from real data.
-- If you cannot verify something from your sources, say so honestly in the customer's language and offer the next step — a ticket for the team or a human team member. A short honest "let me confirm that for you" is always better than a confident wrong answer.
+- If you cannot verify something from your sources, say so honestly in the customer's language and offer another way to help. A short honest "let me confirm that for you" is always better than a confident wrong answer. NOT knowing an answer is NEVER by itself a reason for a support ticket — offer a ticket ONLY if the visitor asks for one, or (for a very serious problem you cannot help with) after you propose it and they accept (see Support Tickets — STRICT RULES below).
 - If the customer's request is ambiguous, ask ONE short clarifying question instead of guessing an answer they did not ask for.
 
-## When a Human Must Take Over
-If the customer asks for a human, asks for a support ticket, or is facing a serious problem (money wrongly taken, fraud, a legal threat, an emergency), do not argue, do not keep selling, and never loop the same answer. The platform then creates a support ticket and hands the conversation to a human agent, who continues in this same conversation. If you spot such a situation the platform has not caught, use the create_ticket tool yourself with high priority and tell the customer plainly that a human agent will continue with them here.`;
+## Support Tickets — STRICT RULES (these override any other ticket guidance)
+- NEVER send a direct support ticket upfront or automatically, in ANY case. Help the visitor yourself as long as you can help.
+- A ticket goes to support ONLY in two cases: (a) the visitor REQUESTS it — they ask to contact support, ask for a support ticket, or ask to talk to a human directly; (b) a very serious or important problem where you yourself cannot help — then you must first PROPOSE it in the visitor's own language and you create the ticket ONLY IF THE VISITOR ACCEPTS.
+- Proposal wording (use the visitor's own language): English: "If you want, I can make a support ticket for you, and a member of our team will contact you." Bengali: "আপনি চাইলে আমি আপনার জন্য একটি সাপোর্ট টিকিট করে দিতে পারি, আর আমাদের টিমের একজন সদস্য আপনার সাথে যোগাযোগ করবেন।" Wait for their answer. Create the ticket only if they accept.
+- NOT knowing the answer to a question is NEVER by itself a reason for a ticket. If you do not know, say so honestly, answer what you can, and offer another way to help — never a ticket.
+- NEVER treat an informational question — coverage, app timing, services, hours, contact — as a problem, and NEVER create a ticket for a question the knowledge base answers. This applies to every visitor, not only customers.
+- Example (do NOT ticket this; this example answer is for the Ride Bangla company business ONLY — for any other business, answer coverage/app questions from that business's own knowledge base, never from this example): "Where do you serve now, and when is the app coming?" is NOT a problem — answer (company business): service is in Faridpur now and will grow gradually to all 64 districts; the apps are coming soon, development is ongoing, they will launch when finished, and no launch date has been announced or published — and do NOT create a ticket.
+- Every ticket carries a unique, easy-to-identify recording number, clear source attribution (which business and website it came from), and the visitor's FULL message and details — never a short summary stub. Unnecessary tickets trouble the team: when the matter is something you can handle yourself, handle it — never ticket it.
+- If you spot a very serious problem the platform has not caught, PROPOSE a ticket first (wording above) and create it only if the visitor accepts; if they explicitly ask for a human or a ticket, create it right away.
+
+## Team Reports — NOT tickets (a separate path)
+- When a visitor reports a defect or gives feedback — something is not working, a tool behaves wrongly, a place on any website behaves badly — that is a TEAM REPORT, not a support ticket. It goes to the team's dedicated Reports section (Admin Panel), separate from the Tickets queue — never into the ticket queue.
+- For a team report: acknowledge warmly in the visitor's own language and record the report with the source website and the visitor's own words, so the team can see it, take action and fix it. English: "OK, I am informing my team about this so they can fix it. Thank you for staying with us." Bengali: "ঠিক আছে, আমি আমার টিমকে এটা জানিয়ে দিচ্ছি যাতে করে সমাধান করে ফেলতে পারে। আমাদের সাথে থাকার জন্য ধন্যবাদ।" Until the dedicated Reports section exists, the report details stay recorded in this conversation for the team — still never a ticket.
+- An answerable question is neither a report nor a ticket: answer it nicely organized.
+- The three paths never mix: (a) answerable question → ANSWER; (b) defect/feedback report → TEAM REPORT to the Reports section; (c) support need → TICKET only on request, or on a very serious problem after proposal + acceptance.`;
 
 // ---------------------------------------------------------------------------
 // Behaviour settings
@@ -456,6 +473,56 @@ export async function maybeAppendReviewAsk(args: {
     });
     if (!decision.ask) return args.response;
 
+    // Team J owner gate (block-only): the generic ask is appended to
+    // an ordinary reply, so the review doctrine above still decides
+    // FIRST (combineWithDoctrine order — doctrine reasons stand).
+    // On top of it, an owner-disabled reviewAsks family, a master or
+    // "generic"-scope pause suppresses the ask: the reply goes out
+    // untouched and no reviewAsk record is created. No override text
+    // is applied here — the ask text below is unchanged. A settings
+    // read failure or a cross-tenant doc suppresses the ASK only
+    // (fail-closed for the ask, fail-soft for the reply itself).
+    try {
+      const askSettings = await prisma.settings.findFirst();
+      const askBusinessId = getBusinessId();
+      const askDocBusinessId =
+        askSettings &&
+        typeof (askSettings as { businessId?: unknown }).businessId === "string"
+          ? ((askSettings as { businessId: string }).businessId as string)
+          : null;
+      const askControls =
+        askSettings &&
+        (askSettings as { messageControls?: unknown }).messageControls !==
+          undefined
+          ? normalizeControls(
+              (askSettings as { messageControls?: unknown }).messageControls
+            )
+          : null;
+      const askGate = resolveMessageControl({
+        family: "reviewAsks",
+        scope: "generic",
+        businessId: askBusinessId ?? "",
+        controlBusinessId: askDocBusinessId,
+        controls: askControls,
+        record: null,
+        text: reviewAskText(args.lang, args.businessName, link),
+        nowMs: Date.now(),
+      });
+      if (!askGate.allowed) {
+        logger.warn("[behaviour] review ask suppressed by owner gate", {
+          conversationId: args.conversation.id,
+          reason: askGate.reason,
+        });
+        return args.response;
+      }
+    } catch (err) {
+      logger.warn("[behaviour] review ask owner-gate read failed; ask suppressed", {
+        conversationId: args.conversation.id,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      return args.response;
+    }
+
     await prisma.reviewAsk.create({
       data: withBusinessId({
         customerKey: key,
@@ -554,17 +621,21 @@ export async function scheduleOrderCheckIn(args: {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Human handoff (owner addition 2026-10-21 12:24)
+// 5. Human handoff (owner addition 2026-10-21 12:24, doctrine-gated
+// 2026-11-02)
 //
-// When the customer is in a serious/important problem, or explicitly
-// asks for a human / a support ticket, the agent must STOP being a bot
-// in that thread: recognise it, create the support ticket itself (via
-// the platform's create_ticket tool), tell the customer plainly that a
-// human agent will continue in THIS SAME conversation, and yield —
-// the platform's handoff state (conversation.aiEnabled = false, the
-// same state the dashboard's human-takeover uses) makes every later
-// message store silently for the human team. Detection is deterministic
-// engine code over the customer's actual words, never a model guess.
+// When the customer explicitly asks for a human / a support ticket,
+// the agent must STOP being a bot in that thread: recognise it,
+// create the support ticket itself (via the platform's create_ticket
+// tool), tell the customer plainly that a human agent will continue
+// in THIS SAME conversation, and yield — the platform's handoff state
+// (conversation.aiEnabled = false, the same state the dashboard's
+// human-takeover uses) makes every later message store silently for
+// the human team. When the customer is in a serious/important problem
+// WITHOUT an explicit request, the agent instead PROPOSES a ticket
+// first and hands off only if the visitor accepts (see the engine
+// handoff block). Detection is deterministic engine code over the
+// customer's actual words, never a model guess.
 // ---------------------------------------------------------------------------
 
 export type HandoffKind = "explicit_human" | "ticket_request" | "serious_problem";
@@ -731,9 +802,11 @@ function handoffTicketTitle(kind: HandoffKind): string {
 }
 
 /** The plain statement the customer receives on the handoff turn: a
- *  human agent will continue in THIS SAME conversation. */
-export function handoffText(lang: BehaviourLang, ticketId: string | null): string {
-  const ref = ticketId ? ticketId.slice(0, 8) : null;
+ *  human agent will continue in THIS SAME conversation. `reference` is
+ *  the ticket's readable recording reference (see ticketReference) —
+ *  never a raw UUID. */
+export function handoffText(lang: BehaviourLang, reference: string | null): string {
+  const ref = reference || null;
   if (lang === "bn") {
     return ref
       ? `আপনাকে এই সমস্যায় পড়তে হলো বলে দুঃখিত। আমি আমাদের টিমের জন্য একটি সাপোর্ট টিকিট তৈরি করেছি (রেফারেন্স ${ref}) এবং এই কথোপকথনটি একজন মানব এজেন্টের কাছে হস্তান্তর করেছি। তিনি এই একই কথোপকথনেই আপনার সাথে কথা চালিয়ে যাবেন — আপনাকে কিছু আবার বলতে হবে না, আমাদের পুরো কথোপকথন তিনি দেখতে পাবেন। আপনার ধৈর্যের জন্য ধন্যবাদ।`
@@ -744,14 +817,95 @@ export function handoffText(lang: BehaviourLang, ticketId: string | null): strin
     : `I'm sorry you're dealing with this. I've raised this with our team and handed this conversation over to a human agent. They will continue with you right here in this same conversation — you don't need to repeat anything, they can see our full conversation. Thank you for your patience.`;
 }
 
+/** Pending ticket proposal after a serious-problem detection (owner rule
+ *  2026-11-02): the agent proposed a ticket and is waiting for the
+ *  visitor's answer. Stored on conversation.metadata.ticketProposal. A
+ *  proposal NEVER creates a ticket and NEVER flips aiEnabled — only an
+ *  explicit request, or the visitor's acceptance after a proposal, may
+ *  call performHandoff. Any other next message clears the proposal. */
+export interface TicketProposal {
+  kind: "serious_problem" | "provider_failure";
+  matched: string | null;
+  proposedAt: string;
+}
+
+/** Visitor acceptance of a proposed ticket. English short answers use
+ *  word boundaries (so "yesterday" never matches "yes"); Bengali phrases
+ *  match by inclusion. A bare "ticket" / "টিকিট" after a proposal also
+ *  counts as acceptance. */
+export function detectTicketAcceptance(message: string): boolean {
+  const text = (message || "").trim().toLowerCase();
+  if (!text) return false;
+  if (text === "ticket" || text === "টিকিট") return true;
+  if (/^(yes|yeah|yep|ok|okay|sure|please|haan)\b/.test(text)) return true;
+  if (/\b(please do|go ahead|create it|make it|yes please|please create|do it)\b/.test(text)) return true;
+  const bn = [
+    "হ্যাঁ",
+    "ঠিক আছে",
+    "করে দিন",
+    "করে দাও",
+    "করে দেন",
+    "টিকিট করুন",
+    "টিকিট খুলুন",
+    "টিকিট করে দিন",
+    "বানিয়ে দিন",
+    "খুলে দিন",
+  ];
+  for (const p of bn) if (text.includes(p)) return true;
+  return false;
+}
+
+/** Language-aware ticket-proposal wording (visitor's own language). */
+export function ticketProposalText(lang: BehaviourLang): string {
+  if (lang === "bn") {
+    return "আপনি চাইলে আমি আপনার জন্য একটি সাপোর্ট টিকিট করে দিতে পারি, আর আমাদের টিমের একজন সদস্য আপনার সাথে যোগাযোগ করবেন। আপনি কি চান আমি টিকিটটি করে দিই?";
+  }
+  return "If you want, I can make a support ticket for you, and a member of our team will contact you. Would you like me to create the ticket?";
+}
+
+/** Readable, site-prefixed ticket recording reference — NOT a raw UUID.
+ *  SITE = the first segment of the business slug (or name) after
+ *  stripping a leading "ride-bangla" (with or without its trailing
+ *  hyphen — the bare slug "ride-bangla" itself strips to empty and
+ *  falls back to "RB"; a plain "ride-bangla-" prefix strip would
+ *  wrongly yield "RIDE" for the Main business) — lowercase,
+ *  non-alphanumerics become hyphens, first hyphen segment, uppercased,
+ *  max 8 chars, fallback "RB"; suffix = first 8 chars of the ticket
+ *  id, uppercased.
+ *  Distinct per ticket (the underlying ticket id is unique). The
+ *  reference is id-derived by construction: it is computed AFTER the
+ *  ticket exists, never before, and stored on the ticket row (see
+ *  performHandoff's follow-up update) — never computed on read.
+ *  Examples: "ride-bangla-it-team-45465d" -> IT;
+ *  "ride-bangla-studio-cbaa59" -> STUDIO; "ride-bangla-tools-96de70"
+ *  -> TOOLS; "ride-bangla" -> RB; "Ride Bangla Tools" -> TOOLS. */
+export function ticketReference(
+  slugOrName: string | null | undefined,
+  ticketId: string
+): string {
+  const normalized = (slugOrName || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-");
+  const stripped = normalized.replace(/^ride-bangla-?/, "");
+  const first = stripped.split("-")[0] || "";
+  const site =
+    first.replace(/[^a-z0-9]/g, "").toUpperCase().slice(0, 8) || "RB";
+  return `${site}-${ticketId.slice(0, 8).toUpperCase()}`;
+}
+
 /**
  * Execute the handoff: create the support ticket through the
  * platform's own create_ticket tool (reusing the conversation's open
  * ticket when one already exists — never a duplicate), then flip the
  * conversation into the platform's handoff state (aiEnabled=false +
  * status escalated + handoff metadata) so the bot yields and a human
- * continues in the same thread. Returns the ticket id (null only when
- * ticket creation itself failed — the state flip still happens: the
+ * continues in the same thread. The ticket record carries the visitor's
+ * FULL message (never truncated), explicit source attribution (business
+ * + channel) and the readable recording reference. A pending ticket
+ * proposal is cleared here: reaching performHandoff means the ticket
+ * was requested or its proposal was accepted.
+ * Returns the ticket id + reference (reference null only when ticket
+ * creation itself failed — the state flip still happens: the
  * conversation IS the human channel, the ticket is its tracking
  * artefact, and a failed artefact must not strand the customer with a
  * bot). Throws only when the state flip itself fails, so the caller
@@ -761,9 +915,36 @@ export async function performHandoff(args: {
   conversation: { id: string; metadata?: unknown };
   customerMessage: string;
   detection: { kind: HandoffKind; matched: string | null };
-}): Promise<{ ticketId: string | null }> {
+}): Promise<{ ticketId: string | null; reference: string | null }> {
   const conversationId = args.conversation.id;
   const { kind, matched } = args.detection;
+
+  // Source attribution + reference inputs (best-effort: a lookup
+  // failure must never block the handoff itself).
+  let businessSlug: string | null = null;
+  let businessName = "";
+  let channel = "";
+  try {
+    const conv = (await prisma.conversation.findUnique({
+      where: { id: conversationId },
+    })) as unknown as Record<string, unknown> | null;
+    channel = typeof conv?.channel === "string" ? (conv.channel as string) : "";
+    const businessId =
+      typeof conv?.businessId === "string" ? (conv.businessId as string) : null;
+    if (businessId) {
+      const biz = (await prisma.business.findUnique({
+        where: { id: businessId },
+      })) as unknown as Record<string, unknown> | null;
+      businessSlug =
+        typeof biz?.slug === "string" ? (biz.slug as string) : null;
+      businessName =
+        typeof biz?.name === "string"
+          ? (biz.name as string)
+          : businessSlug || "";
+    }
+  } catch {
+    /* attribution is best-effort */
+  }
 
   let ticketId: string | null = null;
   try {
@@ -781,7 +962,10 @@ export async function performHandoff(args: {
           description:
             `The agent handed this conversation to the human team (${kind}` +
             (matched ? `: "${matched}"` : "") +
-            `). Customer's message: "${args.customerMessage.slice(0, 500)}" ` +
+            `). Source: ${businessName || "this business"}${
+              channel ? ` via ${channel}` : ""
+            }. ` +
+            `Customer's FULL message: "${args.customerMessage}" ` +
             `The full conversation is attached to this ticket — please continue with the customer in the same conversation.`,
           priority: "high",
         },
@@ -803,22 +987,74 @@ export async function performHandoff(args: {
     });
   }
 
+  // Recording reference (id-derived, stored-only — never computed on
+  // read): a reused ticket keeps its stored reference when one exists;
+  // otherwise it is computed from the ticket id + business slug and
+  // stored by the follow-up update below, in the SAME update call that
+  // appends it to the description. Pre-change tickets without a stored
+  // reference keep showing "--" in the queue until reused. The
+  // visitor's reference NEVER depends on this read: it is computed
+  // from the ticket id up front, so an unreadable row (ambient /
+  // business mismatch, or a caller that cannot read the row back)
+  // still leaves the visitor with a recording number, as doctrine
+  // rule 5 requires. A stored reference, when the row IS readable,
+  // wins over the computed one. The record update itself is
+  // best-effort: a failed update must not fail the handoff, and the
+  // description is never overwritten with a bare reference line.
+  let reference: string | null = ticketId
+    ? ticketReference(businessSlug, ticketId)
+    : null;
+  if (ticketId && reference) {
+    try {
+      const current = (await prisma.ticket.findUnique({
+        where: { id: ticketId },
+      })) as unknown as Record<string, unknown> | null;
+      if (current) {
+        const storedRef =
+          typeof current.reference === "string" ? current.reference : null;
+        if (storedRef) reference = storedRef;
+        const curDesc =
+          typeof current.description === "string"
+            ? (current.description as string)
+            : "";
+        // One update call: reference ALWAYS (when it exists), the
+        // description line appended only when not already present.
+        await prisma.ticket.update({
+          where: { id: ticketId },
+          data: {
+            reference,
+            ...(!curDesc.includes(reference)
+              ? {
+                  description: `${curDesc}\nRecording reference: ${reference}`,
+                }
+              : {}),
+          },
+        });
+      }
+    } catch {
+      /* reference already reaches the visitor; record update is best-effort */
+    }
+  }
+
   const baseMetadata =
     args.conversation.metadata &&
     typeof args.conversation.metadata === "object" &&
     !Array.isArray(args.conversation.metadata)
       ? (args.conversation.metadata as Record<string, unknown>)
       : {};
+  const restMetadata = { ...baseMetadata };
+  delete restMetadata.ticketProposal;
   await prisma.conversation.update({
     where: { id: conversationId },
     data: {
       aiEnabled: false,
       status: "escalated",
       metadata: {
-        ...baseMetadata,
+        ...restMetadata,
         handoff: true,
         handoffReason: matched ? `${kind}:${matched}` : kind,
         ticketId,
+        reference,
         handedOffAt: new Date().toISOString(),
       },
     },
@@ -829,7 +1065,8 @@ export async function performHandoff(args: {
     kind,
     matched,
     ticketId,
+    reference,
   });
-  return { ticketId };
+  return { ticketId, reference };
 }
 
