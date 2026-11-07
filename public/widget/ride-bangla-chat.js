@@ -889,7 +889,7 @@
       #rbai-widget-status .rbai-status-dot{width:8px;height:8px;border-radius:50%;background:" + config.color + ";flex:none;animation:rbai-pulse 1.2s infinite}\n\
       .rbai-vid-idle{object-position:50% 17%}\n\
       .rbai-vid-working{left:50%;transform:translateX(-50%);width:84%;object-position:50% 32%}\n\
-      .rbai-vid-done{left:50%;transform:translateX(-50%);width:84%;object-position:50% 32%}\n\
+      .rbai-vid-done{object-position:50% 17%}\n\
       #rbai-widget-close{background:none;border:none;color:#fff;cursor:pointer;font-size:20px;padding:0;line-height:1}\n\
       #rbai-widget-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}\n\
       .rbai-msg{max-width:80%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.4;word-wrap:break-word}\n\
