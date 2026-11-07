@@ -150,44 +150,96 @@ export async function ingestBusinessWebsite(
     : MAX_ENTRIES_PER_WEBSITE;
   const qa = structured.qa.slice(0, cap);
 
-  const entryCount = await runWithBusiness(businessId, async () => {
-    let category = await prisma.category.findFirst({
-      where: { name: WEBSITE_CATEGORY_NAME },
-    });
-    if (!category) {
-      category = await prisma.category.create({
-        data: {
-          name: WEBSITE_CATEGORY_NAME,
-          description: "Learned from your websites",
-        },
+  // A fetch that yields no usable Q&A (blocked page, JS-only shell, a
+  // transient empty response) must not be reported as "indexed" and must
+  // not wipe what an earlier good run learned: keep the old entries and
+  // report the honest failure.
+  if (qa.length === 0) {
+    const reason = "No usable content was found on that website.";
+    logger.warn(
+      `[websites] ingest produced no entries business=${businessId} url=${website.url}`
+    );
+    return { status: "failed", pageCount: 0, entryCount: 0, reason };
+  }
+
+  let entryCount: number;
+  try {
+    entryCount = await runWithBusiness(businessId, async () => {
+      let category = await prisma.category.findFirst({
+        where: { name: WEBSITE_CATEGORY_NAME },
       });
-    }
-
-    // Replace exactly this website's previous entries — other sites and
-    // other sources (onboarding, manual entries) are untouched.
-    await prisma.knowledgeEntry.deleteMany({
-      where: { sourceWebsiteId: website.id },
-    });
-
-    let created = 0;
-    for (const pair of qa) {
-      await prisma.knowledgeEntry.create({
-        data: {
-          categoryId: category.id,
-          title: pair.question,
-          content: pair.answer,
-          sourceWebsiteId: website.id,
-          metadata: {
-            source: "website",
-            sourceUrl: website.url,
-            websiteId: website.id,
+      if (!category) {
+        category = await prisma.category.create({
+          data: {
+            name: WEBSITE_CATEGORY_NAME,
+            description: "Learned from your websites",
           },
-        },
-      });
-      created++;
-    }
-    return created;
-  });
+        });
+      }
+
+      // Replace exactly this website's previous entries — other sites and
+      // other sources (onboarding, manual entries) are untouched. The new
+      // entries are written FIRST and the previous ones removed only after
+      // that succeeded, so a failure part-way leaves the old knowledge in
+      // place instead of an empty (or half-filled) knowledge base.
+      const previous = ((await prisma.knowledgeEntry.findMany({
+        where: { sourceWebsiteId: website.id },
+      })) ?? []) as Array<{ id?: string }>;
+
+      const createdIds: string[] = [];
+      let created = 0;
+      try {
+        for (const pair of qa) {
+          const row = (await prisma.knowledgeEntry.create({
+            data: {
+              categoryId: category.id,
+              title: pair.question,
+              content: pair.answer,
+              sourceWebsiteId: website.id,
+              metadata: {
+                source: "website",
+                sourceUrl: website.url,
+                websiteId: website.id,
+              },
+            },
+          })) as { id?: string } | null;
+          created++;
+          if (row && typeof row.id === "string") createdIds.push(row.id);
+        }
+      } catch (err) {
+        // Roll back the partial new set; the previous entries are intact.
+        for (const id of createdIds) {
+          try {
+            await prisma.knowledgeEntry.delete({ where: { id } });
+          } catch {
+            /* best effort */
+          }
+        }
+        throw err;
+      }
+
+      for (const old of previous) {
+        if (typeof old.id !== "string") continue;
+        try {
+          await prisma.knowledgeEntry.delete({ where: { id: old.id } });
+        } catch (err) {
+          logger.warn(
+            `[websites] could not remove superseded entry ${old.id}: ${
+              err instanceof Error ? err.message : "unknown"
+            }`
+          );
+        }
+      }
+      return created;
+    });
+  } catch (err) {
+    const reason =
+      err instanceof Error ? err.message : "Couldn't save what was learned.";
+    logger.warn(
+      `[websites] ingest save failed business=${businessId} url=${website.url}: ${reason}`
+    );
+    return { status: "failed", pageCount: 0, entryCount: 0, reason };
+  }
 
   logger.warn(
     `[websites] indexed business=${businessId} url=${website.url} ` +

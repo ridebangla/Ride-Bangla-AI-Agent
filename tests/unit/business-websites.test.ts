@@ -306,10 +306,12 @@ describe("/api/business/websites", () => {
     const body = await res.json();
     expect(body.website.status).toBe("indexed");
     expect(body.website.entryCount).toBe(2);
-    // Old entries for THIS site were cleared before re-creating.
-    expect(db.knowledgeEntry.deleteMany).toHaveBeenCalledWith({
+    // Old entries for THIS site were looked up (and are removed only after
+    // the new ones were saved), never another site's.
+    expect(db.knowledgeEntry.findMany).toHaveBeenCalledWith({
       where: { sourceWebsiteId: "w1" },
     });
+    expect(db.knowledgeEntry.create).toHaveBeenCalled();
   });
 
   it("DELETE removes the site and exactly its knowledge entries", async () => {

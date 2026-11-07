@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - AI prompt: the knowledge section had no size limit, so a business with a large indexed website (up to 1,000 entries) could push every prompt past the model's context window. It now keeps entries in priority order within an 80,000-character budget and tells the model when entries were left out; it also no longer re-sorts the caller's array in place.
 - Catalog: product search, message matching and price-band lookups scanned only the 30-60 most recently updated products, so older products were never found by the agent on larger catalogs. They now scan up to 500 (the Growth plan size).
 - Orders: `take_order` prices catalog items (those with a productId) from the catalog instead of the model-supplied price, so a customer's chat can no longer set an order total.
+- Website knowledge: re-indexing a website deleted its previous knowledge entries before the new ones were saved, so an empty scrape (blocked page, JS-only shell) or a failure part-way left the business with no knowledge from that site while the status still said "indexed". An empty result is now reported as failed and keeps the old entries; new entries are saved first and the superseded ones removed afterwards, with a rollback of the partial set on error.
 - Widget: the "done" avatar clip uses the idle framing (full width, 17%) instead of the working-clip framing, which put the head top on the circular slot's edge and made the avatar zoom on idle -> done.
 
 ## [0.2.2] - 2026-04-08
