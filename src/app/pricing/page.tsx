@@ -3,7 +3,7 @@ import Image from "next/image";
 import { ArrowRight } from "lucide-react";
 import { FacebookIcon, YoutubeIcon } from "@/components/ui/channel-icons";
 import PlanCards from "./PlanCards";
-import { TRIAL_DAYS } from "@/lib/plans";
+import { TRIAL_DAYS, FREE_MESSAGES_PER_MONTH } from "@/lib/plans";
 import { getCatalogView, type CatalogPlanView } from "@/lib/plan-catalog";
 
 export const dynamic = "force-dynamic";
@@ -79,7 +79,7 @@ const FAQS = [
   },
   {
     q: "What happens when my trial ends?",
-    a: "The AI agent pauses for your business and your dashboard points you to Billing. Your data is kept — nothing is deleted — and everything resumes the moment you subscribe.",
+    a: `Your account moves to a free tier limited to ${FREE_MESSAGES_PER_MONTH} AI messages per month, so the agent keeps working at a small scale. Your data is kept — nothing is deleted — and your full plan limits return the moment you subscribe.`,
   },
   {
     q: "How do payments work?",

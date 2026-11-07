@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Auth: `requireAuth` now authorizes cookie sessions against the admin's CURRENT role in the database instead of the role frozen in the JWT, so a demoted member loses permissions immediately rather than when the token expires.
 - Auth: an API key can no longer pass a route that declares no permission. Session-only routes (wallet, onboarding, notifications, 2FA, billing) were reachable by any active key because the scope check was skipped when no permission was passed.
+- Pricing page: the free-trial card promised "1,000 AI conversations" although no usage quota applies during the trial, and the FAQ said the agent pauses when the trial ends although a lapsed trial moves to the free tier (100 AI messages/month). Both now match what the code enforces.
+- AI prompt: the knowledge section had no size limit, so a business with a large indexed website (up to 1,000 entries) could push every prompt past the model's context window. It now keeps entries in priority order within an 80,000-character budget and tells the model when entries were left out; it also no longer re-sorts the caller's array in place.
+- Catalog: product search, message matching and price-band lookups scanned only the 30-60 most recently updated products, so older products were never found by the agent on larger catalogs. They now scan up to 500 (the Growth plan size).
+- Orders: `take_order` prices catalog items (those with a productId) from the catalog instead of the model-supplied price, so a customer's chat can no longer set an order total.
 - Widget: the "done" avatar clip uses the idle framing (full width, 17%) instead of the working-clip framing, which put the head top on the circular slot's edge and made the avatar zoom on idle -> done.
 
 ## [0.2.2] - 2026-04-08

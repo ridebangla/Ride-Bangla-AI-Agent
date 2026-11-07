@@ -996,6 +996,31 @@ async function takeOrder(
   }
 
   const items = normalizeItems(args.items);
+  // Price integrity: an item that names a catalog product (productId) is
+  // priced from the catalog, never from the model's argument. Item prices
+  // come from the model, which is driven by the customer's chat — "this is
+  // ৳1" — so a model-supplied price for a catalog item would set the order
+  // total. productId lookups run through the tenant-scoped client, so an id
+  // from another business simply does not resolve. Fail-soft: a failed
+  // lookup leaves the item as given (the team still confirms every order).
+  for (const it of items.slice(0, 20)) {
+    if (!it.productId) continue;
+    try {
+      const product = (await prisma.product.findUnique({
+        where: { id: it.productId },
+      })) as { price?: unknown; name?: unknown } | null;
+      if (
+        product &&
+        typeof product.price === "number" &&
+        Number.isFinite(product.price) &&
+        product.price >= 0
+      ) {
+        it.price = product.price;
+      }
+    } catch {
+      /* keep the item as given */
+    }
+  }
   const rawTotal = args.total;
   const parsedTotal =
     rawTotal === null || rawTotal === undefined || rawTotal === ""

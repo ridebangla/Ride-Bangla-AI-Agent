@@ -379,13 +379,7 @@ export function buildSystemPrompt(
 
   const knowledgeSection =
     context.knowledgeBase.length > 0
-      ? context.knowledgeBase
-          .sort((a, b) => b.priority - a.priority)
-          .map(
-            (k) =>
-              `[${k.category}] ${k.title}:\n${k.content}`
-          )
-          .join("\n\n---\n\n")
+      ? renderKnowledgeSection(context.knowledgeBase)
       : // Re-audit #2 (fresh-account journey): the old fallback —
         // "Answer based on general knowledge about the business" —
         // licensed invention: a zero-knowledge business's agent
@@ -476,6 +470,49 @@ When the customer confirms an order or booking, use the take_order tool. Pass ev
 If the customer asks to be reminded or contacted later, use the schedule_followup tool — it is persisted and a background job delivers it.
 ## Booking Reminders
 For a CONFIRMED booking, the system sends reminders before the appointment time where the channel allows it (a day-before reminder and a hours-before reminder, per the business's settings). Never promise a reminder in generic relative terms — never "tomorrow", never "next day" — unless the appointment itself is that day: always state the appointment's exact date and time. Never promise reminder delivery on a channel the business has not enabled for reminders, and never promise a reminder for a booking that is not confirmed. The team confirms bookings; you never confirm one yourself.}`;
+}
+
+/**
+ * Character budget for the knowledge section inlined into the system
+ * prompt (~20k tokens). A full-site crawl can store up to 1000 entries
+ * (FULLSITE_MAX_ENTRIES) and every active entry used to be inlined with
+ * no ceiling, so a business with a large indexed website could push the
+ * prompt past the model's context window or make every turn slow and
+ * costly — i.e. the agent would fail to answer at all. Entries are kept
+ * in priority order (highest first); whole entries only, never cut
+ * mid-entry; the omission is stated so the model says it lacks a detail
+ * instead of guessing.
+ */
+export const KNOWLEDGE_PROMPT_CHAR_BUDGET = 80_000;
+
+export function renderKnowledgeSection(
+  items: readonly KnowledgeItem[],
+  budget: number = KNOWLEDGE_PROMPT_CHAR_BUDGET
+): string {
+  // Copy before sorting: sorting context.knowledgeBase in place reordered
+  // the caller's array as a side effect of building a prompt.
+  const sorted = [...items].sort((a, b) => b.priority - a.priority);
+  const parts: string[] = [];
+  let used = 0;
+  let omitted = 0;
+  for (const k of sorted) {
+    const text = `[${k.category}] ${k.title}:\n${k.content}`;
+    const cost = text.length + 7; // "\n\n---\n\n" separator
+    if (parts.length > 0 && used + cost > budget) {
+      omitted++;
+      continue;
+    }
+    parts.push(text);
+    used += cost;
+  }
+  let out = parts.join("\n\n---\n\n");
+  if (omitted > 0) {
+    out +=
+      `\n\n---\n\n[Note] ${omitted} lower-priority knowledge entr${omitted === 1 ? "y was" : "ies were"} ` +
+      "not loaded for this reply. If the customer asks about something the entries above do not cover, " +
+      "say plainly that you do not have that detail yet and offer another way to help — never guess.";
+  }
+  return out;
 }
 
 async function getKnowledgeBase(): Promise<KnowledgeItem[]> {

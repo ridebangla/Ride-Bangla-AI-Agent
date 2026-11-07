@@ -132,6 +132,16 @@ export async function annotateCatalogStock(
  * not cached. Category queries are deliberately NOT memoized here.
  */
 const PRODUCT_QUERY_TTL_MS = 10_000;
+
+/**
+ * How many available products the agent's catalog lookups scan per
+ * request. It was 30-60, so a business with more products than that
+ * (Growth allows 500, Pro is unlimited) could never get its older
+ * products found, matched or recommended — the agent answered "not
+ * available" for items that exist. Set to the Growth catalog size.
+ * Reads are memoized for PRODUCT_QUERY_TTL_MS.
+ */
+const CATALOG_SCAN_LIMIT = 500;
 const productQueryCache = new Map<
   string,
   { at: number; promise: ReturnType<typeof prisma.product.findMany> }
@@ -178,7 +188,7 @@ export async function searchCatalog(query: string, limit = 5): Promise<CatalogPr
     where: { isAvailable: true },
     include: { category: { select: { name: true } } },
     orderBy: { updatedAt: "desc" },
-    take: 50,
+    take: CATALOG_SCAN_LIMIT,
   });
 
   const scored = products.map((p) => {
@@ -418,7 +428,7 @@ export async function matchProductsInMessage(
       where: { isAvailable: true },
       include: { category: { select: { name: true } } },
       orderBy: { updatedAt: "desc" },
-      take: 50,
+      take: CATALOG_SCAN_LIMIT,
     })) ?? [];
 
   const scored = products.map((p) => {
@@ -569,7 +579,7 @@ export async function productsInPriceBand(
     (await findProductsMemoized({
       where: { isAvailable: true },
       include: { category: { select: { name: true } } },
-      take: 60,
+      take: CATALOG_SCAN_LIMIT,
     })) ?? [];
 
   return annotateCatalogStock(

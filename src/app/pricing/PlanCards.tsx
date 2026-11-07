@@ -60,7 +60,7 @@ const TRIAL_FEATURES = [
   "Full AI agent — every feature unlocked",
   "1 website chat widget",
   "All social channels",
-  "1,000 AI conversations",
+  "No AI message limit during the trial",
   "No credit card required",
 ];
 
