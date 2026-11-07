@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Auth: `requireAuth` now authorizes cookie sessions against the admin's CURRENT role in the database instead of the role frozen in the JWT, so a demoted member loses permissions immediately rather than when the token expires.
+- Auth: an API key can no longer pass a route that declares no permission. Session-only routes (wallet, onboarding, notifications, 2FA, billing) were reachable by any active key because the scope check was skipped when no permission was passed.
+- Widget: the "done" avatar clip uses the idle framing (full width, 17%) instead of the working-clip framing, which put the head top on the circular slot's edge and made the avatar zoom on idle -> done.
+
 ## [0.2.2] - 2026-04-08
 
 ### Added

@@ -76,7 +76,12 @@ export async function requireAuth(
       );
     }
 
-    if (permission && !context.scopes.includes(permission)) {
+    // An API key's authority is EXACTLY its scope list. A route that
+    // declares no permission (session-only features: wallet, onboarding,
+    // 2FA, notifications, billing) has no scope a key could hold, so a key
+    // must never pass it — previously `permission` undefined skipped the
+    // scope check and let any active key through.
+    if (!permission || !context.scopes.includes(permission)) {
       return NextResponse.json(
         { error: { code: "FORBIDDEN", message: "Insufficient permissions" } },
         { status: 403 }
@@ -104,13 +109,6 @@ export async function requireAuth(
     );
   }
 
-  if (permission && !hasPermission(payload.role, permission)) {
-    return NextResponse.json(
-      { error: { code: "FORBIDDEN", message: "Insufficient permissions" } },
-      { status: 403 }
-    );
-  }
-
   const admin = await getUnscopedPrisma().admin.findUnique({
     where: { id: payload.userId },
     select: { id: true, username: true, name: true, role: true, businessId: true },
@@ -120,6 +118,18 @@ export async function requireAuth(
     return NextResponse.json(
       { error: { code: "UNAUTHORIZED", message: "User not found" } },
       { status: 401 }
+    );
+  }
+
+  // Authorize against the CURRENT role stored on the admin record, not the
+  // role frozen in the JWT at sign-in. Checking payload.role let a demoted
+  // member (admin -> viewer, or a removed role) keep their old permissions
+  // until the token expired, while the context returned below already
+  // reported the new role.
+  if (permission && !hasPermission(admin.role, permission)) {
+    return NextResponse.json(
+      { error: { code: "FORBIDDEN", message: "Insufficient permissions" } },
+      { status: 403 }
     );
   }
 
