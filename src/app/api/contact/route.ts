@@ -25,6 +25,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createHash, randomBytes } from "node:crypto";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { getAdminDb } from "@/lib/firestore";
 import { logger } from "@/lib/logger";
@@ -320,10 +321,17 @@ export async function POST(request: NextRequest) {
     };
   });
 
+  // Secret that lets this visitor (no account) re-open THIS ticket's thread and
+  // read Admin Console replies. Only the hash is stored.
+  const accessToken = randomBytes(24).toString("hex");
+  const accessTokenHash = createHash("sha256").update(accessToken).digest("hex");
+
   const ticket = {
     subject: subject.slice(0, 140),
     description: message,
     audience: "website_visitor",
+    requesterId: "",
+    accessTokenHash,
     priority,
     status: "open",
     category: topic,
@@ -343,7 +351,7 @@ export async function POST(request: NextRequest) {
     const docRef = await db.collection("support_tickets").add(ticket);
     logger.warn(`[contact] ticket ${docRef.id} created (source=${source}, topic=${topic})`);
     return NextResponse.json(
-      { ok: true, ticketId: docRef.id },
+      { ok: true, ticketId: docRef.id, accessToken },
       { headers: corsHeaders(request) }
     );
   } catch (err) {

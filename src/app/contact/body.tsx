@@ -105,6 +105,7 @@ export default function ContactBody() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [threadLink, setThreadLink] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -174,6 +175,15 @@ export default function ContactBody() {
         setError(data.message || data.error || t("contact.send_failed"));
         setBusy(false);
         return;
+      }
+      if (data.ticketId && data.accessToken) {
+        const link = `/contact/thread?id=${encodeURIComponent(String(data.ticketId))}&k=${encodeURIComponent(String(data.accessToken))}`;
+        setThreadLink(link);
+        try {
+          localStorage.setItem("rb_last_ticket_thread", link);
+        } catch {
+          /* private mode — the on-screen link still works */
+        }
       }
       setDone(true);
     } catch {
@@ -246,6 +256,15 @@ export default function ContactBody() {
               <p className="text-sm text-slate-700 mt-2 max-w-md mx-auto">
                 {t("contact.sent_body")}
               </p>
+              {threadLink ? (
+                <a
+                  href={threadLink}
+                  className="inline-block mt-5 rounded-lg bg-[#4A7C9B] px-5 py-2.5 text-sm font-semibold text-white"
+                >
+                  View replies &amp; chat with support
+                </a>
+              ) : null}
+              <br />
               <Link
                 href="/"
                 className="inline-block mt-6 text-sm font-medium text-[#4A7C9B] hover:underline"
