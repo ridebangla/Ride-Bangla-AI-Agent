@@ -28,6 +28,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { getAdminDb } from "@/lib/firestore";
+import { getCurrentUser } from "@/lib/auth";
 import { logger } from "@/lib/logger";
 import { FieldValue } from "firebase-admin/firestore";
 
@@ -191,6 +192,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // AI-site tickets belong to a logged-in account (replies + chat live in it).
+  // Tools has no login, so its tickets stay account-less (token chat only
+  // while the visitor's page is open).
+  const sessionUser = source === "ai" ? await getCurrentUser() : null;
+  if (source === "ai" && !sessionUser) {
+    return NextResponse.json(
+      { error: "login_required", message: "Please log in to send a support ticket." },
+      { status: 401, headers: corsHeaders(request) }
+    );
+  }
+
   // Rate-limit per IP (public, spam-prone).
   const rl = checkRateLimit(`contact:${clientIp(request)}`, RATE_LIMITS.contact);
   if (!rl.allowed) {
@@ -323,15 +335,15 @@ export async function POST(request: NextRequest) {
 
   // Secret that lets this visitor (no account) re-open THIS ticket's thread and
   // read Admin Console replies. Only the hash is stored.
-  const accessToken = randomBytes(24).toString("hex");
-  const accessTokenHash = createHash("sha256").update(accessToken).digest("hex");
+  const accessToken = sessionUser ? "" : randomBytes(24).toString("hex");
+  const accessTokenHash = accessToken ? createHash("sha256").update(accessToken).digest("hex") : "";
 
   const ticket = {
     subject: subject.slice(0, 140),
     description: message,
-    audience: "website_visitor",
-    requesterId: "",
-    accessTokenHash,
+    audience: sessionUser ? "ai_user" : "website_visitor",
+    requesterId: sessionUser ? sessionUser.id : "",
+    ...(accessTokenHash ? { accessTokenHash } : {}),
     priority,
     status: "open",
     category: topic,
@@ -351,7 +363,7 @@ export async function POST(request: NextRequest) {
     const docRef = await db.collection("support_tickets").add(ticket);
     logger.warn(`[contact] ticket ${docRef.id} created (source=${source}, topic=${topic})`);
     return NextResponse.json(
-      { ok: true, ticketId: docRef.id, accessToken },
+      { ok: true, ticketId: docRef.id, ...(accessToken ? { accessToken } : {}) },
       { headers: corsHeaders(request) }
     );
   } catch (err) {

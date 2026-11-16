@@ -106,6 +106,18 @@ export default function ContactBody() {
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   const [threadLink, setThreadLink] = useState<string | null>(null);
+  // null = checking. AI-site tickets need an account (replies + chat live in it).
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/auth", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => alive && setSignedIn(Boolean(d?.authenticated)))
+      .catch(() => alive && setSignedIn(false));
+    return () => {
+      alive = false;
+    };
+  }, []);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -176,14 +188,8 @@ export default function ContactBody() {
         setBusy(false);
         return;
       }
-      if (data.ticketId && data.accessToken) {
-        const link = `/contact/thread?id=${encodeURIComponent(String(data.ticketId))}&k=${encodeURIComponent(String(data.accessToken))}`;
-        setThreadLink(link);
-        try {
-          localStorage.setItem("rb_last_ticket_thread", link);
-        } catch {
-          /* private mode — the on-screen link still works */
-        }
+      if (data.ticketId) {
+        setThreadLink(`/contact/thread?id=${encodeURIComponent(String(data.ticketId))}`);
       }
       setDone(true);
     } catch {
@@ -270,6 +276,13 @@ export default function ContactBody() {
                 className="inline-block mt-6 text-sm font-medium text-[#4A7C9B] hover:underline"
               >
                 {t("contact.back_home")}
+              </Link>
+            </div>
+          ) : signedIn === false ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-800">
+              <p>Please log in to send a support ticket. Replies and live chat with our team appear inside your account.</p>
+              <Link href="/login" className="mt-4 inline-block rounded-lg bg-[#4A7C9B] px-5 py-2.5 text-sm font-semibold text-white">
+                Log in
               </Link>
             </div>
           ) : (
